@@ -1,0 +1,70 @@
+Nef Output Exception
+====================
+
+Copyright 2026 Feng Tao (Nate)
+
+The Nef programming language implementation, toolchain, runtime and standard
+library are licensed under the Apache License, Version 2.0, reproduced in full
+in the LICENSE file beside this notice. This document is an additional
+permission notice for that License: the Nef Output Exception is an additional
+grant of rights under Section 4 of the Apache License, Version 2.0, and it does
+not reduce or revoke any permission granted by that License.
+
+Software compiled with Nef is not subject to any copyleft claim. Read this
+notice before concluding that the License reaches a program's build output.
+
+
+Definitions.
+
+  "Nef Materials" means the work licensed by the Apache License, Version 2.0
+  reproduced in the LICENSE file beside this notice, including the Nef
+  compiler, assembler, linker, build tooling, language server, REPL, runtime,
+  and standard library, together with their source and object forms.
+
+  "Standard Library Code" means source files, module or interface files,
+  headers, generated bindings, bytecode, runtime object code, startup files,
+  and other material from the Nef standard library or runtime that a
+  compilation or linking step of the Nef Materials places into, or requires at
+  run time for, a Program.
+
+  "Program" means any work of authorship created by writing source code in Nef
+  or in any other language, where that source code is not itself a modification
+  of the Nef Materials.
+
+  "Output" means anything produced by processing a Program with the Nef
+  Materials, including object code, executables, libraries, archives, bundles,
+  container images, generated documentation, and intermediate representations.
+
+Additional grant. Subject to the terms and conditions of the Apache License,
+Version 2.0, each Contributor grants you the following additional, perpetual,
+worldwide, non-exclusive, royalty-free permission:
+
+  1. You may compile, link, package, distribute, sell and close-source Programs
+     and their Output under terms of your choice, without any obligation to
+     provide source code for them, to release them under this License, or to
+     give notice of this License, even when the Output contains or is linked
+     with Standard Library Code.
+
+  2. Programs and their Output are not Derivative Works of the Nef Materials for
+     the purposes of this License, solely because they were produced by it or
+     because they contain Standard Library Code.
+
+Limits. This Exception does not apply to, and confers no rights over:
+
+  (a) the Nef Materials themselves. If you modify, extend, or redistribute the
+      compiler, toolchain, runtime or standard library as such, the Apache
+      License, Version 2.0 continues to apply to those materials in full,
+      including Sections 4(b) and 4(c);
+  (b) any work whose purpose is to substitute for, rebrand or resell the Nef
+      Materials as a compiler or language implementation; such work remains
+      governed by the Apache License, Version 2.0;
+  (c) the names, logos or trademarks of Nef, which are governed by the Nef
+      Trademark Policy and by Section 6 of the Apache License, Version 2.0. This
+      Exception grants no trademark rights whatsoever;
+  (d) the right to state or imply that a Program, product or service is
+      developed, endorsed, certified or supported by the author of Nef.
+
+Nothing in this Exception requires you to disclose your Program, your Output,
+your source code, or the internal workings of your products to anyone. The
+exception exists to make one point unambiguous: using Nef to build software
+never, by itself, obliges you to open-source what you built.

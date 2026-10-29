@@ -1,0 +1,33 @@
+===========================================================================
+已作废（2026-10-06 判定）／OBSOLETE — DO NOT USE
+===========================================================================
+这份文件头草稿把例外条款写成 "Nef Runtime Library Exception"，而项目采用的
+是仓库根 `LICENSE-EXCEPTION` 里那一份 "Nef Output Exception"。它还提到
+"package manager"
+（这门语言没有包管理，且已明确不排进里程碑，见 `docs/refs/006_里程碑.md`
+第五节）。要用文件头请照 `templates/FILE_HEADER.txt`，名称以 `LICENSE-EXCEPTION` 为准。
+===========================================================================
+
+Nef Programming Language
+Copyright 2026 Feng Tao (English name: Nate)
+Project home: https://github.com/Fengtao1314520/nef
+
+Unless stated otherwise in the file itself, the Nef compiler, linker,
+standard library, package manager, language tooling and their source
+code are licensed under the Apache License, Version 2.0, accompanied by
+the "Nef Runtime Library Exception" printed at the end of this file.
+
+Your programs are NOT licensed by this document. Code you write in Nef,
+and anything produced by compiling it with the Nef tools, belongs to you
+and may be distributed under any terms you choose, proprietary included.
+Read the exception below before concluding that this license reaches
+your build output.
+
+You may obtain a copy of the Apache License, Version 2.0 at:
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+===========================================================================
+The following is the full, unmodified text of the Apache License,
+Version 2.0. The Nef Runtime Library Exception follows it.
+===========================================================================

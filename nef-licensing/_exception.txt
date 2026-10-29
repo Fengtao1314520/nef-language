@@ -1,0 +1,65 @@
+===========================================================================
+已作废（2026-10-06 判定）／OBSOLETE — DO NOT USE
+===========================================================================
+项目实际采用的例外条款在仓库根的 `LICENSE-EXCEPTION` 那一份，名称是
+"Nef Output Exception"
+（依据 Apache-2.0 第 4 条的 additional grant）。下面这份是更早的草稿
+"Nef Runtime Library Exception v1.0"（依据第 2 条，定义与限制都不同），
+两份不能同时引用。源码文件头照 `templates/FILE_HEADER.txt` 第 2 种写法，
+名称同样以 `LICENSE-EXCEPTION` 为准。本文件保留只作过程记录。
+===========================================================================
+
+===========================================================================
+NEF RUNTIME LIBRARY EXCEPTION, version 1.0
+
+As an additional permission granted by the copyright owner of the Nef
+Programming Language under Section 2 of the Apache License, Version 2.0,
+the following exception applies to the Software.
+
+1. Definitions.
+
+   "Compiled Output" means any work produced by processing source code
+   written in the Nef programming language with the Nef compiler or
+   other Nef tools, including object code, executables, static and
+   shared libraries, and intermediate representations, provided that the
+   Compiled Output contains no portion of the Software other than
+   material emitted automatically by the compiler or tools.
+
+   "Nef Runtime" means the runtime libraries, standard libraries,
+   headers, startup and bootstrapping code, and other files distributed
+   as part of a Nef implementation whose function is to be linked into,
+   embedded in, or executed on behalf of Compiled Output.
+
+2. Additional permission.
+
+   You may compile, link, copy and distribute Compiled Output, together
+   with the Nef Runtime files needed to execute it, under terms of your
+   own choosing, including proprietary and closed-source terms, without
+   being subject to the conditions of Sections 4 and 5 of the Apache
+   License, Version 2.0 with respect to that material. In particular,
+   distributing Compiled Output does not require you to disclose or
+   license any of your own source code.
+
+3. Scope and limits.
+
+   This exception covers only Compiled Output and the Nef Runtime. It
+   does not license modifications to the compiler, the standard library
+   sources, the toolchain, or any other part of the Software, all of
+   which remain subject to the Apache License, Version 2.0, including
+   its NOTICE and change-attribution requirements.
+
+   This exception grants no right in the name "Nef", its logos, or any
+   other mark of the project. Use of those is governed solely by the Nef
+   Trademark Policy.
+
+4. Interaction with the license.
+
+   If the Apache License, Version 2.0 imposes any condition on a work
+   that this exception expressly permits, this exception prevails for
+   that work. For everything else, the Apache License, Version 2.0
+   remains in full effect. If any part of this exception is held
+   unenforceable, the remainder of the Apache License, Version 2.0
+   continues to apply unchanged.
+
+End of the Nef Runtime Library Exception.
+===========================================================================

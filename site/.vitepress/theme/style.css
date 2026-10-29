@@ -1,0 +1,191 @@
+/* 碑铭主题：铁青 #2F3E46 打底，朱砂 #C6402E 点缀。 */
+
+:root {
+  --vp-c-brand-1: #b3341f;
+  --vp-c-brand-2: #c6402e;
+  --vp-c-brand-3: #8f2a18;
+  --vp-c-brand-soft: rgba(198, 64, 46, 0.14);
+
+  --nf-ink: #2f3e46;
+  --nf-ink-soft: #4a5c66;
+  --nf-stone: #f4f1ea;
+  --nf-line: #ddd6c8;
+
+  --vp-home-hero-name-color: transparent;
+  --vp-home-hero-name-background: -webkit-linear-gradient(120deg, #2f3e46 30%, #c6402e);
+  --vp-home-hero-image-background-image: linear-gradient(-45deg, #c6402e55, #2f3e4655);
+  --vp-home-hero-image-filter: blur(48px);
+
+  --vp-c-default-1: var(--nf-ink-soft);
+  --vp-c-default-2: var(--nf-ink);
+  --vp-nav-bg-color: rgba(244, 241, 234, 0.92);
+  --vp-c-bg-soft: var(--nf-stone);
+  --vp-c-divider: var(--nf-line);
+}
+
+.dark {
+  --vp-c-brand-1: #e5735c;
+  --vp-c-brand-2: #c6402e;
+  --vp-c-brand-soft: rgba(229, 115, 92, 0.16);
+  --nf-ink: #d7dde0;
+  --nf-ink-soft: #a7b3b9;
+  --vp-c-bg-soft: #1c2429;
+  --vp-c-divider: #33404a;
+}
+
+/* 首页四张特性卡：标题里的术语上色（`index.md` 的 frontmatter 在标题里放了一个 <span class="key">，
+   VitePress 的特性标题走 v-html，所以放得进去——`VPFeature.vue:43`）。
+   以前给标题首字上色（::first-letter），那是纯装饰：Vue 中文站实测三个标题 h2 与正文同色 rgb(33,53,71)，
+   根本没有首字高亮可抄。现在上色的四个词里，机器码、类型标注、交出三个在术语表
+   `reference/045_glossary.md` 里能查到（命中 1／2／7 处），「内核精简」是这张卡自己的概括说法。 */
+.VPFeature .title .key {
+  color: var(--vp-c-brand-1);
+}
+
+/* hero 中间那一行。VitePress 原本的闸：窄屏字号 32px／上限 392px，≥640px 字号 48px／上限 576px，
+   ≥960px 还把文字栏压成容器的三分之二（给右侧配图留位，本站首页没有配图）。
+   实测这句话单行要 801px（48px 字号）／534px（32px 字号），照原来三档各撞各的墙，
+   最后一个「言」字会被单独甩到第二行。
+   改成随窗口缩放：字号 = 句子刚好铺满当一档容器时的字号，上下限 30～48px；
+   48 是 VitePress 原本桌面档的字号，30 是窄屏不缩糊的下限。 */
+.VPHero .text {
+  max-width: 880px;
+  font-size: clamp(30px, calc(5.99vw - 5.75px), 48px);
+  line-height: 1.25;
+  text-wrap: balance;
+}
+
+@media (min-width: 960px) {
+  .VPHero .main {
+    width: 100%;
+  }
+}
+
+/* 标题用衬线，正文留给系统字体：像碑上的字，不像表单 */
+.vp-doc h1,
+.vp-doc h2,
+.vp-doc h3,
+.VPNamePlate,
+h1.name-plate {
+  font-family: "Songti SC", "Source Han Serif SC", "Noto Serif CJK SC", "SimSun", Georgia, serif;
+  letter-spacing: 0.01em;
+}
+
+h1.name-plate {
+  font-size: 2.1rem;
+  margin: 0 0 .4rem;
+}
+
+/* nef 代码高亮的六种墨色 */
+.nef-code .k { color: #b3341f; font-weight: 600; }
+.nef-code .r { color: #7a5c00; }
+.nef-code .n { color: inherit; }
+.nef-code .num { color: #1d6f4a; }
+.nef-code .s, .nef-code .c { color: #2f5aa8; }
+.nef-code .cm { color: #8a8578; font-style: italic; }
+.nef-code .o { color: #6b6252; }
+
+.dark .nef-code .k { color: #e5735c; }
+.dark .nef-code .r { color: #d8b45a; }
+.dark .nef-code .num { color: #6fd0a0; }
+.dark .nef-code .s, .dark .nef-code .c { color: #8fb8ff; }
+.dark .nef-code .cm { color: #7d8794; }
+.dark .nef-code .o { color: #a9b3ba; }
+
+/* 输出块：贴合碑铭主题的独立面板 */
+.vp-doc div[class*='language-text'] {
+  margin: 16px -24px;
+  padding: 16px 24px;
+  background: var(--nf-stone);
+  border-left: 3px solid var(--vp-c-brand-2);
+  border-radius: 0 8px 8px 0;
+  font-family: ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+  font-size: 13.5px;
+  line-height: 1.7;
+  white-space: pre-wrap;
+  color: var(--nf-ink);
+}
+
+@media (min-width: 640px) {
+  .vp-doc div[class*='language-text'] {
+    margin: 16px 0;
+    border-radius: 0 8px 8px 0;
+  }
+}
+
+.vp-doc div[class*='language-text'] > span.lang,
+.vp-doc div[class*='language-text']::before,
+.vp-doc div[class*='language-text'] button {
+  display: none !important;
+}
+
+.dark .vp-doc div[class*='language-text'] {
+  background: #1c2429;
+  border-left-color: var(--vp-c-brand-2);
+  color: var(--nf-ink);
+}
+
+/* 示范错误写法的那一段：整块套一条危险色的标题条，一眼看出这段跑不通。
+   面板本体仍是原生代码块，只把左线换成危险色，和输出块那条朱砂线成一套。 */
+.vp-doc div[class*='language-nf-bad'] {
+  padding-top: 40px;
+  border: 1px solid var(--vp-c-danger-1);
+  border-left: 3px solid var(--vp-c-danger-1);
+  border-radius: 0 8px 8px 0;
+}
+
+.vp-doc div[class*='language-nf-bad'] > span.lang { display: none; }
+
+.vp-doc div[class*='language-nf-bad']::before {
+  content: "✕ 这样写不行";
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 2;
+  height: 40px;
+  line-height: 40px;
+  padding: 0 16px;
+  border-radius: 0 7px 0 0;
+  background: var(--vp-c-danger-1);
+  color: var(--vp-c-white);
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  pointer-events: none;
+}
+
+.vp-doc div[class*='language-nf-bad'] button.copy {
+  top: 46px;
+}
+
+.dark .vp-doc div[class*='language-nf-bad']::before {
+  color: #1c2429;
+}
+
+/* 片段块（nf-frag）只是不拿去跑检查，长得跟正常例子一样，角标别漏出内部记号 */
+.vp-doc div[class*='language-nf-frag'] > span.lang { display: none; }
+
+/* 提示块：正文里以「注意：」「警告：」开头的引用，压成一条边线 */
+.vp-doc blockquote {
+  margin: 16px 0;
+  padding: 2px 14px;
+  border-left: 2px solid var(--vp-c-brand-2);
+  border-radius: 0 4px 4px 0;
+  background: var(--vp-c-bg-soft);
+  color: var(--vp-c-text-1);
+  font-size: 14px;
+  line-height: 1.75;
+}
+
+.vp-doc blockquote strong {
+  color: var(--vp-c-brand-1);
+}
+
+.vp-doc blockquote:has(strong:first-child) {
+  border-left-color: var(--vp-c-brand-2);
+}
+
+.dark .vp-doc blockquote { background: var(--vp-c-bg-soft); }
+
+table { width: 100%; }

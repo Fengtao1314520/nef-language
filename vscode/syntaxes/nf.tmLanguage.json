@@ -1,0 +1,133 @@
+{
+  "$schema": "https://raw.githubusercontent.com/martinring/tmlanguage/master/tmlanguage.json",
+  "name": "nf",
+  "scopeName": "source.nf",
+  "fileTypes": [
+    "nf"
+  ],
+  "patterns": [
+    {
+      "include": "#comments"
+    },
+    {
+      "include": "#literals"
+    },
+    {
+      "include": "#names"
+    },
+    {
+      "include": "#operators"
+    }
+  ],
+  "repository": {
+    "comments": {
+      "patterns": [
+        {
+          "name": "comment.block.nf",
+          "begin": "/\\*",
+          "beginCaptures": {
+            "0": {
+              "name": "punctuation.definition.comment.begin.nf"
+            }
+          },
+          "end": "\\*/",
+          "endCaptures": {
+            "0": {
+              "name": "punctuation.definition.comment.end.nf"
+            }
+          }
+        },
+        {
+          "name": "comment.line.double-slash.nf",
+          "match": "//.*$"
+        }
+      ]
+    },
+    "literals": {
+      "patterns": [
+        {
+          "name": "constant.numeric.hex.nf",
+          "match": "\\b0[xX][0-9a-fA-F][0-9a-fA-F_]*\\b"
+        },
+        {
+          "name": "constant.numeric.decimal.nf",
+          "match": "\\b[0-9][0-9_]*(\\.[0-9_]+)?\\b"
+        },
+        {
+          "name": "string.quoted.double.nf",
+          "begin": "\"",
+          "beginCaptures": {
+            "0": {
+              "name": "punctuation.definition.string.begin.nf"
+            }
+          },
+          "end": "\"|$",
+          "endCaptures": {
+            "0": {
+              "name": "punctuation.definition.string.end.nf"
+            }
+          },
+          "patterns": [
+            {
+              "name": "constant.character.escape.nf",
+              "match": "\\\\(?:[nt\"\\\\]|u[0-9a-fA-F]{4})"
+            }
+          ]
+        },
+        {
+          "name": "string.quoted.single.nf",
+          "begin": "'",
+          "beginCaptures": {
+            "0": {
+              "name": "punctuation.definition.string.begin.nf"
+            }
+          },
+          "end": "'|$",
+          "endCaptures": {
+            "0": {
+              "name": "punctuation.definition.string.end.nf"
+            }
+          },
+          "patterns": [
+            {
+              "name": "constant.character.escape.nf",
+              "match": "\\\\(?:[nt'\\\\]|u[0-9a-fA-F]{4})"
+            }
+          ]
+        }
+      ]
+    },
+    "names": {
+      "patterns": [
+        {
+          "name": "constant.language.nf",
+          "match": "(?<![\\w$])(true|false|null)(?![\\w$])"
+        },
+        {
+          "name": "keyword.control.nf",
+          "match": "(?<![\\w$])(let|const|method|struct|class|interface|enum|type|import|export|shared|ref|base|this|new|return|as|is|throw|try|catch|if|else|while|for|in|until|switch|default|break|continue)(?![\\w$])"
+        },
+        {
+          "name": "support.type.nf",
+          "match": "(?<![\\w$])(boolean|int|float|byte|unicode|string|object|list|dict|hashset|Calendar|Json|bytes|Socket|Listener|Process|Response)(?![\\w$])"
+        },
+        {
+          "name": "support.class.nf",
+          "match": "(?<![\\w$])(console|text|number|math|time|file|path|environment|regular_expression|json|bytes|net|http|process)(?![\\w$])"
+        },
+        {
+          "name": "support.function.nf",
+          "match": "(?<![\\w$])(length|exit|args)(?![\\w$])"
+        }
+      ]
+    },
+    "operators": {
+      "patterns": [
+        {
+          "name": "keyword.operator.nf",
+          "match": "(\\+\\+|--|==|!=|<=|>=|&&|\\|\\||<<|>>|\\+|-|\\*|/|%|!|=|<|>|&|\\||\\^|~|\\(|\\)|\\{|\\}|\\[|\\]|:|,|;|\\.)"
+        }
+      ]
+    }
+  }
+}

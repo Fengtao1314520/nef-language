@@ -1,0 +1,148 @@
+bytes.from_base64	bytes.from_base64(encoded: string): bytes
+bytes.join	bytes.join(parts: list<bytes>): bytes
+bytes.new	bytes.new(size: int): bytes
+bytes.slice	bytes.slice(start: int, end: int): bytes
+bytes.to_base64	bytes.to_base64(): string
+console.print	console.print(...values)
+console.print_error	console.print_error(...values)
+console.read	console.read(): string
+dict.add	dict.add(key: K, value: V)
+dict.contains	dict.contains(key: K): boolean
+dict.get	dict.get(key: K, fallback: V): V
+dict.keys	dict.keys(): list<K>
+dict.remove	dict.remove(key: K)
+dict.values	dict.values(): list<V>
+environment.current_directory	environment.current_directory(): string
+environment.get	environment.get(name: string): string
+environment.set	environment.set(name: string, value: string)
+environment.set_current_directory	environment.set_current_directory(path: string): boolean
+environment.unset	environment.unset(name: string)
+file.append	file.append(path: string, text: string)
+file.copy	file.copy(source: string, target: string)
+file.create_directories	file.create_directories(path: string): boolean
+file.create_directory	file.create_directory(path: string): boolean
+file.exists	file.exists(path: string): boolean
+file.is_directory	file.is_directory(path: string): boolean
+file.list	file.list(dir: string): list<string>
+file.list_paths	file.list_paths(dir: string): list<string>
+file.modified	file.modified(path: string): int
+file.read	file.read(path: string): string
+file.read_bytes	file.read_bytes(path: string): bytes
+file.read_from	file.read_from(path: string, at: int, count: int): string
+file.readonly	file.readonly(path: string): boolean
+file.remove	file.remove(path: string)
+file.remove_directory	file.remove_directory(path: string)
+file.remove_tree	file.remove_tree(root: string)
+file.rename	file.rename(source: string, target: string)
+file.size	file.size(path: string): int
+file.walk_paths	file.walk_paths(root: string): list<string>
+file.write	file.write(path: string, text: string)
+file.write_at	file.write_at(path: string, at: int, text: string)
+file.write_bytes	file.write_bytes(path: string, data: bytes)
+hashset.add	hashset.add(value: T)
+hashset.contains	hashset.contains(value: T): boolean
+hashset.difference	hashset.difference(other: hashset<T>): hashset<T>
+hashset.intersect	hashset.intersect(other: hashset<T>): hashset<T>
+hashset.remove	hashset.remove(value: T)
+hashset.union	hashset.union(other: hashset<T>): hashset<T>
+http.get	http.get(url: string, timeout_ms: int): Response
+http.post	http.post(url: string, body: bytes, timeout_ms: int): Response
+json.at	json.at(doc: Json, key: string): Json
+json.count	json.count(doc: Json): int
+json.explain	json.explain(text: string): string
+json.has	json.has(doc: Json, key: string): boolean
+json.item	json.item(doc: Json, index: int): Json
+json.keys	json.keys(doc: Json): list<string>
+json.kind	json.kind(doc: Json): string
+json.parse	json.parse(text: string): Json
+json.to_boolean	json.to_boolean(doc: Json, fallback: boolean): boolean
+json.to_integer	json.to_integer(doc: Json, fallback: int): int
+json.to_number	json.to_number(doc: Json, fallback: float): float
+json.to_text	json.to_text(doc: Json): string
+length	length(value): int
+list.add	list.add(value: T)
+list.add_all	list.add_all(other: list<T>)
+list.clear	list.clear()
+list.first	list.first(): T
+list.index_of	list.index_of(value: T): int
+list.insert_at	list.insert_at(index: int, value: T)
+list.last	list.last(): T
+list.remove	list.remove(value: T)
+list.remove_at	list.remove_at(index: int): T
+list.reverse	list.reverse()
+list.slice	list.slice(start: int, end: int): list<T>
+list.sort	list.sort()
+list.to_set	list.to_set(): hashset<T>
+listener.accept	listener.accept(): Socket
+listener.close	listener.close()
+math.absolute_value	math.absolute_value(number)
+math.arctangent	math.arctangent(x: float): float
+math.ceiling	math.ceiling(x: float): int
+math.cosine	math.cosine(x: float): float
+math.exponential	math.exponential(x: float): float
+math.floor	math.floor(x: float): int
+math.log_base_10	math.log_base_10(x: float): float
+math.maximum	math.maximum(a, b)
+math.minimum	math.minimum(a, b)
+math.natural_log	math.natural_log(x: float): float
+math.pi	math.pi(): float
+math.power	math.power(base: int, exponent: int): int
+math.random	math.random(low: int, high: int): int
+math.random_float	math.random_float(): float
+math.round	math.round(x: float): int
+math.set_seed	math.set_seed(value: int)
+math.sign	math.sign(number)
+math.sine	math.sine(x: float): float
+math.square_root	math.square_root(x: float): float
+math.tangent	math.tangent(x: float): float
+net.connect	net.connect(host: string, port: int, timeout_ms: int): Socket
+net.listen	net.listen(port: int): Listener
+number.to_string	number.to_string(value): string
+number.to_string_in_base	number.to_string_in_base(value: int, base: int): string
+path.directory_name	path.directory_name(path: string): string
+path.exists	path.exists(path: string): boolean
+path.extension	path.extension(path: string): string
+path.file_name	path.file_name(path: string): string
+path.is_absolute	path.is_absolute(path: string): boolean
+path.join	path.join(dir: string, name: string): string
+process.close	process.close()
+process.start	process.start(command_line: string): Process
+process.wait	process.wait(): int
+regular_expression.find	regular_expression.find(pattern: string, text: string): list<string>
+regular_expression.match	regular_expression.match(pattern: string, text: string): boolean
+regular_expression.replace	regular_expression.replace(pattern: string, text: string, replacement: string): string
+regular_expression.split	regular_expression.split(pattern: string, text: string): list<string>
+socket.close	socket.close()
+socket.recv_into	socket.recv_into(buffer: bytes): int
+socket.send	socket.send(data: bytes): int
+string.contains	string.contains(needle: string): boolean
+string.ends_with	string.ends_with(suffix: string): boolean
+string.index_of	string.index_of(needle: string): int
+string.last_index_of	string.last_index_of(needle: string): int
+string.pad_end	string.pad_end(width: int, padding: string): string
+string.pad_start	string.pad_start(width: int, padding: string): string
+string.repeat	string.repeat(count: int): string
+string.replace	string.replace(from: string, to: string): string
+string.slice	string.slice(start: int, end: int): string
+string.split	string.split(separator: string): list<string>
+string.starts_with	string.starts_with(prefix: string): boolean
+string.to_bytes	string.to_bytes(): bytes
+string.to_list	string.to_list(): list<unicode>
+string.to_lower	string.to_lower(): string
+string.to_upper	string.to_upper(): string
+string.trim	string.trim(): string
+string.trim_end	string.trim_end(): string
+string.trim_start	string.trim_start(): string
+text.escape_json	text.escape_json(text: string): string
+text.from_base64	text.from_base64(encoded: string): string
+text.from_bytes	text.from_bytes(data: bytes): string
+text.join	text.join(parts: list<string>, separator: string): string
+text.to_base64	text.to_base64(text: string): string
+text.to_float	text.to_float(text: string): float
+text.to_int	text.to_int(text: string): int
+text.to_int_in_base	text.to_int_in_base(text: string, base: int): int
+time.calendar	time.calendar(seconds: int): Calendar
+time.elapsed	time.elapsed(): float
+time.now	time.now(): int
+time.sleep	time.sleep(milliseconds: int)
+time.utc_offset	time.utc_offset(): int

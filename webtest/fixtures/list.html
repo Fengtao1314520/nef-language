@@ -1,0 +1,53 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="utf-8">
+<title>列表</title>
+<style>
+* { box-sizing: border-box; }
+body { margin: 0; }
+.row, .link, #box, #off, #hidden, #dis, #zone { display: block; padding: 4px; }
+#hidden { display: none; }
+#box { width: 120px; height: 40px; background: #cccccc; }
+#zone { width: 60px; height: 30px; background: #eeeeee; }
+#tail { margin-top: 2000px; }
+</style>
+</head>
+<body>
+<ul id="rows">
+    <li class="row">第一行</li>
+    <li class="row">第二行</li>
+    <li class="row">第三行</li>
+</ul>
+<div id="links"><a class="link" href="/a">去甲</a><a class="link" href="/b">去乙</a></div>
+<input id="search" value="默认文字">
+<div id="hidden">看不见的一块</div>
+<button id="dis" disabled>不能用</button>
+<div id="box">方框</div>
+<div id="off">色块</div>
+<div id="zone">坐标</div>
+<div id="tip" data-mark="tip"></div>
+<div id="keylog"></div>
+<div id="tail">最下面的一块</div>
+<script>
+var rows = document.querySelectorAll('.row');
+for (var i = 0; i < rows.length; i++) {
+    rows[i].addEventListener('click', function () {
+        document.getElementById('tip').textContent = '点到' + this.textContent;
+    });
+}
+document.getElementById('box').addEventListener('dblclick', function () {
+    document.getElementById('tip').textContent = '双击过了';
+});
+document.getElementById('off').addEventListener('mouseenter', function () {
+    this.className = 'on';
+});
+document.getElementById('zone').addEventListener('click', function () {
+    document.getElementById('tip').textContent = '点过坐标';
+});
+document.getElementById('search').addEventListener('keydown', function (e) {
+    document.getElementById('keylog').textContent = '键:' + e.key;
+});
+</script>
+</body>
+</html>

@@ -1,0 +1,11 @@
+{
+  "preset": "default",
+  "rules": {
+    "halfwidthPunctuation": "[]{}",
+    "spaceOutsideHalfwidthBracket": false,
+    "noSpaceOutsideFullwidthBracket": true,
+    "spaceOutsideHalfwidthQuotation": false,
+    "noSpaceAfterFullwidthPauseOrStop": false,
+    "skipAbbrs": ["etc.", "e.g.", "i.e."]
+  }
+}

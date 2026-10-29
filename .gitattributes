@@ -1,0 +1,10 @@
+# 仓库里的文本文件一律 LF：源码、报错原话清单与文档现在都是 LF，
+# 别人在 Windows 上按 core.autocrlf=true 克隆会变成 CRLF，逐句比对的检查先受影响。
+* text=auto eol=lf
+
+# 二进制不做行尾转换，也不进语言统计
+*.exe binary
+*.vsix binary
+*.nfpack binary
+*.png binary
+*.ico binary

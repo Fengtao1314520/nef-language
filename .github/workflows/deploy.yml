@@ -1,0 +1,66 @@
+name: 发布文档站
+
+# 只在 main 上推送或手动触发时发布。站点源码在仓库的 site/ 这一格，
+# 构建产物是 site/.vitepress/dist，交给 GitHub Pages 托管。
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: 取源码
+        uses: actions/checkout@v4
+
+      - name: 装 Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: site/package-lock.json
+
+      - name: 装站点依赖
+        run: npm ci
+        working-directory: site
+
+      # 项目站点挂在 https://<用户>.github.io/<仓库名>/ 下面，资源路径要带上这一段；
+      # 换成自己的域名时这里算出来的值改成 '/'（site/.vitepress/config.mts 读的就是这个变量）。
+      - name: 按仓库名算出站点路径
+        run: echo "BASE_PATH=/${GITHUB_REPOSITORY#*/}/" >> "$GITHUB_ENV"
+
+      - name: 生成站点
+        run: npm run build
+        working-directory: site
+
+      # Pages 默认用 Jekyll 处理，会把以 _ 开头的目录整批丢掉；放这个空文件把它关掉。
+      - name: 关掉 Jekyll
+        run: touch .vitepress/dist/.nojekyll
+        working-directory: site
+
+      - name: 交出产物
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: site/.vitepress/dist
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: 发布
+        id: deployment
+        uses: actions/deploy-pages@v4

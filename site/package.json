@@ -1,0 +1,22 @@
+{
+  "name": "nef-site",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vitepress dev",
+    "build": "vitepress build",
+    "preview": "vitepress preview",
+    "check": "node tools-site/check-site.mjs",
+    "ledger": "node tools-site/make-ledger.mjs",
+    "rhythm": "node tools-site/rhythm.mjs",
+    "structure": "markdownlint-cli2",
+    "typography": "node tools-site/typography.mjs",
+    "names": "node tools-site/names.mjs",
+    "third-party": "node tools-site/make-third-party.mjs",
+    "verify": "npm run check && npm run ledger && npm run rhythm && npm run structure && npm run typography && npm run names && npm run build"
+  },
+  "devDependencies": {
+    "vitepress": "^1.6.4",
+    "markdownlint-cli2": "^0.24.0"
+  }
+}

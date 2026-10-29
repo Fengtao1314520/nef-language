@@ -1,0 +1,629 @@
+文档网站发布物里的第三方组件与各自的许可
+
+这一份由 site/tools-site/make-third-party.mjs 生成，命令是 `npm run third-party`。
+生成时间 2026-10-29，来源是当时装在 node_modules 里的 126 个包。
+站点构建（`npm run build`）会把其中进入运行时的部分打进 dist，随站点一起分发；这些组件的许可文本与版权行按要求在这里列出。
+
+按许可类型汇总：
+  MIT — 120 个包
+  BSD-3-Clause — 2 个包
+  ISC — 2 个包
+  BSD-2-Clause — 1 个包
+  CC0-1.0 — 1 个包
+
+逐个列表：
+
+@algolia/abtesting@1.25.0
+  许可：MIT
+  许可文本：node_modules 里的 LICENSE
+  版权行：Copyright (c) 2013-Present Algolia
+
+@algolia/autocomplete-core@1.17.7
+  许可：MIT
+
+@algolia/autocomplete-plugin-algolia-insights@1.17.7
+  许可：MIT
+
+@algolia/autocomplete-preset-algolia@1.17.7
+  许可：MIT
+
+@algolia/autocomplete-shared@1.17.7
+  许可：MIT
+
+@algolia/client-abtesting@5.59.0
+  许可：MIT
+  许可文本：node_modules 里的 LICENSE
+  版权行：Copyright (c) 2013-Present Algolia
+
+@algolia/client-analytics@5.59.0
+  许可：MIT
+  许可文本：node_modules 里的 LICENSE
+  版权行：Copyright (c) 2013-Present Algolia
+
+@algolia/client-common@5.59.0
+  许可：MIT
+  许可文本：node_modules 里的 LICENSE
+  版权行：Copyright (c) 2013-Present Algolia
+
+@algolia/client-insights@5.59.0
+  许可：MIT
+  许可文本：node_modules 里的 LICENSE
+  版权行：Copyright (c) 2013-Present Algolia
+
+@algolia/client-personalization@5.59.0
+  许可：MIT
+  许可文本：node_modules 里的 LICENSE
+  版权行：Copyright (c) 2013-Present Algolia
+
+@algolia/client-query-suggestions@5.59.0
+  许可：MIT
+  许可文本：node_modules 里的 LICENSE
+  版权行：Copyright (c) 2013-Present Algolia
+
+@algolia/client-search@5.59.0
+  许可：MIT
+  许可文本：node_modules 里的 LICENSE
+  版权行：Copyright (c) 2013-Present Algolia
+
+@algolia/ingestion@1.59.0
+  许可：MIT
+  许可文本：node_modules 里的 LICENSE
+  版权行：Copyright (c) 2013-Present Algolia
+
+@algolia/monitoring@1.59.0
+  许可：MIT
+  许可文本：node_modules 里的 LICENSE
+  版权行：Copyright (c) 2013-Present Algolia
+
+@algolia/recommend@5.59.0
+  许可：MIT
+  许可文本：node_modules 里的 LICENSE
+  版权行：Copyright (c) 2013-Present Algolia
+
+@algolia/requester-browser-xhr@5.59.0
+  许可：MIT
+  许可文本：node_modules 里的 LICENSE
+  版权行：Copyright (c) 2013-Present Algolia
+
+@algolia/requester-fetch@5.59.0
+  许可：MIT
+  许可文本：node_modules 里的 LICENSE
+  版权行：Copyright (c) 2013-Present Algolia
+
+@algolia/requester-node-http@5.59.0
+  许可：MIT
+  许可文本：node_modules 里的 LICENSE
+  版权行：Copyright (c) 2013-Present Algolia
+
+@babel/helper-string-parser@7.29.7
+  许可：MIT
+  许可文本：node_modules 里的 LICENSE
+  版权行：Copyright (c) 2014-present Sebastian McKenzie and other contributors
+
+@babel/helper-validator-identifier@7.29.7
+  许可：MIT
+  许可文本：node_modules 里的 LICENSE
+  版权行：Copyright (c) 2014-present Sebastian McKenzie and other contributors
+
+@babel/parser@7.29.9
+  许可：MIT
+  许可文本：node_modules 里的 LICENSE
+  版权行：Copyright (C) 2012-2014 by various contributors (see AUTHORS)
+
+@babel/types@7.29.8
+  许可：MIT
+  许可文本：node_modules 里的 LICENSE
+  版权行：Copyright (c) 2014-present Sebastian McKenzie and other contributors
+
+@docsearch/css@3.8.2
+  许可：MIT
+
+@docsearch/js@3.8.2
+  许可：MIT
+
+@docsearch/react@3.8.2
+  许可：MIT
+
+@esbuild/win32-x64@0.21.5
+  许可：MIT
+
+@iconify-json/simple-icons@1.2.97
+  许可：CC0-1.0
+
+@iconify/types@2.0.0
+  许可：MIT
+  许可文本：node_modules 里的 LICENSE.txt
+  版权行：Copyright (c) 2021 - 2022 Vjacheslav Trushkin / Iconify OÜ
+
+@jridgewell/sourcemap-codec@1.6.0
+  许可：MIT
+  许可文本：node_modules 里的 LICENSE
+  版权行：Copyright 2024 Justin Ridgewell <justin@ridgewell.name>
+
+@rollup/rollup-win32-x64-gnu@4.63.5
+  许可：MIT
+
+@rollup/rollup-win32-x64-msvc@4.63.5
+  许可：MIT
+
+@shikijs/core@2.5.0
+  许可：MIT
+  许可文本：node_modules 里的 LICENSE
+  版权行：Copyright (c) 2021 Pine Wu
+
+@shikijs/engine-javascript@2.5.0
+  许可：MIT
+  许可文本：node_modules 里的 LICENSE
+  版权行：Copyright (c) 2021 Pine Wu
+
+@shikijs/engine-oniguruma@2.5.0
+  许可：MIT
+  许可文本：node_modules 里的 LICENSE
+  版权行：Copyright (c) 2021 Pine Wu
+
+@shikijs/langs@2.5.0
+  许可：MIT
+  许可文本：node_modules 里的 LICENSE
+  版权行：Copyright (c) 2021 Pine Wu
+
+@shikijs/themes@2.5.0
+  许可：MIT
+  许可文本：node_modules 里的 LICENSE
+  版权行：Copyright (c) 2021 Pine Wu
+
+@shikijs/transformers@2.5.0
+  许可：MIT
+  许可文本：node_modules 里的 LICENSE
+  版权行：Copyright (c) 2021 Pine Wu
+
+@shikijs/types@2.5.0
+  许可：MIT
+  许可文本：node_modules 里的 LICENSE
+  版权行：Copyright (c) 2021 Pine Wu
+
+@shikijs/vscode-textmate@10.0.2
+  许可：MIT
+  许可文本：node_modules 里的 LICENSE.md
+  版权行：Copyright (c) Microsoft Corporation
+
+@types/estree@1.0.9
+  许可：MIT
+  许可文本：node_modules 里的 LICENSE
+  版权行：Copyright (c) Microsoft Corporation.
+
+@types/hast@3.0.5
+  许可：MIT
+  许可文本：node_modules 里的 LICENSE
+  版权行：Copyright (c) Microsoft Corporation.
+
+@types/linkify-it@5.0.0
+  许可：MIT
+  许可文本：node_modules 里的 LICENSE
+  版权行：Copyright (c) Microsoft Corporation.
+
+@types/markdown-it@14.2.0
+  许可：MIT
+  许可文本：node_modules 里的 LICENSE
+  版权行：Copyright (c) Microsoft Corporation.
+
+@types/mdast@4.0.4
+  许可：MIT
+  许可文本：node_modules 里的 LICENSE
+  版权行：Copyright (c) Microsoft Corporation.
+
+@types/mdurl@2.0.0
+  许可：MIT
+  许可文本：node_modules 里的 LICENSE
+  版权行：Copyright (c) Microsoft Corporation.
+
+@types/unist@3.0.3
+  许可：MIT
+  许可文本：node_modules 里的 LICENSE
+  版权行：Copyright (c) Microsoft Corporation.
+
+@types/web-bluetooth@0.0.21
+  许可：MIT
+  许可文本：node_modules 里的 LICENSE
+  版权行：Copyright (c) Microsoft Corporation.
+
+@ungap/structured-clone@1.4.0
+  许可：ISC
+  许可文本：node_modules 里的 LICENSE
+  版权行：Copyright (c) 2021, Andrea Giammarchi, @WebReflection
+
+@vitejs/plugin-vue@5.2.4
+  许可：MIT
+  许可文本：node_modules 里的 LICENSE
+  版权行：Copyright (c) 2019-present, Yuxi (Evan) You and Vite contributors
+
+@vue/compiler-core@3.5.43
+  许可：MIT
+  许可文本：node_modules 里的 LICENSE
+  版权行：Copyright (c) 2018-present, Yuxi (Evan) You
+
+@vue/compiler-dom@3.5.43
+  许可：MIT
+  许可文本：node_modules 里的 LICENSE
+  版权行：Copyright (c) 2018-present, Yuxi (Evan) You
+
+@vue/compiler-sfc@3.5.43
+  许可：MIT
+  许可文本：node_modules 里的 LICENSE
+  版权行：Copyright (c) 2018-present, Yuxi (Evan) You
+
+@vue/compiler-ssr@3.5.43
+  许可：MIT
+  许可文本：node_modules 里的 LICENSE
+  版权行：Copyright (c) 2018-present, Yuxi (Evan) You
+
+@vue/devtools-api@7.7.10
+  许可：MIT
+  许可文本：node_modules 里的 LICENSE
+  版权行：Copyright (c) 2023 webfansplz
+
+@vue/devtools-kit@7.7.10
+  许可：MIT
+  许可文本：node_modules 里的 LICENSE
+  版权行：Copyright (c) 2023 webfansplz
+
+@vue/devtools-shared@7.7.10
+  许可：MIT
+  许可文本：node_modules 里的 LICENSE
+  版权行：Copyright (c) 2023 webfansplz
+
+@vue/reactivity@3.5.43
+  许可：MIT
+  许可文本：node_modules 里的 LICENSE
+  版权行：Copyright (c) 2018-present, Yuxi (Evan) You
+
+@vue/runtime-core@3.5.43
+  许可：MIT
+  许可文本：node_modules 里的 LICENSE
+  版权行：Copyright (c) 2018-present, Yuxi (Evan) You
+
+@vue/runtime-dom@3.5.43
+  许可：MIT
+  许可文本：node_modules 里的 LICENSE
+  版权行：Copyright (c) 2018-present, Yuxi (Evan) You
+
+@vue/server-renderer@3.5.43
+  许可：MIT
+  许可文本：node_modules 里的 LICENSE
+  版权行：Copyright (c) 2018-present, Yuxi (Evan) You
+
+@vue/shared@3.5.43
+  许可：MIT
+  许可文本：node_modules 里的 LICENSE
+  版权行：Copyright (c) 2018-present, Yuxi (Evan) You
+
+@vueuse/core@12.8.2
+  许可：MIT
+  许可文本：node_modules 里的 LICENSE
+  版权行：Copyright (c) 2019-PRESENT Anthony Fu<https://github.com/antfu>
+
+@vueuse/integrations@12.8.2
+  许可：MIT
+  许可文本：node_modules 里的 LICENSE
+  版权行：Copyright (c) 2019-PRESENT Anthony Fu<https://github.com/antfu>
+
+@vueuse/metadata@12.8.2
+  许可：MIT
+  许可文本：node_modules 里的 LICENSE
+  版权行：Copyright (c) 2019-PRESENT Anthony Fu<https://github.com/antfu>
+
+@vueuse/shared@12.8.2
+  许可：MIT
+  许可文本：node_modules 里的 LICENSE
+  版权行：Copyright (c) 2019-PRESENT Anthony Fu<https://github.com/antfu>
+
+algoliasearch@5.59.0
+  许可：MIT
+  许可文本：node_modules 里的 LICENSE
+  版权行：Copyright (c) 2013-Present Algolia
+
+birpc@2.9.0
+  许可：MIT
+  许可文本：node_modules 里的 LICENSE
+  版权行：Copyright (c) 2021 Anthony Fu <https://github.com/antfu>
+
+ccount@2.0.1
+  许可：MIT
+  许可文本：node_modules 里的 LICENSE
+  版权行：Copyright (c) 2015 Titus Wormer <tituswormer@gmail.com>
+
+character-entities-html4@2.1.0
+  许可：MIT
+  许可文本：node_modules 里的 LICENSE
+  版权行：Copyright (c) 2015 Titus Wormer <tituswormer@gmail.com>
+
+character-entities-legacy@3.0.0
+  许可：MIT
+  许可文本：node_modules 里的 LICENSE
+  版权行：Copyright (c) 2015 Titus Wormer <tituswormer@gmail.com>
+
+comma-separated-tokens@2.0.3
+  许可：MIT
+  许可文本：node_modules 里的 LICENSE
+  版权行：Copyright (c) 2016 Titus Wormer <tituswormer@gmail.com>
+
+copy-anything@4.1.4
+  许可：MIT
+  许可文本：node_modules 里的 LICENSE
+  版权行：Copyright (c) 2018 Luca Ban - Mesqueeb
+
+csstype@3.2.3
+  许可：MIT
+  许可文本：node_modules 里的 LICENSE
+  版权行：Copyright (c) 2017-2018 Fredrik Nicol
+
+dequal@2.0.3
+  许可：MIT
+  许可文本：node_modules 里的 LICENSE
+  版权行：Copyright (c) Luke Edwards <luke.edwards05@gmail.com> (lukeed.com)
+
+devlop@1.1.0
+  许可：MIT
+  许可文本：node_modules 里的 LICENSE
+  版权行：Copyright (c) 2023 Titus Wormer <tituswormer@gmail.com>
+
+emoji-regex-xs@1.0.0
+  许可：MIT
+  许可文本：node_modules 里的 LICENSE
+  版权行：Copyright (c) 2024 Steven Levithan
+
+entities@7.0.1
+  许可：BSD-2-Clause
+  许可文本：node_modules 里的 LICENSE
+  版权行：Copyright (c) Felix Böhm
+
+esbuild@0.21.5
+  许可：MIT
+  许可文本：node_modules 里的 LICENSE.md
+  版权行：Copyright (c) 2020 Evan Wallace
+
+estree-walker@2.0.2
+  许可：MIT
+  许可文本：node_modules 里的 LICENSE
+  版权行：Copyright (c) 2015-20 [these people](https://github.com/Rich-Harris/estree-walker/graphs/contributors)
+
+focus-trap@7.8.0
+  许可：MIT
+  许可文本：node_modules 里的 LICENSE
+  版权行：Copyright (c) 2015-2016 David Clark
+
+hast-util-to-html@9.0.5
+  许可：MIT
+  许可文本：node_modules 里的 LICENSE
+  版权行：Copyright (c) Titus Wormer <tituswormer@gmail.com>
+
+hast-util-whitespace@3.0.0
+  许可：MIT
+  许可文本：node_modules 里的 LICENSE
+  版权行：Copyright (c) 2016 Titus Wormer <tituswormer@gmail.com>
+
+hookable@5.5.3
+  许可：MIT
+  许可文本：node_modules 里的 LICENSE.md
+  版权行：Copyright (c) Pooya Parsa <pooya@pi0.io>
+
+html-void-elements@3.0.0
+  许可：MIT
+  许可文本：node_modules 里的 LICENSE
+  版权行：Copyright (c) 2016 Titus Wormer <tituswormer@gmail.com>
+
+magic-string@0.30.21
+  许可：MIT
+  许可文本：node_modules 里的 LICENSE
+  版权行：Copyright 2018 Rich Harris
+
+mark.js@8.11.1
+  许可：MIT
+  许可文本：node_modules 里的 LICENSE
+  版权行：Copyright (c) 2014–2018 Julian Kühnel
+
+mdast-util-to-hast@13.2.1
+  许可：MIT
+  许可文本：node_modules 里的 LICENSE
+  版权行：Copyright (c) 2016 Titus Wormer <tituswormer@gmail.com>
+
+micromark-util-character@2.1.1
+  许可：MIT
+  许可文本：node_modules 里的 LICENSE
+  版权行：Copyright (c) Titus Wormer <tituswormer@gmail.com>
+
+micromark-util-encode@2.0.1
+  许可：MIT
+  许可文本：node_modules 里的 LICENSE
+  版权行：Copyright (c) Titus Wormer <tituswormer@gmail.com>
+
+micromark-util-sanitize-uri@2.0.1
+  许可：MIT
+  许可文本：node_modules 里的 LICENSE
+  版权行：Copyright (c) Titus Wormer <tituswormer@gmail.com>
+
+micromark-util-symbol@2.0.1
+  许可：MIT
+  许可文本：node_modules 里的 LICENSE
+  版权行：Copyright (c) Titus Wormer <tituswormer@gmail.com>
+
+micromark-util-types@2.0.3
+  许可：MIT
+  许可文本：node_modules 里的 LICENSE
+  版权行：Copyright (c) Titus Wormer <tituswormer@gmail.com>
+
+minisearch@7.2.0
+  许可：MIT
+  许可文本：node_modules 里的 LICENSE.txt
+  版权行：Copyright 2022 Luca Ongaro
+
+mitt@3.0.1
+  许可：MIT
+  许可文本：node_modules 里的 LICENSE
+  版权行：Copyright (c) 2021 Jason Miller
+
+nanoid@3.3.19
+  许可：MIT
+  许可文本：node_modules 里的 LICENSE
+  版权行：Copyright 2017 Andrey Sitnik <andrey@sitnik.ru>
+
+oniguruma-to-es@3.1.1
+  许可：MIT
+  许可文本：node_modules 里的 LICENSE
+  版权行：Copyright (c) 2025 Steven Levithan
+
+perfect-debounce@1.0.0
+  许可：MIT
+  许可文本：node_modules 里的 LICENSE
+  版权行：Copyright (c) Pooya Parsa <pooya@pi0.io>
+
+picocolors@1.1.1
+  许可：ISC
+  许可文本：node_modules 里的 LICENSE
+  版权行：Copyright (c) 2021-2024 Oleksii Raspopov, Kostiantyn Denysov, Anton Verinov
+
+postcss@8.5.28
+  许可：MIT
+  许可文本：node_modules 里的 LICENSE
+  版权行：Copyright 2013 Andrey Sitnik <andrey@sitnik.es>
+
+preact@10.29.8
+  许可：MIT
+  许可文本：node_modules 里的 LICENSE
+  版权行：Copyright (c) 2015-present Jason Miller
+
+property-information@7.2.0
+  许可：MIT
+  许可文本：node_modules 里的 LICENSE
+  版权行：Copyright (c) Titus Wormer <mailto:tituswormer@gmail.com>
+
+regex@6.1.0
+  许可：MIT
+  许可文本：node_modules 里的 LICENSE
+  版权行：Copyright (c) 2025 Steven Levithan
+
+regex-recursion@6.0.2
+  许可：MIT
+  许可文本：node_modules 里的 LICENSE
+  版权行：Copyright (c) 2025 Steven Levithan
+
+regex-utilities@2.3.0
+  许可：MIT
+  许可文本：node_modules 里的 LICENSE
+  版权行：Copyright (c) 2024 Steven Levithan
+
+rfdc@1.4.1
+  许可：MIT
+  许可文本：node_modules 里的 LICENSE
+  版权行：Copyright 2019 "David Mark Clements <david.mark.clements@gmail.com>"
+
+rollup@4.63.5
+  许可：MIT
+  许可文本：node_modules 里的 LICENSE.md
+  版权行：Copyright (c) 2017 [these people](https://github.com/rollup/rollup/graphs/contributors)
+
+search-insights@2.17.3
+  许可：MIT
+  许可文本：node_modules 里的 LICENSE.md
+  版权行：Copyright (c) 2015-present Algolia, Inc.
+
+shiki@2.5.0
+  许可：MIT
+  许可文本：node_modules 里的 LICENSE
+  版权行：Copyright (c) 2021 Pine Wu
+
+source-map-js@1.2.1
+  许可：BSD-3-Clause
+  许可文本：node_modules 里的 LICENSE
+  版权行：Copyright (c) 2009-2011, Mozilla Foundation and contributors
+
+space-separated-tokens@2.0.2
+  许可：MIT
+  许可文本：node_modules 里的 LICENSE
+  版权行：Copyright (c) 2016 Titus Wormer <tituswormer@gmail.com>
+
+speakingurl@14.0.1
+  许可：BSD-3-Clause
+  许可文本：node_modules 里的 LICENSE
+  版权行：Copyright (c) 2013-2017 Sascha Droste <pid@posteo.net>
+
+stringify-entities@4.0.4
+  许可：MIT
+  许可文本：node_modules 里的 LICENSE
+  版权行：Copyright (c) 2015 Titus Wormer <mailto:tituswormer@gmail.com>
+
+superjson@2.2.6
+  许可：MIT
+  许可文本：node_modules 里的 LICENSE
+  版权行：Copyright (c) 2020 Simon Knott and superjson contributors
+
+tabbable@6.5.0
+  许可：MIT
+  许可文本：node_modules 里的 LICENSE
+  版权行：Copyright (c) 2015 David Clark
+
+trim-lines@3.0.1
+  许可：MIT
+  许可文本：node_modules 里的 LICENSE
+  版权行：Copyright (c) 2015 Titus Wormer <mailto:tituswormer@gmail.com>
+
+unist-util-is@6.0.1
+  许可：MIT
+  许可文本：node_modules 里的 LICENSE
+  版权行：Copyright (c) 2015 Titus Wormer <tituswormer@gmail.com>
+
+unist-util-position@5.0.0
+  许可：MIT
+  许可文本：node_modules 里的 LICENSE
+  版权行：Copyright (c) 2015 Titus Wormer <tituswormer@gmail.com>
+
+unist-util-stringify-position@4.0.0
+  许可：MIT
+  许可文本：node_modules 里的 LICENSE
+  版权行：Copyright (c) 2016 Titus Wormer <tituswormer@gmail.com>
+
+unist-util-visit@5.1.0
+  许可：MIT
+  许可文本：node_modules 里的 LICENSE
+  版权行：Copyright (c) 2015 Titus Wormer <tituswormer@gmail.com>
+
+unist-util-visit-parents@6.0.2
+  许可：MIT
+  许可文本：node_modules 里的 LICENSE
+  版权行：Copyright (c) 2016 Titus Wormer <tituswormer@gmail.com>
+
+vfile@6.0.3
+  许可：MIT
+  许可文本：node_modules 里的 LICENSE
+  版权行：Copyright (c) 2015 Titus Wormer <tituswormer@gmail.com>
+
+vfile-message@4.0.3
+  许可：MIT
+  许可文本：node_modules 里的 LICENSE
+  版权行：Copyright (c) Titus Wormer <tituswormer@gmail.com>
+
+vite@5.4.21
+  许可：MIT
+  许可文本：node_modules 里的 LICENSE.md
+  版权行：Copyright (c) 2019-present, VoidZero Inc. and Vite contributors
+
+vitepress@1.6.4
+  许可：MIT
+  许可文本：node_modules 里的 LICENSE
+  版权行：Copyright (c) 2019-present, Yuxi (Evan) You
+
+vue@3.5.43
+  许可：MIT
+  许可文本：node_modules 里的 LICENSE
+  版权行：Copyright (c) 2018-present, Yuxi (Evan) You
+
+zwitch@2.0.4
+  许可：MIT
+  许可文本：node_modules 里的 LICENSE
+  版权行：Copyright (c) 2016 Titus Wormer <tituswormer@gmail.com>
+
+随站点一起分发的字体
+
+  Inter —— VitePress 默认主题自带，构建时作为 woff2 拷进 dist/assets，被每个页面引用
+    许可：SIL Open Font License 1.1
+    版权行：Copyright (c) 2016 The Inter Project Authors (https://github.com/rsms/inter)
+    许可文本：仓库内的 public/inter-font-license.txt，发布之后是站点根上的 /inter-font-license.txt

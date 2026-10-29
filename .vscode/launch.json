@@ -1,0 +1,17 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "type": "nf",
+      "request": "launch",
+      "name": "调试当前文件",
+      "program": "${file}"
+    },
+    {
+      "type": "nf",
+      "request": "launch",
+      "name": "调试 shopping 示例",
+      "program": "${workspaceFolder}/samples/shopping.nf"
+    }
+  ]
+}

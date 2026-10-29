@@ -1,0 +1,40 @@
+# 构建产物：仓库里不收藏，按 README 的命令当场生成；发版走 GitHub Releases
+/nf.exe
+/compiler/nf.exe
+/release/
+vscode/*.vsix
+
+# 打包时 make-server.mjs 现编的编译器副本与 make-license.mjs 拷进扩展目录的许可副本，
+# 全文与产物都只有仓库根那几份
+vscode/server/
+vscode/LICENSE
+vscode/LICENSE-EXCEPTION
+vscode/NOTICE
+
+# 内部文档：规范全文、决定记录、开发日志、里程碑、测试记录，以及 docs/ 那九份技术文档只留本地
+/internaldocs/
+/docs/
+
+# Go 测试与工具链留在本地的残留
+compiler/*.test
+
+# 网站：依赖、生成产物与缓存（npm install / npm run build 重新生成）
+site/node_modules/
+site/.vitepress/dist/
+site/.vitepress/cache/
+site/核对清单.json
+
+# VS Code 扩展：依赖与编译输出（npm install / npm run compile 重新生成）
+vscode/node_modules/
+vscode/out/
+
+# 批量用例跑出来的输出目录与浏览器 profile
+webtest/out/
+webtest/profiles/
+
+# 操作系统与编辑器的零碎文件
+.DS_Store
+Thumbs.db
+*~
+*.swp
+*.log

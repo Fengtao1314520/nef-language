@@ -1,0 +1,22 @@
+{
+  // 站上 markdown 的结构检查（六项自动检查里的第五项）。跑法：npm run structure
+  // 这一份是 markdownlint-cli2 的配置文件；规则设置放在 config 这一节里。
+  "globs": [
+    "learn/**/*.md", "reference/**/*.md", "stdlib/**/*.md", "tools/**/*.md",
+    "libs/**/*.md", "about/**/*.md", "index.md"
+  ],
+  "ignore": [
+    "node_modules/**", ".vitepress/**", "README.md", "核对清单.json"
+  ],
+  "config": {
+    "MD013": false,  // 行长：正文段落由 tools-site/rhythm.mjs 按字数判，这里不重复管
+    "MD033": false,  // 行内 HTML：首页的特性块要用 span 上色
+    "MD036": false,  // 粗体行当小标题：术语表每个词条就是"**词（英文）**"起头
+    "MD041": false,  // 首行必须是一级标题：首页与多数页有 front matter
+    "MD024": false,  // 同级标题不得重名：每页末尾都有"参见"
+    "MD012": false,  // 连续空行：表格与代码块之间有意留两处
+    "MD014": false,  // 代码块里的提示符
+    "MD025": false,  // 一级标题不止一个：front matter 的 title 与正文的 H1 同时存在是本站的写法
+    "MD046": false   // 代码块围栏样式
+  }
+}

@@ -1,0 +1,33 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="utf-8">
+<title>登录</title>
+</head>
+<body>
+<h1 id="heading">登录</h1>
+<input id="name" placeholder="用户名">
+<input id="pass" type="password" placeholder="密码">
+<button id="submit" type="button">登录</button>
+<p class="banner">这条提示半秒后自己消失</p>
+<div id="tip" data-mark="tip"></div>
+<div id="late"></div>
+<script>
+document.getElementById('submit').addEventListener('click', function () {
+    var ok = document.getElementById('name').value === 'nef'
+        && document.getElementById('pass').value === '1234';
+    document.getElementById('tip').textContent = ok ? '欢迎, nef' : '用户名或密码不对';
+});
+setTimeout(function () {
+    var b = document.querySelector('.banner');
+    if (b) { b.remove(); }
+}, 500);
+setTimeout(function () {
+    var d = document.createElement('div');
+    d.id = 'arrived';
+    d.textContent = '后出来的那块';
+    document.getElementById('late').appendChild(d);
+}, 400);
+</script>
+</body>
+</html>

@@ -11,11 +11,11 @@ import (
 //
 // 可释放的条件写在 lower.go 的 handsBackFresh 里：该函数的每一条 return 返回的，要么当场新造，
 // 要么从自己那个位置作废出来（名字交出、容器一个位置被读走、class 字段按"读字段算交出"抹空）。
-// 这五段覆盖条件的两头：证明得到的每圈留 0，证不出来的照旧保留且不出错。
+// 这五段覆盖条件的两头：证明得到的每轮留 0，证不出来的照旧保留且不出错。
 // 每一段都把实际运行放在量堆之前：heapSlope 会设 NEF_HEAP，之后的 run() 输出会多一行 `heap …`。
 
 // TestReturnOfFreshValueIsFreedByCaller 返回值是当场新造的那一块：没人接的语句到句尽头就析构。
-// 修复前两万圈：返回文本 640,136 字节（每圈 32）、返回 list 1,760,144（每圈 88）。
+// 修复前两万圈：返回文本 640,136 字节（每轮 32）、返回 list 1,760,144（每轮 88）。
 func TestReturnOfFreshValueIsFreedByCaller(t *testing.T) {
 	const text = `method make():string {
     return "甲" + "乙"
@@ -48,7 +48,7 @@ console.print(length(mk()))
 }
 
 // TestReturnOfHandedOverNameIsFreedByCaller 返回的是自己那个位置作废出来的那一份：参数、局部名字、
-// class 的字段、容器里读走的那个位置——四种来路各一段，接住的那一侧读得到、也能正常释放。
+// class 的字段、从容器里摘出来的那个位置——四种来路各一段，接住的那一侧读得到、也能正常释放。
 func TestReturnOfHandedOverNameIsFreedByCaller(t *testing.T) {
 	got, code := run(t, `class Holder {
     peer:list<int>
@@ -65,7 +65,7 @@ method fromLocal():list<int> {
     return a
 }
 method fromCell(xs:list<string>):string {
-    return xs[0]
+    return xs.remove_at(0)
 }
 let one:Holder = new Holder(peer: [1, 2])
 let kept:list<int> = one.take()
@@ -104,7 +104,7 @@ for (i:int in 0 until @N@) {
 // TestStructFieldReturnStaysUnproven 从 struct 字段读出的那一种不满足证明条件：struct 是值类型，
 // 那一次读取不动源头（同一个字段读两次都还在），那块文本的持有者仍是原来的那个块。
 // 这一段验证"没有被误登记"：连续调用二十次每次都读到同一份，调用方没有提前把它析构掉。
-// （这一段每圈仍留 16 字节——那是值类型实参在调用点拷出来的那一块，属于另一类，见每圈增长表。）
+// （这一段每轮仍留 16 字节——那是值类型实参在调用点拷出来的那一块，属于另一类，见每轮增长表。）
 func TestStructFieldReturnStaysUnproven(t *testing.T) {
 	const tmpl = `struct P {
     t:string
@@ -124,7 +124,7 @@ console.print(length(q.t))
 }
 
 // TestStructArgumentCopyIsFreedByCaller：值类型实参在调用点整份拷出来的那一块，
-// 登记为调用方一侧的持有者。两件事一起验证——每圈不多留（每圈增长表第 35 行核同一个数），
+// 登记为调用方一侧的持有者。两件事一起验证——每轮不多留（每轮增长表第 35 行核同一个数），
 // 而且被调方改的是它那一份副本，调用方的 `q` 保持不变（传参对值类型就是给它一份副本）。
 func TestStructArgumentCopyIsFreedByCaller(t *testing.T) {
 	const tmpl = `struct P {

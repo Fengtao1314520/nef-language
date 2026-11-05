@@ -153,7 +153,7 @@ export class Run {
         this.home_index = -1
         try {
             gone.close()
-        } catch (bad_code, bad_msg) {
+        } catch (bad_code, bad_msg, bad_at) {
             console.print("  组那一只页签关不掉：" + bad_msg)
         }
     }
@@ -233,7 +233,7 @@ export class Run {
         try {
             page.screenshot(stem + ".png")
             this.shot = stem + ".png"
-        } catch (bad_code, bad_msg) {
+        } catch (bad_code, bad_msg, bad_at) {
             this.shot = ""
             this.extra.add("截图没拿到：" + bad_msg)
         }
@@ -244,7 +244,7 @@ export class Run {
             }
             file.write(stem + ".txt", body)
             this.body_file = stem + ".txt"
-        } catch (bad_code2, bad_msg2) {
+        } catch (bad_code2, bad_msg2, bad_at2) {
             this.body_file = ""
             this.extra.add("整页文字没拿到：" + bad_msg2)
         }
@@ -318,7 +318,7 @@ export class Run {
         this.case_index = -1
         try {
             gone.close()
-        } catch (bad_code, bad_msg) {
+        } catch (bad_code, bad_msg, bad_at) {
             this.extra.add("这一页关不掉：" + bad_msg)
         }
     }
@@ -329,7 +329,7 @@ export class Run {
     // run.finish()
     method finish() {
         let total:int = this.passed + this.failed + this.skipped
-        let tally:string = "→ " + number.to_string(total) + " 条：过 " + number.to_string(this.passed) + "，挂 " + number.to_string(this.failed) + "，跳 " + number.to_string(this.skipped)
+        let tally:string = "→ " + number.to_string(total) + " 条：通过 " + number.to_string(this.passed) + "，失败 " + number.to_string(this.failed) + "，跳过 " + number.to_string(this.skipped)
         console.print(tally)
         console.print("报告 " + this.dir + "/report.jsonl")
         this.lines.add(tally)

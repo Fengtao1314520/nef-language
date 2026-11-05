@@ -53,7 +53,7 @@ console.print(a.h, bn.size.h, length(bn.title))
 
 let box:list<object> = []
 box.add(a as object)
-let one:object = box[0]
+let one:object = box.remove_at(0)
 console.print(one is Size)
 let back:Size = one as Size
 console.print(back.w, back.h)
@@ -177,9 +177,9 @@ console.print(t1 == t2, t1 == t3, t1 != t3, n1 == n2)
 //   - `let r:Row = Row { ... }`：初值就是当场新造的一块，不应再多拷一份。
 //   - `let q:Row = r`：这一拷是必要的（r 之后还要能用），拷出来的那一块归 `q`，名字到作用域尽头就析构。
 //
-// 两万圈实测：前一条修复前 480,160 字节（每圈一块），现在 160；两条一起写修复前 960,160，现在 184。
+// 两万圈实测：前一条修复前 480,160 字节（每轮一块），现在 160；两条一起写修复前 960,160，现在 184。
 // 还有一处早已存在、本轮未动：覆盖一个 struct 名字（`r = Row { ... }`）既不析构被覆盖的那一块、
-// 手上又多出一块，两万圈 960,160 字节（每圈 48）。
+// 手上又多出一块，两万圈 960,160 字节（每轮 48）。
 func TestStructCopiesAreOwned(t *testing.T) {
 	for _, one := range []struct{ name, src string }{
 		{"字面量接住", `

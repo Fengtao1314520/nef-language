@@ -52,7 +52,7 @@ import (
 	"neflang.org/nf/internal/x64"
 )
 
-// 内建错误的码。这一段放的是几条没归到某一组文件里的号，加上"兜底"那两个整十号；
+// 内建错误的码。这一段放的是几条没归到某一组文件里的号，加上那两个整十的默认错误码；
 // 各组自己的号（41、51、60、61、71…）跟那条例程放在一起。
 // 一律 10000 往上：0～9999 留给程序自己写，两段隔开，程序写出的号不会被误认成内建号。
 //
@@ -64,7 +64,7 @@ import (
 const (
 	codeOverflow   = 10021 // 整数运算溢出
 	codeEmptyRange = 10020 // math.random 的范围是空的
-	codeCell       = 10030 // 容器与字符串那一段的兜底：眼下只有 bytes.new 收的那一个数用着它
+	codeCell       = 10030 // 容器与字符串那一段的默认错误码：眼下只有 bytes.new 收的那一个数用着它
 	codeIndex      = 10031 // 下标越界：容器与文本同一条
 	codeNoKey      = 10032 // dict 没有这个键
 	codeNoRoom     = 10091 // 向操作系统要不到内存
@@ -227,17 +227,33 @@ func Build() Blob {
 	b.routine("@winsock_start", winsockStart)
 	// @free 排在 @throw 之前：抛出那一条路要释放摘下来的处理器记录（@throw_walk call @free）。
 	b.routine("@free", free)
-	// 那一句"出错了（码）：话"：链走到空那一步与 nef.main 顶上那条兜底处理器两条路共用。
+	// 那一句"出错了（码）：话"：链走到空那一步与 nef.main 顶上那条默认处理器两条路共用。
 	b.routine("@put_errline", putErrline)
 	// 栈用完了那一条：每一帧开场比一次栈，掉到下限之下就跳进这里。
 	b.routine("@die_stack", dieStack)
-	// @throw 只做"把码与话存进静态那两个槽、往下走"，走路的是 @throw_walk：
-	// 帧内清理记录还完自己那一帧的释放要叫回 @throw_walk 接着往外走，所以它必须先编好。
+	// 调用链：@throw_walk 走到空链那一步与 nef.main 顶上那一段都叫它，把 @trace_build 当场
+	// 捕获的那一条链一帧一行打到标准输出；一项也没捕获到就一个字节也不发。
+	// 它要的 @write／@put_str／@put_space／@put_nl 都在更前面。
+	b.routine("@trace_print", tracePrint)
+	// 走路的是 @throw_walk：帧内清理记录还完自己那一帧的释放要叫回它接着往外走，
+	// 所以它排在叫它的那几条之前。
 	b.routine("@throw_walk", throwWalk)
-	b.routine("@throw", throw)
 	b.routine("@die", die)
-	// @alloc 要抛 10091 号，所以它排在 @throw 后面。
+	// @alloc 要抛 10091 号。那一条不叫 @throw：@throw 要捕获链，捕获链扩那一块时要 @alloc，
+	// 两条会绕成环，所以它自己把码与话摆进静态那两处、把链抹空再叫 @throw_walk（见 alloc 里那一处）。
 	b.routine("@alloc", alloc)
+	// @trace_build 当场捕获那一条链（一帧一项的地址），要 @alloc 与 @free（那串位置扩块时），
+	// 所以排在 @alloc 之后、要它的 @throw 之前。
+	b.routine("@trace_build", traceBuild)
+	// @trace_text 把捕获下来的那串排成一份文本：只有写了 `trace` 那一个名字的接住块会叫它，
+	// 它要 @alloc，所以也排在 @alloc 之后。
+	b.routine("@trace_text", traceText)
+	// @throw 只做"把码、话与抛出所在那一帧存进静态那三个位置、排好链、往下走"。
+	// @rethrow 走的是同一条路，只是这三样要从槽里重新摆一遍：`finally` 那一段里可能有调用，
+	// 每处可能抛出的操作都会把位置摆进那一个槽，原来那一条的位置就被盖掉了。
+	// 第三个入参 r8 是那份位置文本；运行期自己抛的几处说不出来，摆 0。
+	b.routine("@throw", throw)
+	b.routine("@rethrow", rethrow)
 	// struct 的整份拷贝：值类型每次交出都另起一块，标记照抄源的那一个
 	b.routine("@copy_block", copyBlock)
 	// `bytes` 那一档：三条都只要 @alloc 与 @throw，slice 要先有 bytes_new。
@@ -248,7 +264,7 @@ func Build() Blob {
 	b.routine("@bytes_slice", bytesSlice)
 	// 清单里那几块连着摆成一块新的，要先有 bytes_new。
 	b.routine("@bytes_join", bytesJoin)
-	// 处理器链：@throw_walk 识别它，接住块进出各挂一次，登记过东西的帧开场再挂一条帧内清理记录
+	// 处理器链：@throw_walk 识别它，接住块进出各附加一次，登记过东西的帧开场再附加一条帧内清理记录
 	b.routine("@push_handler", pushHandler)
 	b.routine("@push_abandon", pushAbandon)
 	b.routine("@pop_handler", popHandler)
@@ -571,7 +587,7 @@ const (
 	// 一档（63 档），往上才是 1024／2048／…／512 KiB 那 10 档。低段精确分档的理由：一档装 (u/2, u]
 	// 时同档里必然有两种尺寸，"余量 ≥16 才切"那一刀对**只差 8 字节的一对**（文本键那块
 	// 总 32、两字段的 class 那块总 24）切不动——小的一笔把大的那一块占用掉，下一笔要大的那块
-	// 时链上只剩小的，于是每圈多 bump 一块（实测 32／64 字节／圈，块全还进了链、水线照涨）。
+	// 时链上只剩小的，于是每轮多 bump 一块（实测 32／64 字节／轮，块全还进了链、实测水平照涨）。
 	freeExactClasses = 63                    // 总尺寸 16～512：一档一种尺寸
 	freeClasses      = freeExactClasses + 10 // 再加 1024／2048／…／512 KiB 那 10 档
 	freeExactMax     = 512                   // 低段的顶：超过它走翻倍那一段
@@ -580,7 +596,7 @@ const (
 	// freeSplitMin 是"大块切一刀"的门槛：余量至少要塞下一个新的块头（8）加一个挂链的地方（freeMinData）。
 	// 切不动就整块给出去——浪费封顶 16 字节，与档的大小无关（见 alloc 里那一段）。
 	freeSplitMin = 16
-	// FreeSentinel 写进已经挂上空闲链表那块头的类型字那个位置：重复释放时能被识别，变成空操作。
+	// FreeSentinel 写进已经加入空闲链表的那块头的类型字那个位置：重复释放时能被识别，变成空操作。
 	FreeSentinel = 0x68636565
 	// DestroyingTag 是"这一块正在被析构"：析构之前先把它写进同一个槽，于是绕回来的那一趟
 	// （同一块被两处指着、或者字段里指回自己）能被直接识别、跳过——环与菱形引用
@@ -646,6 +662,37 @@ func dataBytes() ([]byte, map[string]int) {
 	// 只有静态这两个槽跨得过这一串调用（接住块开头读的还是 rax／rdx，@throw_walk 实现前才摆进去）。
 	put("throwCode", make([]byte, 8))
 	put("throwMsg", make([]byte, 8))
+	// 抛出这一处的源码位置（`rpn.nf 6:16` 这样的一串文本）。运行期自己抛的那几处没有位置，
+	// @throw 把这个位置摆成 0；摆它的是用户代码里那条 SetPos（两条指令，见文件后面那段说明）。
+	// 接住块的第三个名字读的就是这个位置，默认那一句也把它附在消息后面。
+	put("throwAt", make([]byte, 8))
+	// 调用链那三个位置：用户代码第一个字节的地址、表的位置、表的项数。
+	// 都是开局那一步由用户代码自己写进来的（`internal/codegen/emit.go` 的 traceInit），
+	// 没有一次用户函数调用的程序里三个位置都是 0，@trace_build 看见 0 就一项也不捕获。
+	// traceRbp 是抛出那一步留下的帧位置：@throw 与 @rethrow 各自把自己调用方的 rbp 摆进来，
+	// 因为链要从抛出所在的那一帧往上走，而走路那一步的 rbp 已经不是它的了。
+	// traceRows 与 traceRowsN 是 @trace_build 当场捕获的那一串"每一项的地址"，traceAt 是最里
+	// 那一行的位置文本（只有抛出这一刻才知道）；traceRowsCap 是那串位置装得下几项，
+	// traceBusy 是捕获那一步的护栏：扩那一块时要不到内存会抛出第二条，不能让它套第二遍。
+	put("codeBase", make([]byte, 8))
+	put("traceBase", make([]byte, 8))
+	put("traceCount", make([]byte, 8))
+	put("traceRbp", make([]byte, 8))
+	put("traceRows", make([]byte, 8))
+	put("traceRowsN", make([]byte, 8))
+	put("traceRowsCap", make([]byte, 8))
+	put("traceAt", make([]byte, 8))
+	put("traceBusy", make([]byte, 8))
+	// 调试那一路的三个位置，只在开了调试信息那一趟有人写：
+	// dbgHost 是"宿主回调地址那一个位置的位置"（那一个位置在用户数据段里，由发射那一步开局把它的
+	// 地址摆进来；宿主自己只认用户数据段那半截，所以指针仍旧写在那一个位置里）；
+	// codeEnd 是用户代码之后的第一个字节——运行期例程那一整块从它开始，抛出这一步往外的帧链里，
+	// 返回地址小于它的第一个就是用户代码里的那一层；
+	// defaultHandler 是 nef.main 顶上那一条默认处理的落点，处理器链上只有它一条接住记录是运行期
+	// 自己挂的，问"这一次抛出有没有人接住"要把这一条排除掉。
+	put("dbgHost", make([]byte, 8))
+	put("codeEnd", make([]byte, 8))
+	put("defaultHandler", make([]byte, 8))
 	// cmdW 是给"在内存里直接跑"留的一个位置：宿主把这一号程序的参数摆成
 	// 宽字符写在这里，@args 看见它有内容就不去问 GetCommandLineW——不然拿到的是
 	// 编译器的命令行，里面带着 `run 文件.nf` 这两段。
@@ -656,6 +703,11 @@ func dataBytes() ([]byte, map[string]int) {
 	put("sNL", []byte("\n"))
 	put("sErrHead", []byte("出错了（"))
 	put("sErrMid", []byte("）："))
+	// 位置那一段只在 @throw_at 摆进来过位置时才打印：「（在 rpn.nf 6:16）」。
+	put("sAtHead", []byte("（在 "))
+	put("sAtTail", []byte("）"))
+	// 调用链每一行前面的四个空格：那一句"出错了…"顶格，链在它下面一行一行缩进。
+	put("sTraceIndent", []byte("    "))
 	// 一条只有测试用得上的自检：设了环境变量 NEF_HEAP 的程序在退出前打印一行 "heap <字节数>"，
 	// 报的是向堆要过的总量（见 @heap_report）。语言面没有这个函数，也不看程序的输出——
 	// 它只在环境变量设了的时候才打印，没设的时候 @heap_report 不做任何输出。
@@ -670,7 +722,7 @@ func dataBytes() ([]byte, map[string]int) {
 	// @list_at 自己就要抛 10031 号，所以这句也得是字符串对象——写运行期例程的人不必
 	// 先学会降级那一层怎么备消息。
 	put("sIndex", strObject("下标越界"))
-	// bytes.new 收的那一个数是负的（10030 号，容器那一段的兜底）
+	// bytes.new 收的那一个数是负的（10030 号，容器那一段的默认错误码）
 	put("sBytesSize", strObject("bytes.new 要的字节数不能是负数"))
 	put("sNoKey", strObject("没有这个键"))
 	put("sNotNum", strObject("文本读不成数字"))
@@ -821,9 +873,12 @@ func (b *rt) leaRIP(reg int, name string) {
 func (b *rt) put(n, reg int) { b.a.MovStore(x64.RBP, int32(-8*(n+1)), reg) }
 func (b *rt) get(reg, n int) { b.a.MovLoad(reg, x64.RBP, int32(-8*(n+1))) }
 
-// throwWith 发一次当场抛出：码与消息对象交给 @throw。
+// throwWith 发一次当场抛出：码与消息对象交给 @throw。位置不在这里给——
+// 运行期例程说不出源码在哪一行，接住块读的是用户代码摆进静态槽的最近一次位置。
 //
-// en: throwWith throws on the spot: the code and the message object are handed to @throw.
+// en: throwWith throws on the spot: the code and the message object are handed to @throw. No
+// position comes from here - a runtime routine cannot say which source line it is on, and the
+// catch block reads the last position user code put into that static slot.
 func (b *rt) throwWith(code int64, msgName string) {
 	b.a.MovImm(x64.RCX, code)
 	b.leaRIP(x64.RDX, msgName)
@@ -995,7 +1050,7 @@ func intChars(b *rt) {
 
 // @put_str(rcx=文本对象)：形状是「字节数 8 + 码点数 8 + UTF-8 字节」。
 //
-// 空句柄不在这里检查：@throw 自己也要用这一条印消息，两边互相 call 就成环了。
+// 空句柄不在这里检查：@throw 自己也要用这一条打印消息，两边互相 call 就成环了。
 // 判空由降级在那一次取用之前发（10092 号本来就是取用那一刻的检查）。
 //
 // en: @put_str (rcx = text object): the shape is "byte count 8 + code point count 8 + UTF-8
@@ -1115,7 +1170,7 @@ func putNL(b *rt) {
 // @heap_report()：设了环境变量 NEF_HEAP 才打印一行 "heap <字节数>\n"，否则不打印。
 //
 // 报的是 `heapCur - heapFrom`：向堆要过的总量。块还回空闲链表并不还给操作系统，所以这个数
-// 在接上复用之后读的是"峰值要过多少"——测试要比的正是这个：同样一万圈，每圈造完就还的那条
+// 在接上复用之后读的是"峰值要过多少"——测试要比的正是这个：同样一万轮，每轮造完就还的那条
 // 应该停在最初那一块附近，把造出来的东西一路留着的那条会一路撑出好几块新的。
 //
 // 问"这个环境变量设过没有"用不着把值取回来：传一个空缓冲、长度 0，返回的就是"要几个宽字符"
@@ -1198,7 +1253,7 @@ func heapReport(b *rt) {
 
 // @exit(rcx=退出码)：返回操作系统。
 //
-// 先走一遍 @heap_report：没设 NEF_HEAP 的话那一句就是"跳过去"，正常的退出路径不多印任何东西。
+// 先走一遍 @heap_report：没设 NEF_HEAP 的话那一句就是"跳过去"，正常的退出路径不多打印任何东西。
 //
 // en: @exit (rcx = exit code): returns to the operating system. @heap_report runs first:
 // without NEF_HEAP that step is just "skip", so a normal exit prints nothing extra.
@@ -1216,24 +1271,171 @@ func exitProc(b *rt) {
 	b.epilogue()
 }
 
-// @throw(rcx=码, rdx=消息对象)：把这两样存进静态那两个槽，然后交给 @throw_walk 往外走。
+// dbgTrap 摆在 @throw 与 @rethrow 里、链已经捕获之后：这一次抛出没人接住，就问一句宿主停不停。
+//
+// 三步都不在正常调用路径上（发一次抛出多几条指令，函数开场与调用点仍旧一条也不多）：
+// 一，宿主那一个位置没写过——不是调试那一趟编的程序，或者回调地址还没摆进来——整段跳过；
+// 二，处理器链上找得着一条**不是顶上那一条默认处理**的接住记录，就是这一层之上有人接，问也不问；
+// 三，剩下的才是没人接住：沿帧链往外，找那一个返回地址落在用户代码里（小于 codeEnd）的层，
+// 把它的返回地址与那一帧的帧基一起交给宿主。宿主拿返回地址查现成的检查点表就得到抛出那一句的
+// 位置与函数名，栈与局部量都从那一帧往上读——停在抛出那一刻，中间那几帧还没被复用。
+//
+// 为什么在 @throw 里问而不是在默认处理那一段里问：走到那一段时栈已经一帧一帧摆回外面了，
+// 抛出去那几帧住过的内存被清理代码接着用，读回来的是别人的值（@trace_build 头上记的就是这一条）。
+// 一条抛出只问得出一次：只写 `try / finally` 的那一层挂的也是接住记录（落点是收尾那一段的开头），
+// @throw 那一步看见它就不问；走到那一层时记录已经摘掉，跑完收尾由 @rethrow 再问这一遍，
+// 那一次链上只剩默认处理，于是停得下来。
+//
+// en: dbgTrap is placed inside @throw and @rethrow after the chain has been captured: when
+// nobody catches this throw, ask the host whether to stop. None of the three steps sits on a
+// normal call path. First, if that host position was never written (this program was not built
+// with debug information, or the callback has not been placed yet) the whole stretch is skipped.
+// Second, if the handler chain carries a catch record that is NOT the default one nef.main hangs
+// on top, somebody above does catch it and nothing is asked. Third - what is left is a throw
+// nobody catches - so walk the frames outward to the first layer whose return address lies
+// inside user code (below codeEnd) and hand the host that address together with that frame's
+// base: the address looks the existing checkpoint table up, which gives the throwing statement's
+// position and function name, and the stack and its locals are read from that frame upward,
+// because the frames the throw passes through are still intact at this moment. The question is
+// asked here rather than in the default handler because by then the stack has been rewound
+// layer by layer and the cleanup code has reused the frames (the note at @trace_build). One
+// throw asks only once: a `try / finally` layer without a `catch` hangs a catch record too -
+// its target is the start of that cleanup stretch - so @throw sees it and stays quiet; when
+// @rethrow sends the same error onward that record has come off the chain, the default handler
+// is all that is left, and the ask lands there.
+func dbgTrap(b *rt) {
+	a := b.a
+	skip := b.label()
+	b.loadRIP(x64.RAX, "dbgHost")
+	a.Test(x64.RAX, x64.RAX)
+	a.Jcc(x64.E, skip)
+	a.MovLoad(x64.R10, x64.RAX, 0) // 宿主的回调地址
+	a.Test(x64.R10, x64.R10)
+	a.Jcc(x64.E, skip)
+	// 有人接住就不问：链上一条接住记录，落点不是顶上那一条默认处理的，就是用户写的 catch。
+	b.loadRIP(x64.R11, "defaultHandler")
+	b.loadRIP(x64.RDX, "hTop")
+	head := b.label()
+	step := b.label()
+	caught := b.label()
+	ask := b.label()
+	a.Mark(head)
+	a.Test(x64.RDX, x64.RDX)
+	a.Jcc(x64.E, ask) // 走到链尾：一路没人接住
+	a.MovLoad(x64.RAX, x64.RDX, hndKind)
+	a.Test(x64.RAX, x64.RAX)
+	a.Jcc(x64.NE, step) // 帧内清理记录不是接住块：往外一条
+	a.MovLoad(x64.RAX, x64.RDX, hndTarget)
+	a.Cmp(x64.RAX, x64.R11)
+	a.Jcc(x64.NE, caught)
+	a.Mark(step)
+	a.MovLoad(x64.RDX, x64.RDX, hndNext)
+	a.Jmp(head)
+	a.Mark(caught)
+	a.Jmp(skip)
+	// 没人接住：往外找落在用户代码里的那一层。运行期例程自己那一头的返回地址不在检查点表里，
+	// 宿主查不出位置，所以要越过它们；帧指针链往外走的规矩与 @trace_build 那一段相同。
+	a.Mark(ask)
+	b.loadRIP(x64.RAX, "codeEnd")
+	a.Mov(x64.R11, x64.RBP)
+	a.MovFromTeb(x64.R9, TebStackBase)
+	fHead := b.label()
+	fHit := b.label()
+	a.Mark(fHead)
+	a.MovLoad(x64.RDX, x64.R11, 8)
+	a.Cmp(x64.RDX, x64.RAX)
+	a.Jcc(x64.B, fHit)
+	a.MovLoad(x64.R11, x64.R11, 0)
+	a.Test(x64.R11, x64.R11)
+	a.Jcc(x64.E, skip)
+	a.Cmp(x64.R11, x64.R9)
+	a.Jcc(x64.AE, skip) // 超出这一段的栈：链读过了头，不再往外走
+	a.Jmp(fHead)
+	a.Mark(fHit)
+	a.MovLoad(x64.R8, x64.R11, 0) // 抛出所在那一层的帧基
+	a.MovImm(x64.RCX, DbgThrowID)
+	a.AddImm(x64.RSP, -32) // 宿主那一头按 Windows 的调用约定要 32 字节的影子空间
+	a.CallReg(x64.R10)
+	a.AddImm(x64.RSP, 32)
+	a.Mark(skip)
+}
+
+// @throw(rcx=码, rdx=消息对象)：把这两样存进静态那两个槽，再把抛出所在那一帧的位置存进
+// 调用链那一个位置，当场捕获那一条链（@trace_build），没人接住时问一句宿主（dbgTrap），
+// 然后交给 @throw_walk 往外走。
 //
 // 先存再走的理由：往下是一帧一帧地走，每一帧的垫子都 call 出去，寄存器活不过第一站。
+// 帧位置存的是自己调用方的 rbp，链也在走路之前捕获下来：往下走一步栈就摆回外面那一层，
+// 抛出去那几帧住过的内存接着被别的帧复用，那时候再读回来的是别人的返回地址。
 //
-// en: @throw (rcx = code, rdx = message object): stores both in the two static slots and hands
-// them to @throw_walk to unwind. Store before walking because the walk goes frame by frame
-// and each frame's padding calls out, so registers do not survive the first stop.
+// en: @throw (rcx = code, rdx = message object): stores both in the two static slots, stores the
+// frame the throw happened in, builds the chain text on the spot (@trace_build), then hands over
+// to @throw_walk to unwind. Store before walking because the walk goes frame by frame and each
+// frame's padding calls out, so registers do not survive the first stop. The frame saved is the
+// caller's rbp, and the text is laid out before the walk: one step further and the stack is
+// rewound to the layer outside, so the frames the throw passed through get reused and reading
+// them back would give someone else's return address.
 func throw(b *rt) {
+	a := b.a
 	b.prologue()
+	a.MovLoad(x64.RAX, x64.RBP, 0) // 抛出在哪一帧：这一帧的 rbp 是调用方进来时摆下的
+	b.storeRIP(x64.RAX, "traceRbp")
 	b.storeRIP(x64.RCX, "throwCode")
 	b.storeRIP(x64.RDX, "throwMsg")
+	b.call("@trace_build")
+	dbgTrap(b)
 	b.call("@throw_walk")
 	b.epilogue()
 }
 
-// @put_errline(rcx=码, rdx=消息对象)：印那句"出错了（码）：话"，末尾一个换行。
+// @rethrow(rcx=码, rdx=消息对象, r8=位置文本)：把这三样摆回静态那三个位置，再交给 @throw_walk 往外走。
 //
-// 两条路共用它：@throw_walk 走到空链那一步（兜底那条也没人接的最后一次），以及 nef.main 顶上
+// 走的是 @throw 那一条路，区别在三样都要重新摆：`finally` 那一段里每处可能抛出的操作都会把自己
+// 那一个位置摆进位置那一个槽，接住时拿到的那一份位置就在段里被盖掉了，码与话也一样——那一段里
+// 一次 `console.print` 就会把 rax／rdx 用过。链也在这一处重新捕获：从收尾那一段所在的那一帧往外，
+// 最里那一行的位置用的是重新抛出时传进来的那一个。
+//
+// en: @rethrow (rcx = code, rdx = message object, r8 = position text): puts all three back into the
+// static slots and hands them to @throw_walk. It walks the same road as @throw, except that all
+// three have to be set again: every operation inside the `finally` stretch that might throw writes
+// its own position into that slot, so the position taken at the catch has been overwritten - and
+// the same goes for the code and the message, since one console.print in that stretch uses rax/rdx.
+// The chain is laid out at this point too, outward from the frame the `finally` stretch lives in,
+// with the position handed back for the innermost row.
+func rethrow(b *rt) {
+	a := b.a
+	b.prologue()
+	a.MovLoad(x64.RAX, x64.RBP, 0) // 重新抛出所在的那一帧，理由与 @throw 那一句相同
+	b.storeRIP(x64.RAX, "traceRbp")
+	b.storeRIP(x64.RCX, "throwCode")
+	b.storeRIP(x64.RDX, "throwMsg")
+	b.storeRIP(x64.R8, "throwAt")
+	b.call("@trace_build")
+	dbgTrap(b)
+	b.call("@throw_walk")
+	b.epilogue()
+}
+
+// 抛出位置那一个静态槽由用户代码自己写（中间码里那条 SetPos，两条指令：取地址与一次直接写入），
+// 运行期这边只读它。谁来摆、摆成什么，写在下面这几处：六种当场抛的那几处摆的是自己那一个
+// 节点的位置，标准库动作摆的是那一次调用的位置。运行期例程自己不说位置，它抛出去时接住块
+// 读到的就是那一个槽里最近的一次——所以「下标越界」「没有这个键」报的是写下标那一步，
+// `net.connect` 失败与要不到内存报的是那一次调用；只有栈用完（10093）这一条明摆成 0，
+// 因为掉下去的位置是每一帧开场那一次比较，不是哪一个动作。
+//
+// en: The throw-position slot is written by user code itself (the SetPos instruction in the
+// intermediate code - two instructions, take the address and store it straight); the runtime only
+// reads it. Who sets it, and to what, is described below: the six the language raises on the spot
+// write their own node's position, a standard-library action writes that call site. A runtime
+// routine never names a position of its own, so whatever this slot last held is what the catch
+// block reads - "index out of range" and "no such key" therefore report the step that wrote the
+// subscript, and a failed `net.connect` or a failed allocation reports that call. The one case
+// that is explicitly written as 0 is the exhausted stack (10093): where it falls is the
+// comparison at the top of every frame, not any particular action.
+
+// @put_errline(rcx=码, rdx=消息对象)：打印那句"出错了（码）：话"，末尾一个换行。
+//
+// 两条路共用它：@throw_walk 走到空链那一步（默认那一条也没人接的最后一次），以及 nef.main 顶上
 // 那条处理器接住之后——没人接的抛出也要走顶层那份记录。
 //
 // en: @put_errline (rcx = code, rdx = message object): prints the "error (code): message"
@@ -1259,7 +1461,569 @@ func putErrline(b *rt) {
 	b.call("@write")
 	b.get(x64.RCX, 1)
 	b.call("@put_str")
+	// 抛出那一步带着位置文本时才添上「（在 rpn.nf 6:16）」这一段：
+	// 槽里是 0（运行期自己抛的那几处）或那一段文本是空的，都照样只打印原来那一句。
+	at := b.label()
+	b.loadRIP(x64.RCX, "throwAt")
+	a.Test(x64.RCX, x64.RCX)
+	a.Jcc(x64.E, at)
+	a.MovLoad(x64.RAX, x64.RCX, 0)
+	a.Test(x64.RAX, x64.RAX)
+	a.Jcc(x64.E, at)
+	b.put(2, x64.RCX)
+	b.leaRIP(x64.RCX, "sAtHead")
+	a.MovImm(x64.RDX, int64(len("（在 ")))
+	b.call("@write")
+	b.get(x64.RCX, 2)
+	b.call("@put_str")
+	b.leaRIP(x64.RCX, "sAtTail")
+	a.MovImm(x64.RDX, int64(len("）")))
+	b.call("@write")
+	a.Mark(at)
 	b.call("@put_nl")
+	b.epilogue()
+}
+
+// 调用链表那一项的布局。排这张表的是发码那一步（`internal/codegen` 的 buildTrace），
+// 读它的是这里的 @trace_print，两边共用下面这几个数，改布局只改一处。
+// 后三个位置存的不是地址，而是从表起点算起的字节差——数据段里没有指针型重定位可用，
+// 理由与形状表那一段相同：先拿到表的地址，再加差值。
+//
+// en: Layout of one row of the call-trace table. Emission lays the table out (buildTrace in
+// internal/codegen) and @trace_print here reads it, so both sides take these numbers from one
+// place. The last three slots store byte differences measured from the start of the table rather
+// than addresses - the data section has no pointer relocations, for the same reason the shape
+// table gives: take the table's address once, then add the difference.
+const (
+	TraceRowSize = 32 // 一项的字节数
+	TraceCode    = 0  // 返回地址在用户代码里的偏移
+	TracePos     = 8  // 调用点的位置文本，例：`main.nf 12:9`
+	TraceCaller  = 16 // 调用者的名
+	TraceCallee  = 24 // 被调者的名
+)
+
+// TebStackBase 是线程控制块里"这一段的栈基"那个位置（NT_TIB 的第二格，8 字节指针）。
+// 立栈底的那一步用它（`internal/codegen` 的 StackFloorSet），运行期沿帧链往外走时也拿它
+// 比一次：帧指针链读过了头不能走到别处的内存里去。
+//
+// en: TebStackBase is the "stack base of this segment" position inside the thread control block
+// (the second slot of NT_TIB, an 8-byte pointer). The step that sets the stack floor uses it
+// (StackFloorSet in internal/codegen), and the runtime compares against it while walking the
+// frame chain outward: a frame-pointer chain read past its end must not wander into someone
+// else's memory.
+const TebStackBase = 0x08
+
+// DbgThrowID 是"抛出那一步"那一次问宿主时用的号。检查点的号从 1 起、一个程序最多几千条，
+// 这一个数是 2 的三十次方，与它们撞不上；宿主那头（`internal/debug`）按同一个常量认出这一种问话。
+// 放在运行期这一侧是因为发射那一路与运行期都只认这一个定义。选得下 32 位也是有意的：
+// 那一个号在 Go 那一侧要当 int 用，两边都得装得下。
+//
+// en: DbgThrowID is the number used when the throw asks the host. Checkpoint numbers start at 1
+// and a program has at most a few thousand of them, so this one - two to the thirtieth - cannot
+// collide; the host side (internal/debug) recognises that question by the same constant. It is
+// defined here because both the emit path and the runtime take the single definition from this
+// side. Fitting into 32 bits is deliberate: the host uses that number as an int.
+const DbgThrowID = 1 << 30
+
+// traceFind 摆一段现扫表的代码：进来时 rcx 是栈上那一个返回地址，出去时 rax 是表里对应那一项
+// 的地址，表里没有就返回 0（那是走出了用户代码）。查找一条一条比：表只有调用点那么多个条目，
+// 这一条又是冷路径（只在没人接住的抛出上跑一次），几百项比下来几微秒，屏上打印比它慢得多。
+//
+// en: traceFind emits an inline scan of the table: rcx carries the return address taken off the
+// stack, rax leaves with the matching row or 0 when the table has none (the walk has left user
+// code). The scan is a straight comparison over every row: the table holds one row per call site,
+// this is a cold path that runs once per uncaught throw, and a few hundred rows take microseconds
+// - printing to the screen is far slower.
+func traceFind(b *rt) {
+	a := b.a
+	b.loadRIP(x64.RAX, "codeBase")
+	a.Sub(x64.RCX, x64.RAX) // rcx = 返回地址在用户代码里的偏移
+	b.loadRIP(x64.RAX, "traceBase")
+	a.Mov(x64.R8, x64.RAX)  // 游标：现在看的那一项
+	a.Mov(x64.R11, x64.RAX) // 表尾之后那个位置
+	b.loadRIP(x64.RAX, "traceCount")
+	a.ShlImm(x64.RAX, 5) // 一项 32 字节
+	a.Add(x64.R11, x64.RAX)
+	loop := b.label()
+	miss := b.label()
+	hit := b.label()
+	a.Mark(loop)
+	a.Cmp(x64.R8, x64.R11)
+	a.Jcc(x64.AE, miss)
+	a.MovLoad(x64.R10, x64.R8, TraceCode)
+	a.Cmp(x64.R10, x64.RCX)
+	a.Jcc(x64.E, hit)
+	a.AddImm(x64.R8, TraceRowSize)
+	a.Jmp(loop)
+	a.Mark(miss)
+	a.Xor(x64.R8, x64.R8)
+	a.Mark(hit)
+	a.Mov(x64.RAX, x64.R8)
+}
+
+// @trace_build、@trace_print 与 @trace_text 那一帧里各位置的号。
+//
+// en: The frame slots the three call-trace routines work out of.
+const (
+	trRbp   = 0  // 捕获：现在站在哪一帧
+	trN     = 1  // 捕获：已经存进那串位置的项数
+	trCap   = 2  // 捕获：那一串位置装得下几项
+	trNew   = 3  // 捕获：扩出来的那一块
+	trRow   = 4  // 打印与排文本：现在读的那一项
+	trIter  = 5  // 打印与排文本：往外读到第几项
+	trBytes = 6  // 排文本：量出来的总字节数
+	trRunes = 7  // 排文本：总码点数
+	trBlock = 8  // 排文本：向堆要到的那一块
+	trPos   = 9  // 这一行的位置文本（0 表示说不出位置）
+	trName  = 10 // 这一行的函数名
+	trWiden = 11 // 捕获：扩出来那一块能装几项
+	trFound = 12 // 捕获：刚查到的那一项（扩块要 call 出去，先留着）
+)
+
+// tracePieces 摆出这一行要用到的两块文本：位置与函数名，落进 trPos 与 trName 那两个位置。
+// 进来时 trRow 得是捕获下来的那一项。inner 只用在最里那一行——那一项说的是
+// "谁调进了抛出所在的那一帧"，那一帧内部跑到哪一行只在捕获时记下的 traceAt 里，
+// 名字那一边也跟着换：最里那一行取被调者（抛出所在的那一个函数），往外的每一行取调用者。
+//
+// en: tracePieces lays out the two texts one row needs - the position and the function name -
+// into the trPos and trName slots; trRow must hold the captured row on entry. inner is used only
+// for the innermost row: that row says who called INTO the throwing frame, while where inside
+// that frame the throw landed is only in traceAt, noted down while capturing. The name follows the
+// same split: the innermost row takes the callee (the function the throw happened in), every row
+// outward takes the caller.
+func tracePieces(b *rt, inner bool) {
+	a := b.a
+	if inner {
+		b.loadRIP(x64.RAX, "traceAt")
+		b.put(trPos, x64.RAX)
+	} else {
+		b.get(x64.RAX, trRow)
+		a.MovLoad(x64.RCX, x64.RAX, TracePos)
+		b.loadRIP(x64.RAX, "traceBase")
+		a.Add(x64.RCX, x64.RAX)
+		b.put(trPos, x64.RCX)
+	}
+	cell := int32(TraceCaller)
+	if inner {
+		cell = TraceCallee
+	}
+	b.get(x64.RAX, trRow)
+	a.MovLoad(x64.RCX, x64.RAX, cell)
+	b.loadRIP(x64.RAX, "traceBase")
+	a.Add(x64.RCX, x64.RAX)
+	b.put(trName, x64.RCX)
+}
+
+// traceAddLen 把某一个帧位置指着的文本对象的长度（字节数还是码点数由 cell 说）
+// 累进另一个帧位置的计数。
+//
+// en: traceAddLen adds one text object's length - byte count or code point count, by cell -
+// into the counter kept in another slot.
+func traceAddLen(b *rt, objSlot, cell, accSlot int) {
+	a := b.a
+	b.get(x64.RAX, objSlot)
+	a.MovLoad(x64.RDX, x64.RAX, int32(cell))
+	b.get(x64.RAX, accSlot)
+	a.Add(x64.RAX, x64.RDX)
+	b.put(accSlot, x64.RAX)
+}
+
+// traceAddConst 把一个定长加进某一个帧位置的计数。
+//
+// en: traceAddConst adds a fixed amount to the counter kept in a slot.
+func traceAddConst(b *rt, accSlot, n int) {
+	a := b.a
+	b.get(x64.RAX, accSlot)
+	a.AddImm(x64.RAX, int32(n))
+	b.put(accSlot, x64.RAX)
+}
+
+// traceMeasureLine 累加这一行的长度：四个缩进的空格与末尾的换行是定死的五个字节，
+// 位置说得出就再加上它自己的长度与中间那一个空格，名字总是加它自己的长度。
+//
+// en: traceMeasureLine adds this row's length: the four indent spaces and the trailing newline
+// are always five bytes, a position that can be named adds its own length plus the space between,
+// and the name always adds its own length.
+func traceMeasureLine(b *rt) {
+	a := b.a
+	traceAddConst(b, trBytes, 5)
+	traceAddConst(b, trRunes, 5)
+	noPos := b.label()
+	b.get(x64.RAX, trPos)
+	a.Test(x64.RAX, x64.RAX)
+	a.Jcc(x64.E, noPos)
+	traceAddLen(b, trPos, StrBytes, trBytes)
+	traceAddLen(b, trPos, StrCount, trRunes)
+	traceAddConst(b, trBytes, 1)
+	traceAddConst(b, trRunes, 1)
+	a.Mark(noPos)
+	traceAddLen(b, trName, StrBytes, trBytes)
+	traceAddLen(b, trName, StrCount, trRunes)
+}
+
+// traceCopyRun 摆一段逐字节抄写的循环：源在 rsi，落点在 rdi，条数在 rcx，三个都当场往前挪。
+// 与 @str_cat 里那一段同一个形状：中间一个 call 都没有，所以值留在寄存器里就行。
+//
+// en: traceCopyRun emits a byte-by-byte copy loop: source in rsi, destination in rdi, remaining
+// count in rcx, all three advanced as it goes. Same shape as the one inside @str_cat: no call
+// happens in between, so the values can stay in registers.
+func traceCopyRun(b *rt) {
+	a := b.a
+	one := b.label()
+	done := b.label()
+	a.Mark(one)
+	a.Test(x64.RCX, x64.RCX)
+	a.Jcc(x64.E, done)
+	a.MovZX8(x64.RAX, x64.RSI, 0)
+	a.MovStore8(x64.RDI, 0, x64.RAX)
+	a.AddImm(x64.RSI, 1)
+	a.AddImm(x64.RDI, 1)
+	a.AddImm(x64.RCX, -1)
+	a.Jmp(one)
+	a.Mark(done)
+}
+
+// traceFillLine 把这一行抄进块里："    位置 函数名" 再一个换行。落点全程留在 rdi，
+// 这一趟中间一个 call 都没有（要内存那一步早在抄字之前就走完了）。
+//
+// en: traceFillLine writes this row into the block: four spaces, "position name", a newline. The
+// destination stays in rdi for the whole pass, which makes no call at all - the allocation
+// happened before the copying started.
+func traceFillLine(b *rt) {
+	a := b.a
+	b.leaRIP(x64.RSI, "sTraceIndent")
+	a.MovImm(x64.RCX, int64(len("    ")))
+	traceCopyRun(b)
+	skipPos := b.label()
+	b.get(x64.RAX, trPos)
+	a.Test(x64.RAX, x64.RAX)
+	a.Jcc(x64.E, skipPos)
+	a.Mov(x64.RSI, x64.RAX)
+	a.MovLoad(x64.RCX, x64.RSI, StrBytes)
+	a.AddImm(x64.RSI, 16)
+	traceCopyRun(b)
+	b.leaRIP(x64.RSI, "sSpace")
+	a.MovImm(x64.RCX, 1)
+	traceCopyRun(b)
+	a.Mark(skipPos)
+	b.get(x64.RSI, trName)
+	a.MovLoad(x64.RCX, x64.RSI, StrBytes)
+	a.AddImm(x64.RSI, 16)
+	traceCopyRun(b)
+	b.leaRIP(x64.RSI, "sNL")
+	a.MovImm(x64.RCX, 1)
+	traceCopyRun(b)
+}
+
+// traceEachLine 从头到尾走一遍捕获下来的那串位置，一行一次调用 body。行数是项数加一：
+// 最里那一行用那串位置的第一项与被调者名（位置用捕获时记下的那一个），往外的每一行用
+// 那一项记下的调用点位置与调用者名，所以链上每一行都是"这个函数跑到哪一行了"。
+// 进来时 traceRowsN 至少是 1（@trace_print 与 @trace_text 先比过这个位置）。
+// body 是 Go 这一侧的参数：打出去、量长度、还是抄进块里。
+//
+// en: traceEachLine walks the captured rows once and calls body for every line. The line count is
+// one more than the row count: the innermost line takes the first row's callee (its position is
+// the one noted while capturing), and every line outward takes the call-site position and the
+// caller name that row recorded, so each line reads "how far this function got". traceRowsN must
+// be at least 1 on entry (@trace_print and @trace_text compare that slot first). body is the
+// Go-side parameter: print the line, measure it, or copy it into the block.
+func traceEachLine(b *rt, body func(inner bool)) {
+	a := b.a
+	b.loadRIP(x64.RAX, "traceRows") // 最里那一行读第 0 项
+	a.MovLoad(x64.RAX, x64.RAX, 0)
+	b.put(trRow, x64.RAX)
+	body(true)
+	a.Xor(x64.RAX, x64.RAX)
+	b.put(trIter, x64.RAX) // 往外：读到第 iter 项
+	loop := b.label()
+	end := b.label()
+	a.Mark(loop)
+	b.get(x64.RDX, trIter)
+	b.loadRIP(x64.RAX, "traceRowsN")
+	a.Cmp(x64.RDX, x64.RAX)
+	a.Jcc(x64.AE, end)
+	b.loadRIP(x64.RAX, "traceRows")
+	b.get(x64.RDX, trIter)
+	a.ShlImm(x64.RDX, 3) // 一项一个位置，8 字节
+	a.Add(x64.RAX, x64.RDX)
+	a.MovLoad(x64.RAX, x64.RAX, 0)
+	b.put(trRow, x64.RAX)
+	body(false)
+	b.get(x64.RDX, trIter)
+	a.AddImm(x64.RDX, 1)
+	b.put(trIter, x64.RDX)
+	a.Jmp(loop)
+	a.Mark(end)
+}
+
+// traceEmitLine 把这一行打出去：四个空格、位置（说得出来才打）、一个空格、函数名、换行。
+// 每 call 一次都把要用值重新取进寄存器：打印那一路的寄存器活不过一次调用。
+//
+// en: traceEmitLine prints this line: four spaces, the position when there is one to name, a
+// space, the function name, a newline. Every value is re-loaded before each call, because the
+// registers of the printing path do not survive one.
+func traceEmitLine(b *rt) {
+	a := b.a
+	b.leaRIP(x64.RCX, "sTraceIndent")
+	a.MovImm(x64.RDX, int64(len("    ")))
+	b.call("@write")
+	skipPos := b.label()
+	b.get(x64.RCX, trPos)
+	a.Test(x64.RCX, x64.RCX)
+	a.Jcc(x64.E, skipPos)
+	b.call("@put_str")
+	b.call("@put_space")
+	a.Mark(skipPos)
+	b.get(x64.RCX, trName)
+	b.call("@put_str")
+	b.call("@put_nl")
+}
+
+// @trace_build()：抛出这一步当场沿帧往外走一遍，把走到的每一帧对应的那一项的地址
+// 存进一串位置（静态的 traceRows 指过去的那一块），项数记进 traceRowsN，
+// 最里那一行的位置记进 traceAt。屏幕上那一段（@trace_print）与接住块的第四个名字
+// （@trace_text）读的都是这一串。
+//
+// 为什么要在 @throw 与 @rethrow 里当场做，而不是打印的时候再走一遍帧：往下走一步，栈就摆回
+// 外面那一层了，抛出去那几帧住过的内存接着被 @throw_walk、@put_errline 与中间帧的清理代码复用，
+// 那时候再读 [rbp+8] 读回来的是别人的返回地址（实测：一条三层的路径上，中间那一帧的账还完
+// 之后才打印，那个位置里写的是清理代码 call 出去的位置）。这里只抄下地址那么多个数，
+// 位置与名字仍旧从数据段那张表里读，它们不会变。
+//
+// 抛出来自运行期自己那几条例程（下标越界那一族）时，那几帧不在表里——它们说不出自己在源码
+// 哪一行，往外跳过它们，抄到用户代码那几层为止。往外走的每一步都比两次：外面那一帧的 rbp
+// 要比里层那一个大（栈从高往低长），又不能超过这一段的栈基，帧指针链读过了头也不会走到
+// 别处的内存里去。
+//
+// 那一串位置整个程序只留一块：装不下就换一块大的、把已经抄的搬过去、旧的当场还掉，
+// 所以一条抛出去一次的循环不会一圈漏一块（钉在 `internal/lower` 的堆用量那一条）。
+// 要不到内存时不硬拼：@alloc 自己抛 10091 号，那一次抛出走到这里时护栏已经举着，直接返回，
+// traceRowsN 停在 0——屏幕上就只有"出错了…"那一行，报"我为什么停下来"这件事本身
+// 不再因为要内存而停。
+//
+// en: @trace_build(): on the throw itself, walk outward along the frames and store the address of
+// the table row found for every frame into a run of slots (the block traceRows points at), with
+// the count in traceRowsN and the innermost line's position in traceAt. @trace_print (the screen)
+// and @trace_text (the catch block's fourth name) both read that run.
+//
+// Why this happens inside @throw and @rethrow rather than at printing time: one step further and
+// the stack is rewound to the layer outside, so the frames the throw passed through get reused by
+// @throw_walk, @put_errline and the cleanup code of the frames in between - reading [rbp+8] then
+// gives someone else's return address (measured: on a three-deep path, printing after the middle
+// frame's ledger had been returned showed the position its cleanup code had called from). Only
+// addresses are copied here; the positions and names are still read from the table in the data
+// section, which cannot change.
+//
+// One block of slots serves the whole program: when it fills up a larger one takes its place, the
+// rows already captured move over and the old block is returned on the spot, so a loop that throws
+// once per round does not leak one block per round (pinned by the heap-usage test in
+// internal/lower). When memory cannot be had nothing is forced: @alloc throws code 10091, that
+// throw reaches here with the guard already up, returns immediately and leaves traceRowsN at 0 -
+// the screen then shows only the "error" line, since reporting why the program stopped must not
+// itself stop for want of memory.
+//
+// When the throw comes from one of the runtime's own routines (the index-out-of-range family)
+// those frames are absent from the table - they cannot name a source line - so the walk skips
+// outward past them and starts at the user-code layers. Every step outward is checked twice: the
+// caller's rbp must be larger than the one inside (the stack grows downward) and must stay below
+// this image's stack base, so a frame-pointer chain read past its end cannot wander into
+// someone else's memory.
+func traceBuild(b *rt) {
+	a := b.a
+	b.prologue()
+	reentry := b.label()
+	b.loadRIP(x64.RAX, "traceBusy")
+	a.Test(x64.RAX, x64.RAX)
+	a.Jcc(x64.NE, reentry)
+	a.MovImm(x64.RAX, 1)
+	b.storeRIP(x64.RAX, "traceBusy")
+	// 每一次抛出重头捕获：项数先归零，说不出来时屏幕上就一行也不打
+	a.Xor(x64.RAX, x64.RAX)
+	b.storeRIP(x64.RAX, "traceRowsN")
+	b.put(trN, x64.RAX)
+	b.loadRIP(x64.RAX, "traceRowsCap")
+	b.put(trCap, x64.RAX)
+	b.loadRIP(x64.RAX, "throwAt") // 最里那一行的位置：这一刻才知道，往外走就换掉了
+	b.storeRIP(x64.RAX, "traceAt")
+	unbusy := b.label()
+	// 三个位置都没写过（整个程序没有一次用户函数调用）就没有链可抄
+	b.loadRIP(x64.RAX, "traceCount")
+	a.Test(x64.RAX, x64.RAX)
+	a.Jcc(x64.E, unbusy)
+	b.loadRIP(x64.RAX, "traceBase")
+	a.Test(x64.RAX, x64.RAX)
+	a.Jcc(x64.E, unbusy)
+	b.loadRIP(x64.RAX, "traceRbp")
+	a.Test(x64.RAX, x64.RAX)
+	a.Jcc(x64.E, unbusy)
+	a.MovFromTeb(x64.RCX, TebStackBase)
+	a.Cmp(x64.RAX, x64.RCX)
+	a.Jcc(x64.AE, unbusy) // 那一个格子不在这一段的栈里：往外走会读到别处的内存
+	b.put(trRbp, x64.RAX)
+	frame := b.label()
+	out := b.label()
+	room := b.label()
+	advance := b.label()
+	a.Mark(frame)
+	// 这一帧对应的那一项
+	b.get(x64.RAX, trRbp)
+	a.MovLoad(x64.RCX, x64.RAX, 8)
+	traceFind(b)
+	notFound := b.label()
+	a.Test(x64.RAX, x64.RAX)
+	a.Jcc(x64.E, notFound)
+	b.put(trFound, x64.RAX) // 先留着：下面扩那一块要 call 出去，寄存器活不过那一步
+	// 装不下了就换一块大的：新的先要到手，已抄的搬过去，旧的当场还掉
+	b.get(x64.RDX, trCap)
+	b.get(x64.RAX, trN)
+	a.Cmp(x64.RAX, x64.RDX)
+	a.Jcc(x64.B, room)
+	b.get(x64.RAX, trCap)
+	doubled := b.label()
+	sized := b.label()
+	a.Test(x64.RAX, x64.RAX)
+	a.Jcc(x64.NE, doubled)
+	a.MovImm(x64.RAX, 64) // 头一次：64 项，一项一个位置
+	a.Jmp(sized)
+	a.Mark(doubled)
+	a.Add(x64.RAX, x64.RAX) // 往后每次翻倍
+	a.Mark(sized)
+	b.put(trWiden, x64.RAX)
+	a.ShlImm(x64.RAX, 3) // 一项一个位置，8 字节
+	a.Mov(x64.RCX, x64.RAX)
+	a.MovImm(x64.RDX, 0) // 这一块只住运行期自己的那串地址，没有语言里的类型
+	b.call("@alloc")
+	b.put(trNew, x64.RAX) // 新的一块
+	b.loadRIP(x64.RAX, "traceRowsCap")
+	a.Test(x64.RAX, x64.RAX)
+	firstUse := b.label()
+	a.Jcc(x64.E, firstUse) // 旧容量是 0：头一块，没有旧的要搬
+	b.loadRIP(x64.RSI, "traceRows")
+	b.get(x64.RDI, trNew)
+	b.get(x64.RCX, trN)
+	a.ShlImm(x64.RCX, 3)
+	traceCopyRun(b) // 已经抄下的那几项搬到新的一块里
+	b.loadRIP(x64.RCX, "traceRows")
+	b.call("@free") // 旧的一块当场还掉：整个程序最多只有这么一串位置
+	a.Mark(firstUse)
+	b.get(x64.RAX, trWiden)
+	b.storeRIP(x64.RAX, "traceRowsCap")
+	b.get(x64.RDX, trNew)
+	b.storeRIP(x64.RDX, "traceRows")
+	b.put(trCap, x64.RAX)
+	a.Mark(room)
+	b.loadRIP(x64.RDX, "traceRows") // 抄进第 n 个位置
+	b.get(x64.RCX, trN)
+	a.ShlImm(x64.RCX, 3)
+	a.Add(x64.RDX, x64.RCX)
+	b.get(x64.RAX, trFound)
+	a.MovStore(x64.RDX, 0, x64.RAX)
+	b.get(x64.RAX, trN)
+	a.AddImm(x64.RAX, 1)
+	b.put(trN, x64.RAX)
+	a.Jmp(advance)
+	// 表里没有这一帧的那一项。
+	// 一样都还没抄到：那是运行期自己那几帧（@list_at、@print 这些调用不在这张表里，
+	// 它们说不出自己在源码哪一行），往外接着找——下标越界那种抛出也要给出用户代码那几层。
+	// 已经抄到了：那就是走出了用户代码，最外面那一帧由运行期直接调用，链到这里为止。
+	a.Mark(notFound)
+	b.get(x64.RAX, trN)
+	a.Test(x64.RAX, x64.RAX)
+	a.Jcc(x64.NE, out)
+	a.Mark(advance)
+	b.get(x64.RDX, trRbp)
+	a.MovLoad(x64.RAX, x64.RDX, 0) // 外面那一帧的 rbp
+	a.Cmp(x64.RDX, x64.RAX)
+	a.Jcc(x64.AE, out) // 栈从高往低长：往外那一帧的位置一定更大，不大于就是读过了头
+	a.MovFromTeb(x64.RCX, TebStackBase)
+	a.Cmp(x64.RAX, x64.RCX)
+	a.Jcc(x64.AE, out) // 也不能高过这一段的栈基
+	b.put(trRbp, x64.RAX)
+	a.Jmp(frame)
+	a.Mark(out)
+	b.get(x64.RAX, trN)
+	b.storeRIP(x64.RAX, "traceRowsN")
+	a.Mark(unbusy)
+	a.Xor(x64.RAX, x64.RAX)
+	b.storeRIP(x64.RAX, "traceBusy")
+	b.epilogue()
+	// 套进来的那一次（扩那一块时要不到内存抛的 10091）不做第二份。护栏在这里就得放下：
+	// 外面那一次捕获不会再回来了——栈已经摆到别处，等它清就永远停着一个 1。
+	a.Mark(reentry)
+	a.Xor(x64.RAX, x64.RAX)
+	b.storeRIP(x64.RAX, "traceBusy")
+	b.epilogue()
+}
+
+// @trace_print()：把捕获下来的那一条链一帧一行打到标准输出上。
+// 一条也没捕获到（整个程序没有用户函数调用，或者抛出没经过 @throw）就一个字节也不发。
+//
+// en: @trace_print(): prints the captured chain, one line per frame, to standard output. Nothing
+// is emitted when nothing was captured (a program without a call of a user function, or a throw
+// that did not come through @throw).
+func tracePrint(b *rt) {
+	a := b.a
+	b.prologue()
+	done := b.label()
+	b.loadRIP(x64.RAX, "traceRowsN")
+	a.Test(x64.RAX, x64.RAX)
+	a.Jcc(x64.E, done)
+	traceEachLine(b, func(inner bool) {
+		tracePieces(b, inner)
+		traceEmitLine(b)
+	})
+	a.Mark(done)
+	b.epilogue()
+}
+
+// @trace_text()：把捕获下来的那一条链排成一份文本，返回那一个句柄（0 表示没有链）。
+// 接住块的第四个名字 `trace` 用的就是这一条，所以只有写了那一个名字的接住块会叫它——
+// 一条反复抛出又接住的循环不写它就不会一圈要一块内存。
+//
+// 先量后抄两趟：文本对象的头里要写准确的字节数与码点数。抄的那一趟里那一段拷贝
+// 一个 call 都没有，落点因此可以一直留在 rdi。
+//
+// en: @trace_text(): lays the captured chain out as one text and hands back its handle (0 means
+// there is no chain). This is what the catch block's fourth name `trace` uses, so only a catch
+// block that actually names it calls here - a loop that throws and catches without that name
+// never asks for a block per round. Two passes, measure then copy, because the text object's
+// header must carry the exact byte count and code point count; the copying loop itself makes no
+// call, so the destination can stay in rdi throughout.
+func traceText(b *rt) {
+	a := b.a
+	b.prologue()
+	done := b.label()
+	a.Xor(x64.RAX, x64.RAX)
+	b.put(trBlock, x64.RAX) // 没有链就返回空
+	b.loadRIP(x64.RAX, "traceRowsN")
+	a.Test(x64.RAX, x64.RAX)
+	a.Jcc(x64.E, done)
+	a.Xor(x64.RAX, x64.RAX)
+	b.put(trBytes, x64.RAX)
+	b.put(trRunes, x64.RAX)
+	traceEachLine(b, func(inner bool) {
+		tracePieces(b, inner)
+		traceMeasureLine(b)
+	})
+	// 一块文本对象：16 字节的头 ＋ 正文，类型字与 @str_cat 那一条相同
+	b.get(x64.RCX, trBytes)
+	a.AddImm(x64.RCX, 16)
+	a.MovImm(x64.RDX, 6)
+	b.call("@alloc")
+	b.put(trBlock, x64.RAX)
+	b.get(x64.RSI, trBlock)
+	b.get(x64.RAX, trBytes)
+	a.MovStore(x64.RSI, StrBytes, x64.RAX)
+	b.get(x64.RAX, trRunes)
+	a.MovStore(x64.RSI, StrCount, x64.RAX)
+	a.Mov(x64.RDI, x64.RSI)
+	a.AddImm(x64.RDI, 16)
+	traceEachLine(b, func(inner bool) {
+		tracePieces(b, inner)
+		traceFillLine(b)
+	})
+	a.Mark(done)
+	b.get(x64.RAX, trBlock)
 	b.epilogue()
 }
 
@@ -1267,19 +2031,21 @@ func putErrline(b *rt) {
 //
 // 遇到"接住块"就把栈摆回那一层、码与话摆进 rax／rdx 交进去；遇到"帧内清理记录"就跳进那一帧，
 // 由它把自己登记的账还完再叫回这一条（那是降级发的一段普通代码，不在这里）；
-// 链走到空还没人接，按兜底处理：打印一行、退出码 1。
+// 链走到空还没人接，按默认处理：打印一行、退出码 1。
 //
 // 一条记录用完当场 @free：正常走完那一路由 @pop_handler 归还，被抛出接住由这里归还。
 // 此前只摘链不归还，接住一次泄漏三十二字节。
+//
+// 走到空链那一步就是真的没人接住：打印那一行"出错了…"，接着打印调用链，然后退 1。
 //
 // en: @throw_walk(): walks the handler chain from inside out. Reaching a catch block
 // rewinds the stack to that layer, loads code and message into rax/rdx and enters it; reaching
 // a frame-scope record jumps into that frame, whose own code (emitted by lowering, not here)
 // finishes returning its registrations and calls back into this routine; reaching an empty
-// chain with nobody having caught takes the fallback path: print one line, exit code 1. Each
-// record is @free'd as soon as it is used: the normal path returns it via @pop_handler, a
-// throw reaching it returns it here. Previously the chain was unlinked without returning,
-// leaking thirty-two bytes per catch.
+// chain with nobody having caught takes the fallback path: print one line, print the call
+// trace, exit code 1. Each record is @free'd as soon as it is used: the normal path returns it
+// via @pop_handler, a throw reaching it returns it here. Previously the chain was unlinked
+// without returning, leaking thirty-two bytes per catch.
 func throwWalk(b *rt) {
 	a := b.a
 	b.prologue()
@@ -1320,9 +2086,10 @@ func throwWalk(b *rt) {
 	leave := b.label()
 	a.Test(x64.R11, x64.R11)
 	a.Jcc(x64.NE, leave)
-	// 接住块：码与话放进 rax／rdx，接住块开头把它们存进两个局部量的槽。
+	// 接住块：码、话与位置放进 rax／rdx／r9，接住块开头把它们存进三个局部量的槽。
 	b.loadRIP(x64.RAX, "throwCode")
 	b.loadRIP(x64.RDX, "throwMsg")
+	b.loadRIP(x64.R9, "throwAt")
 	a.JmpReg(x64.R8)
 	// 帧内清理记录：这一帧不是接住块，还完它自己那一笔会 call 回 @throw_walk，这里什么都不用留。
 	a.Mark(leave)
@@ -1332,8 +2099,11 @@ func throwWalk(b *rt) {
 	b.loadRIP(x64.RCX, "throwCode")
 	b.loadRIP(x64.RDX, "throwMsg")
 	b.call("@put_errline")
-	// 到这儿就是**连兜底那条都没有**：nef.main 顶上挂的那一条命中时已经把它自己摘了，
-	// 所以还顶层那份记录的途中再抛一次，走的是这一步——印完就走，不会再绕回那一段（不成环）。
+	// 那一行"出错了…"打完，接着把调用链一帧一行打出去。走到这一步是连 nef.main 顶上那一条
+	// 默认处理都没有：释放途中又抛一次时到达的就是这里。
+	b.call("@trace_print")
+	// 到这儿就是**连默认那一条都没有**：nef.main 顶上挂的那一条命中时已经把它自己摘了，
+	// 所以还顶层那份记录的途中再抛一次，走的是这一步——打印完就走，不会再绕回那一段（不成环）。
 	a.MovImm(x64.RCX, 1)
 	b.call("@exit")
 	b.epilogue()
@@ -1350,7 +2120,7 @@ func throwWalk(b *rt) {
 // whether to return it.
 const (
 	hndTarget = 0  // 落点：接住块的开头，或这一段帧内清理记录的开头
-	hndRbp    = 8  // 挂上来那一帧的 rbp
+	hndRbp    = 8  // 附加这一条的那一帧的 rbp
 	hndRsp    = 16 // 同一帧的 rsp
 	hndNext   = 24 // 链上上一条
 	hndKind   = 32 // 0 = 接住块（堆上那条），1 = 帧内清理记录（帧上那条）
@@ -1362,7 +2132,7 @@ const (
 	hndLeave = 1 // 帧内清理记录：这一帧是被抛过去的，还完自己那一笔要继续往外走
 )
 
-// @push_handler(rcx=接住块的地址)：把这一层处理器挂到链上。
+// @push_handler(rcx=接住块的地址)：把这一层处理器附加到链上。
 //
 // 帧的两个指针在这里当场抄下来——抛出时要靠它们把栈摆回接住那一层的样子。
 // 用完要归还：正常走完由 @pop_handler 归还，被抛出接住由 @throw_walk 归还。
@@ -1393,12 +2163,12 @@ func pushHandler(b *rt) {
 	b.epilogue()
 }
 
-// @push_abandon(rcx=帧内清理记录的地址, rdx=本帧给这颗记录留的连续五格)：挂上"这一帧被抛过去了"那条标记。
+// @push_abandon(rcx=帧内清理记录的地址, rdx=本帧给这颗记录留的连续五格)：附加"这一帧被抛过去了"那条标记。
 //
 // 抛出从被叫的那一帧里走出来时，中间那几帧没人释放——它们在降级那份记录上登记过，却已经没有
-// 机会走自己的退出清理代码。挂上这一条，@throw_walk 走到时就跳进那一帧把该释放的释放完再往外走。
+// 机会走自己的退出清理代码。附加这一条，@throw_walk 走到时就跳进那一帧把该释放的释放完再往外走。
 //
-// 与 @push_handler 两处不同：种类那个位置写 1，而且记录住在**调用方自己的帧**上——这一条从开场挂到
+// 与 @push_handler 两处不同：种类那个位置写 1，而且记录住在**调用方自己的帧**上——这一条从开场附加到
 // 帧尾，帧散了它跟着散，所以既不要 @alloc 也不要 @free（登记过东西的函数每次调用少一次堆上的
 // 一取一还），也不会因为要不到内存而抛 10091 号。那五格由降级那头 `ir.Func.Reserve(5)` 留出来。
 //
@@ -1488,11 +2258,11 @@ func die(b *rt) {
 	b.epilogue()
 }
 
-// @die_stack()：调用套得太深，栈用完了（10093 号）。印那句报错，然后按 1 退。
+// @die_stack()：调用套得太深，栈用完了（10093 号）。打印那句报错，然后按 1 退。
 //
 // 这一条不走 @throw_walk，也不跑顶层那本账：归还一块内存本身就要用栈，而栈正是用完的那个东西。
 // 每一帧开场那一次比较就是它唯一的入口（`internal/codegen/link.go` 的 StackGuard），
-// 下限留了 64 KiB 余量，够这一路把话印完。
+// 下限留了 64 KiB 余量，够这一路把话打印完。
 //
 // en: @die_stack(): the calls went too deep and the stack is exhausted (code 10093). Print
 // the error sentence and exit with 1. This path does not use @throw_walk and does not run the top
@@ -1503,6 +2273,10 @@ func die(b *rt) {
 func dieStack(b *rt) {
 	a := b.a
 	b.prologue()
+	// 栈用完这一条说不出"是哪一步"：掉下去的位置是每一帧开场那一次比较，不是哪一个动作。
+	// 规则写明这一处只打印一句话就结束，所以先把位置抹掉，那句末尾不接「（在 …）」。
+	a.Xor(x64.RAX, x64.RAX)
+	b.storeRIP(x64.RAX, "throwAt")
 	a.MovImm(x64.RCX, codeStack)
 	b.leaRIP(x64.RDX, "sStack")
 	b.call("@put_errline")
@@ -1575,7 +2349,7 @@ func strCat(b *rt) {
 		a.Mark(skip)
 	}
 
-	b.get(x64.RAX, 4) // 交回新对象的首格：字节数那个位置的位置
+	b.get(x64.RAX, 4) // 返回新对象的首格：字节数那个位置的位置
 	b.epilogue()
 }
 
@@ -1857,7 +2631,7 @@ func strEq(b *rt) {
 // as an entry still on the books, and dismantling it would dismantle the live one - so it is
 // only zeroed (a value has exactly one holder at any moment).
 func listRemove(b *rt) {
-	const kRemoved = 5 // 被删那一句柄，留着到末尾交回
+	const kRemoved = 5 // 被删那一个句柄，留着到末尾返回
 	a := b.a
 	b.prologue()
 	b.put(0, x64.RCX)
@@ -2028,8 +2802,8 @@ func alloc(b *rt) {
 	a.Mark(fit)
 	// 大块拆两半：链上摘下来这一块比这一笔大的话，过去是整块交出、
 	// 头里的尺寸不动——于是同一档里一大一小交替要块时，小的一笔把大的那一块占用掉，下一笔要
-	// 大的那一块时链上只剩小的，挂回去走 bump，**每多一圈多要一整块**（实测 32 字节／圈，
-	// 块一块都没漏还，水线却按圈涨）。现在余量装得下"一颗头 8 ＋ 数据 8"就切一刀，剩下那一节
+	// 大的那一块时链上只剩小的，挂回去走 bump，**每多一轮多要一整块**（实测 32 字节／轮，
+	// 块一块都没漏还，实测水平却按轮上涨）。现在余量装得下"一颗头 8 ＋ 数据 8"就切一刀，剩下那一节
 	// 挂进它自己那一档；切不动就照旧整块交出（浪费 ≤ 16 字节）。
 	// 与上面那一判是同一条规则：**小的不交、大的切开**。
 	split := b.label()
@@ -2118,7 +2892,13 @@ func alloc(b *rt) {
 	a.Jcc(x64.NE, ok)
 	a.MovImm(x64.RCX, codeNoRoom)
 	b.leaRIP(x64.RDX, "sOOM")
-	b.call("@throw") // 没人接的那条路：印一行、退出码 1。帧链做好之前抛出都到这儿
+	// 要不到内存这一条不叫 @throw：@throw 要捕获链，捕获链扩那一块时要 @alloc，两条会绕成环。
+	// 码与话照旧摆进静态那两处，捕获到的项数抹成 0，然后直接走路——屏幕上只有"出错了…"那一行。
+	b.storeRIP(x64.RCX, "throwCode")
+	b.storeRIP(x64.RDX, "throwMsg")
+	a.Xor(x64.RAX, x64.RAX)
+	b.storeRIP(x64.RAX, "traceRowsN")
+	b.call("@throw_walk") // 没人接的那条路：打印一行、退出码 1
 	a.Mark(ok)
 
 	// 新的一块：起点交给 rsi，终点记进 heapEnd。heapCur 由下面那段公共尾巴推。
@@ -2543,7 +3323,7 @@ func listSort(b *rt) {
 	a.Jcc(x64.E, numCmp)
 	a.CmpImm(x64.R8, 1)
 	a.Jcc(x64.NE, fltCmp)
-	b.call("@str_cmp") // 甲=右、乙=左：交回 -1 就是右段那一个在前
+	b.call("@str_cmp") // 甲=右、乙=左：返回 -1 就是右段那一个在前
 	a.Test(x64.RAX, x64.RAX)
 	a.Jcc(x64.S, takeRight)
 	a.Jmp(takeLeft)
@@ -2736,9 +3516,9 @@ func listPopLast(b *rt) {
 	a.MovLoad(x64.RSI, x64.RDI, cData)
 	a.ShlImm(x64.RAX, 3) // 第几字节：每格 8 字节
 	a.Add(x64.RSI, x64.RAX)
-	a.MovLoad(x64.RDX, x64.RSI, 0) // 交回的那一个值
+	a.MovLoad(x64.RDX, x64.RSI, 0) // 返回的那一个值
 	a.Xor(x64.RAX, x64.RAX)
-	a.MovStore(x64.RSI, 0, x64.RAX) // 那一格从此空着
+	a.MovStore(x64.RSI, 0, x64.RAX) // 那个位置从此空着
 	a.MovLoad(x64.RAX, x64.RDI, cVer)
 	a.AddImm(x64.RAX, 1)
 	a.MovStore(x64.RDI, cVer, x64.RAX)
@@ -2779,7 +3559,7 @@ func setOp(b *rt) {
 		sMode  = 5 // 键怎么算散列与相等，从甲表里取
 		sTag   = 6 // 新表的类型字
 		sCur   = 7 // 当前桶
-		sKey   = 8 // 这一格的键
+		sKey   = 8 // 当前桶的键
 		sHit   = 9 // 问乙表的结果
 	)
 	a := b.a
@@ -2818,15 +3598,15 @@ func setOp(b *rt) {
 		b.call("@map_next")
 		a.Test(x64.RAX, x64.RAX)
 		a.Jcc(x64.E, after)
-		a.Mov(x64.RSI, x64.RAX) // 这一格的桶
+		a.Mov(x64.RSI, x64.RAX) // 当前桶的地址
 		a.AddImm(x64.RAX, stride)
-		b.put(sCur, x64.RAX) // 下一趟从它后面那一格起
+		b.put(sCur, x64.RAX) // 下一趟从它后面那个位置起
 		a.MovLoad(x64.RAX, x64.RSI, bKey)
 		b.put(sKey, x64.RAX)
 
 		b.get(x64.RAX, sWhich)
 		a.Test(x64.RAX, x64.RAX)
-		a.Jcc(x64.E, take) // 并集：这一格一定要收
+		a.Jcc(x64.E, take) // 并集：这一个一定要收
 		b.get(x64.RCX, sB)
 		b.get(x64.RDX, sKey)
 		b.call("@map_contains")

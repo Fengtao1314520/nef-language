@@ -70,7 +70,7 @@ browser.close()
 | `screenshot(file_path)` | 没有 | 不抛 | 把当前这一页以 png 格式写入给定的路径 |
 | `close()` | 没有 | 关闭后再读取这个 `Page` 报 208 | 关闭这一页所在的标签页。页号不回收，关闭后这个 `Page` 失效，再读取它报 208（浏览器回复的是“这一页不在了”） |
 | `wait_event(name, timeout_ms = 3000)` | `string` | 209 | 等待一条浏览器主动发来的通知（形如 `Page.loadEventFired`），返回那条通知的原文。附加到页面时，库会为这一页打开 `Page` 域，通知先存放在包内部的表里，读走一条就少一条 |
-| `session_id()`、`get_browser()` | `string`、`Browser` | 不抛 | 这一页挂在哪一条会话上、这一页属于哪一个浏览器 |
+| `session_id()`、`get_browser()` | `string`、`Browser` | 不抛 | 这一页在哪一条会话上、这一页属于哪一个浏览器 |
 
 ## `Element`：页面上的一个元素
 

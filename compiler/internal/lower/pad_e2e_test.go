@@ -2,7 +2,7 @@
 
 // pad_e2e_test.go 覆盖早退路径上的**退出清理代码**：抛出异常与正常走完的释放行为一致，已建好的值照常释放。
 //
-// 两头都要固定：一头是"别漏"——漏掉就是每圈整块增长，那一侧由 heap_e2e_test.go 的每圈增长表覆盖；
+// 两头都要固定：一头是"别漏"——漏掉就是每轮整块增长，那一侧由 heap_e2e_test.go 的每轮增长表覆盖；
 // 另一头是**别提前释放**——接住块、调用方手里那几个名字还要读，提前释放等于析构仍在使用的内存。
 // 下面几条测试覆盖的是第二头。
 
@@ -74,7 +74,7 @@ method f():int {
     try {
         let inner:list<int> = [9]
         throw (120, "里头抛")
-    } catch (code, msg) {
+    } catch (code, msg, at) {
         console.print(code, msg, length(keep))
     }
     return length(keep)
@@ -87,7 +87,7 @@ method f():int {
     try {
         let inner:list<int> = [9]
         throw (120, "里头抛")
-    } catch (code, msg) {
+    } catch (code, msg, at) {
         console.print(code, msg, length(keep))
     }
     return length(keep)
@@ -105,7 +105,7 @@ console.print(f())
 }
 
 // TestThrowPadReleasesThrowingFrame 验证抛出把**本帧**登记的全部释放：
-// 被废弃的那一帧无人再能读取，留着就是每圈整块增长（每圈增长那条测试核对同一件事）。
+// 被废弃的那一帧无人再能读取，留着就是每轮整块增长（每轮增长那条测试核对同一件事）。
 // 接住块里再次使用本帧外面的名字，也在这条测试里一起核对。
 func TestThrowPadReleasesThrowingFrame(t *testing.T) {
 	got, code := run(t, `
@@ -119,7 +119,7 @@ let total:int = 0
 for (i:int in 0 until 5) {
     try {
         boom(i)
-    } catch (code, msg) {
+    } catch (code, msg, at) {
         total = total + code + length(held)
     }
 }
@@ -133,7 +133,7 @@ console.print(total, held[0])
 
 // TestReturnHandleKeepsSource 验证 `return` 交出字段里的句柄时**不许**释放源头那一块：
 // 接住返回值的一侧正持有那块内存，提前释放就是错误析构使用中的对象。
-// 漏掉这条约束就会每圈 104 字节（heap_e2e_test.go 里那一条故意标着"该漏"的对照）。
+// 漏掉这条约束就会每轮 104 字节（heap_e2e_test.go 里那一条故意标着"该漏"的对照）。
 func TestReturnHandleKeepsSource(t *testing.T) {
 	src := `
 class Holder {
@@ -209,20 +209,20 @@ func TestEarlyExitOutOfTryPopsHandler(t *testing.T) {
 method leaveByReturn():int {
     try {
         return 1
-    } catch (c, m) {
+    } catch (c, m, at) {
         return 2
     }
 }
 let x:int = leaveByReturn()
 console.print(x)
 throw (120, "该由程序终止接手")
-`, "1\n出错了（120）：该由程序终止接手\n"},
+`, "1\n出错了（120）：该由程序终止接手（在 t.nf 11:1）\n"},
 		{"break 跳出去", `
 method leaveByBreak():int {
     for (i:int in 0 until 1) {
         try {
             break
-        } catch (c, m) {
+        } catch (c, m, at) {
             return 2
         }
     }
@@ -231,7 +231,7 @@ method leaveByBreak():int {
 let x:int = leaveByBreak()
 console.print(x)
 throw (121, "也一样")
-`, "5\n出错了（121）：也一样\n"},
+`, "5\n出错了（121）：也一样（在 t.nf 14:1）\n"},
 	}
 	for _, one := range cases {
 		got, code := run(t, one.src)
@@ -250,11 +250,11 @@ method nested():int {
     try {
         try {
             throw (120, "里层抛")
-        } catch (c1, m1) {
+        } catch (c1, m1, at1) {
             console.print(c1, m1)
         }
         return 1
-    } catch (c2, m2) {
+    } catch (c2, m2, at2) {
         return 2
     }
 }

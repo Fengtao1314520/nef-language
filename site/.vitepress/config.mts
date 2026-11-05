@@ -59,7 +59,7 @@ export default defineConfig({
   // `rewrites`（试过 'index'、'index.md'、'' 三种目标）都换不来根路径，dist 里只会出
   // `100_index.html`，`/` 就 404 了。所以首页不编号，其余地址一律跟着文件名走。
   lastUpdated: false,
-  // site/README.md 是站点这一格自己的 readme，给在仓库里翻目录的人看，不是网页。
+  // site/README.md 是站点这一层自己的 readme，给在仓库里翻目录的人看，不是网页。
   // 不收掉的话站上会多出一个 /README，与首页重复；而且它引用仓库内的其他文档，
   // 那些路径在 srcDir 之外，会被死链检查判红。
   srcExclude: ['README.md'],

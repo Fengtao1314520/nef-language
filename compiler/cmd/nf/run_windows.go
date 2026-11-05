@@ -60,7 +60,7 @@ const (
 	memCommitReserve     = 0x3000 // MEM_COMMIT | MEM_RESERVE
 	pageExecuteReadWrite = 0x40   // PAGE_EXECUTE_READWRITE
 	waitInfinite         = 0xFFFFFFFF
-	currentProcess       = ^uintptr(0) // GetCurrentProcess 交回的那个伪句柄
+	currentProcess       = ^uintptr(0) // GetCurrentProcess 返回的那个伪句柄
 	hostSpare            = 1 << 20     // 接在映像尾部之后，用来放参数串
 )
 
@@ -170,7 +170,7 @@ func poke64(base uintptr, at int, v uint64) bool {
 func fillImports(base uintptr, iat []pe.IatSlot) int {
 	// 用 LoadLibraryW 而不是 GetModuleHandleW：后者只识别已经加载进本进程的模块，
 	// 而 winsock 在从未碰过网络的进程里恰好还没加载（这里用到的两个 DLL 都是系统自带的）。
-	// 已经加载过的（kernel32）这一句只是把句柄再交回一次、引用计数加一，
+	// 已经加载过的（kernel32）这一句只是把句柄再返回一次、引用计数加一，
 	// 宿主不向操作系统归还——进程一结束这些引用就不存在了，这里不留未归还的计数。
 	handles := map[string]uintptr{}
 	for _, slot := range iat {

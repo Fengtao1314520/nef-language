@@ -16,8 +16,12 @@
 
 // Package pkgfmt 是包的容器形状：一份 nfpack 文件装一个包的源文件。
 //
-// 里面是一个 zip：一条 nf.json 记这个名字与版本，往后的每条都是一份源文件，
-// 名字是包内的相对路径。门面按约定取 `<包名>.nf`，不写进清单。
+// 里面是一个 zip：一条 nf.json 记这个名字与版本，还有每一条源文件的字节数与 SHA-256；
+// 往后的每条都是一份源文件，名字是包内的相对路径。
+// 门面按约定取 `<包名>.nf`，不写进清单。
+//
+// 校验值是为了能查出"装进 libs/ 的那一份是不是打包时那一份"：加载的时候逐条核对，
+// 对不上就报出是哪一条、期望与实际各是什么。nf.json 自己算不进清单——一份文件核对不了自己。
 //
 // 用 zip 是为了零依赖：Go 的标准库自带 archive/zip。不压缩也行，
 // zip 允许"只存不压"，读出来的字节跟磁盘上那份源文件一字不差，
@@ -35,12 +39,15 @@ package pkgfmt
 
 import (
 	"archive/zip"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"os"
 	"path"
+	"sort"
 	"strings"
 )
 
@@ -55,13 +62,30 @@ const Manifest = "nf.json"
 // en: Suffix is the file extension of a container.
 const Suffix = ".nfpack"
 
-// Meta 是一份 nf.json。工程根那一份只用 Deps。
+// Meta 是一份 nf.json。工程根那一份只用 Deps；容器里那一份还带着 Files 那一串校验值。
 //
-// en: Meta is one nf.json. The project root's copy only uses Deps.
+// en: Meta is one nf.json. The project root's copy only uses Deps; the copy inside a container
+// also carries the Files checksum list.
 type Meta struct {
 	Name    string            `json:"name"`
 	Version string            `json:"version"`
 	Deps    map[string]string `json:"deps"` // 包名 → 那一个版本，写死，不比大小
+	// Files 是容器里每一条源文件的校验值：名字、字节数、SHA-256。`nf pack` 写进去，
+	// 加载包的那一步逐条核对（见 Verify）。工程根那一份没有这一串。
+	//
+	// en: Files is the checksum list of every source entry in the container: name, byte count and
+	// SHA-256. nf pack writes it and loading checks each line against it (see Verify). A project
+	// root's manifest carries none of it.
+	Files []Entry `json:"files,omitempty"`
+}
+
+// Entry 是校验值清单上的一条。
+//
+// en: Entry is one line of the checksum list.
+type Entry struct {
+	Name   string `json:"name"`
+	Bytes  int    `json:"bytes"`
+	SHA256 string `json:"sha256"`
 }
 
 // File 是容器里的一份源文件。Rel 是包内的相对路径，用正斜杠。
@@ -120,9 +144,11 @@ func (m Meta) CheckPackage() error {
 }
 
 // Pack 把一批源文件写成容器。out 是目标文件名，已有内容整份换掉。
+// 清单里除了名字与版本，还替每一条源文件记下字节数与 SHA-256：加载那一步逐条核对（见 Verify）。
 //
-// en: Pack writes a batch of source files into a container. out is the target file name, and
-// any content already there is replaced wholesale.
+// en: Pack writes a batch of source files into a container. out is the target file name, and any
+// content already there is replaced wholesale. Besides the name and version, the manifest records
+// a byte count and a SHA-256 for every source entry; loading checks each one (see Verify).
 func Pack(out string, m Meta, files []File) error {
 	if err := os.MkdirAll(dirOf(out), 0o755); err != nil {
 		return err
@@ -134,6 +160,13 @@ func Pack(out string, m Meta, files []File) error {
 	defer f.Close()
 	zw := zip.NewWriter(f)
 	seen := map[string]bool{}
+
+	entries := make([]Entry, 0, len(files))
+	for _, src := range files {
+		entries = append(entries, noteOf(src.Rel, src.Text))
+	}
+	sort.Slice(entries, func(i, j int) bool { return entries[i].Name < entries[j].Name })
+	m.Files = entries
 
 	head, err := json.MarshalIndent(m, "", "  ")
 	if err != nil {
@@ -151,6 +184,22 @@ func Pack(out string, m Meta, files []File) error {
 		return err
 	}
 	return f.Close()
+}
+
+// noteOf 替一条源文件算出清单上那一行。
+//
+// en: noteOf computes one manifest line for a source entry.
+func noteOf(rel, text string) Entry {
+	sum := sha256.Sum256([]byte(text))
+	return Entry{Name: entryName(rel), Bytes: len(text), SHA256: hex.EncodeToString(sum[:])}
+}
+
+// entryName 把写出来的路径落成容器里那一条的名字，与 put 用的是同一个算法。
+//
+// en: entryName turns a written path into the entry name inside the container - the same
+// calculation put uses.
+func entryName(rel string) string {
+	return path.Clean(strings.TrimPrefix(rel, "/"))
 }
 
 // put 存一条不压的条目。同一个名字出现两次就是打包那头的错，直接报出来。
@@ -186,12 +235,17 @@ func Open(container string) (Meta, []File, error) {
 	for _, zf := range zr.File {
 		rc, err := zf.Open()
 		if err != nil {
-			return Meta{}, nil, err
+			return Meta{}, nil, fmt.Errorf("%s：%s 这一条读不出来：%v", container, path.Clean(zf.Name), err)
 		}
 		data, err := io.ReadAll(rc)
 		rc.Close()
 		if err != nil {
-			return Meta{}, nil, err
+			// zip 自己那一份 CRC 先报错：这一条说明"容器里这一条字节被改过"，
+			// 说的必须是哪一条，不能只把 zip 那句英文交出去。
+			//
+			// en: the zip's own CRC trips first, and it says only "a byte changed here" - what the
+			// reader needs is which entry, so that line is wrapped instead of passed through.
+			return Meta{}, nil, fmt.Errorf("%s：%s 这一条与打进去的字节对不上（这一条被改过）：%v", container, path.Clean(zf.Name), err)
 		}
 		name := path.Clean(zf.Name)
 		if name == Manifest {
@@ -205,7 +259,46 @@ func Open(container string) (Meta, []File, error) {
 	if m.Name == "" {
 		return Meta{}, nil, fmt.Errorf("%s 里没有 %s，认不出这是哪一个包", container, Manifest)
 	}
+	if err := verify(container, m, out); err != nil {
+		return Meta{}, nil, err
+	}
 	return m, out, nil
+}
+
+// verify 逐条核对容器里的源文件与清单上记的那一行：清单上没记的、记了却不在容器里的、
+// 字节数与校验值对不上的，各报一句，说的都是哪一条。
+//
+// en: verify checks every source entry against the line written for it: one the list does not
+// carry, one the list carries but the container lacks, and a byte count or checksum that does not
+// match - each says which entry it is.
+func verify(container string, m Meta, files []File) error {
+	if len(m.Files) == 0 {
+		return fmt.Errorf("%s：这份容器没有校验值清单（%s 里的 files）：用现在的 nf pack 重新打过一次", container, Manifest)
+	}
+	want := make(map[string]Entry, len(m.Files))
+	for _, e := range m.Files {
+		want[e.Name] = e
+	}
+	seen := make(map[string]bool, len(files))
+	for _, f := range files {
+		seen[f.Rel] = true
+		e, ok := want[f.Rel]
+		if !ok {
+			return fmt.Errorf("%s：%s 这一条没有记在清单上：用现在的 nf pack 重新打过这份包", container, f.Rel)
+		}
+		if e.Bytes != len(f.Text) {
+			return fmt.Errorf("%s：%s 这一条与清单对不上：字节数要 %d、得到 %d", container, f.Rel, e.Bytes, len(f.Text))
+		}
+		if got := noteOf(f.Rel, f.Text).SHA256; got != e.SHA256 {
+			return fmt.Errorf("%s：%s 这一条与清单对不上：校验值要 %s、得到 %s", container, f.Rel, e.SHA256, got)
+		}
+	}
+	for _, e := range m.Files {
+		if !seen[e.Name] {
+			return fmt.Errorf("%s：清单上记的 %s 在容器里没有这一条：用现在的 nf pack 重新打过这份包", container, e.Name)
+		}
+	}
+	return nil
 }
 
 // Facade 返回这个包的门面条目名：`<包名>.nf`（开发期在源文件目录里也是这个名字）。

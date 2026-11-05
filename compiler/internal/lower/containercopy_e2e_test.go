@@ -10,11 +10,11 @@ import (
 // 规则：往容器的一个位置里写入一个当场创建的 `struct`，那块内存直接驻留在该位置，不再拷贝第二次。
 //
 // 若进容器时再拷一次，就会出现两块同时存在、只有一块有持有者的情形：`Rec { n: i }` 先造一块，
-// 进容器那一步又拷一块，原始那块从此无人析构（实测往 list 里每圈放一个泄漏 16 字节，三个位置每圈 48）。
+// 进容器那一步又拷一块，原始那块从此无人析构（实测往 list 里每轮放一个泄漏 16 字节，三个位置每轮 48）。
 // 判据与声明、整份赋值同一条（`lower.go` 的 `fresh`）。
 //
 // 名字（`[one]`）与 class 的 struct 字段（`[g.p]`）保持现状：那两处只读、不带走源，名字之后还能
-// 再读，去掉拷贝就会造成一个值两个持有者。它们量出的每圈 16 字节另有原因，见 TestContainerCopySweep。
+// 再读，去掉拷贝就会造成一个值两个持有者。它们量出的每轮 16 字节另有原因，见 TestContainerCopySweep。
 
 const recDecl = `struct Rec {
     n:int
@@ -24,7 +24,7 @@ const recDecl = `struct Rec {
 func TestStructLiteralIntoContainerIsNotCopied(t *testing.T) {
 	cases := []struct {
 		name  string
-		body  string // 循环体，两种圈数下量每圈增长
+		body  string // 循环体，两种圈数下量每轮增长
 		out   string // 这一段跑一次的逐字输出
 		check string // 完整程序：验证读回来的值
 	}{
@@ -87,7 +87,7 @@ console.print(total)
 }
 
 // TestDictAddOverwriteFreesTheOldBlock 键已在桶里：值槽位换成新块、旧块当场析构。
-// 若新块拷贝后才进槽位，原始块无人管理，每圈留 16 字节；旧块本身能正常析构。
+// 若新块拷贝后才进槽位，原始块无人管理，每轮留 16 字节；旧块本身能正常析构。
 func TestDictAddOverwriteFreesTheOldBlock(t *testing.T) {
 	const prog = recDecl + `let d:dict<string, Rec> = {"甲": Rec { n: 0 }}
 let total:int = 0
@@ -129,7 +129,7 @@ console.print(one.n, g.p.n, xs[0].n, xs[1].n)
 // TestNameIntoContainerLiteralKeepsItsOwnBlock：值类型名字进容器字面量的位置不算把名字
 // 交出去。那个位置收下的是一份拷贝（`list` 路径一直拷贝，`dict` 路径现行规则同样拷贝），
 // 名字一侧仍是自己那块的持有者。此前 `claim` 因该位置记过一笔"交出过"而不登记名字，
-// 名字那块每圈留 16 字节无人析构。
+// 名字那块每轮留 16 字节无人析构。
 func TestNameIntoContainerLiteralKeepsItsOwnBlock(t *testing.T) {
 	const list = recDecl + `let total:int = 0
 for (i:int in 0 until @N@) {
@@ -169,7 +169,7 @@ console.print(one.n, xs[0].n, d["甲"].n)
 
 // TestStructFieldInitIntoNewIsNotCopiedTwice：`new C(f: 值)` 的字段初值走与容器字面量
 // 同一个判据——当场创建的那块直接驻进该字段；是名字就拷一份，名字仍是自己那块的持有者。
-// 此前两种写法各每圈留 16 字节：字面量写法丢的是被丢弃的原始块，名字写法丢的是名字自己那块。
+// 此前两种写法各每轮留 16 字节：字面量写法丢的是被丢弃的原始块，名字写法丢的是名字自己那块。
 func TestStructFieldInitIntoNewIsNotCopiedTwice(t *testing.T) {
 	const lit = recDecl + `class Holder {
     p:Rec
@@ -220,19 +220,19 @@ console.print(one.n, g.p.n)
 // 三种来源漏的是三处不同的东西——字面量写法丢的是多余拷贝的那一块；名字写法丢的是
 // **名字自己那一块**（那个位置收下的是拷贝，源却因容器字面量记过一笔"交出过"而不登记成
 // 持有者，已按名字规则修正；`xs.add(one)` 那条路径从不记这一笔，所以一直是 0）；字段写法不在
-// 容器这一侧（单独一句 `new Holder(p: Rec { n: i })` 就每圈 16，对象析构能把字段那块正常释放：
+// 容器这一侧（单独一句 `new Holder(p: Rec { n: i })` 就每轮 16，对象析构能把字段那块正常释放：
 // 同一处换成圈外那个名字是 0——那是 `new` 的字段初值多拷的一块）。
 // 还有一处是容器字面量与 `new` 里的中间读走：`listLit`／`mapLit`／`setLit`／`newObject` 开头那句
 // `noBorrow` 曾把中间读走的释放规则挡在外面，改为开窗口后正常释放。`setLit` 那一处量不出来——
 // 能进 `hashset` 的那几样（数字、文本、`class`、盒子）读走都不另起一块，本表没有能固定它的形状，
 // 只有代码与另外三处改在同一条规则上。
 // 表里最后一行是同一形状的另一处：`argsOf` 开头也曾是那句 `noBorrow`，所以 `wear(xs[0])` 那种
-// "读走的一格交给用户函数"每圈留 16 字节；这一处按同一规则纳入、改成开窗口之后归 0。
+// "读走的一格交给用户函数"每轮留 16 字节；这一处按同一规则纳入、改成开窗口之后归 0。
 func TestContainerCopySweep(t *testing.T) {
 	shapes := []struct {
 		name string
 		body string
-		want float64 // 这一种当前每圈应留的字节数：0＝已释放，16＝留一整块
+		want float64 // 这一种当前每轮应留的字节数：0＝已释放，16＝留一整块
 	}{
 		{"字面量进 list", `    let xs:list<Rec> = [Rec { n: i }]
     total = total + xs[0].n
@@ -283,25 +283,25 @@ func TestContainerCopySweep(t *testing.T) {
     let g:Holder = new Holder(p: one)
     total = total + g.p.n
 `, 0},
-		{"new 的字段初值是容器里读走的一格", `    let src:list<Rec> = [Rec { n: i }]
+		{"new 的字段初值是容器里读出来的那个位置", `    let src:list<Rec> = [Rec { n: i }]
     let g:Holder = new Holder(p: src[0])
     total = total + g.p.n
 `, 0},
-		{"对象的 struct 字段来自圈外那个名字", `    let g:Holder = new Holder(p: held)
+		{"对象的 struct 字段来自循环外那个名字", `    let g:Holder = new Holder(p: held)
     total = total + g.p.n
 `, 0},
-		{"容器里读走的一格进 list", `    let src:list<Rec> = [Rec { n: i }]
+		{"容器里读出来的那个位置进 list", `    let src:list<Rec> = [Rec { n: i }]
     let xs:list<Rec> = [src[0]]
     total = total + xs[0].n
 `, 0},
-		{"容器里读走的一格进 dict 的值位", `    let src:list<Rec> = [Rec { n: i }]
+		{"容器里读出来的那个位置进 dict 的值位", `    let src:list<Rec> = [Rec { n: i }]
     let d:dict<string, Rec> = {"甲": src[0]}
     total = total + d["甲"].n
 `, 0},
-		{"容器里那一格读走，不再进容器", `    let src:list<Rec> = [Rec { n: i }]
+		{"容器里那个位置读出来，不再进容器", `    let src:list<Rec> = [Rec { n: i }]
     total = total + src[0].n
 `, 0},
-		{"容器里读走的一格交给用户函数的参数", `    let src:list<Rec> = [Rec { n: i }]
+		{"容器里读出来的那个位置交给用户函数的参数", `    let src:list<Rec> = [Rec { n: i }]
     total = total + wear(src[0])
 `, 0},
 	}

@@ -97,6 +97,37 @@ console.print(length(seen), seen.contains("紫"), seen.contains("灰"))
 	}
 }
 
+// TestDictIndexStoreKeyOwnership 钉住 `d[键] = 值` 写新键那一条：键是当场算出来的文本时，
+// 交出去的是那一个位置，名字当场作废。先前只记值那一笔，名字仍然登记着持有者，
+// 作用域尽头把桶里正在用的那块文本拆掉——同一个键写两轮就多出一条记录，按内容查永远查不中。
+// en: TestDictIndexStoreKeyOwnership pins `d[key] = value` when the key is text computed on the
+// spot: the position takes it and the name is voided there and then. Only the value side used to
+// be recorded, so the name stayed a registered holder and its scope-end teardown dismantled the
+// block a bucket was using - two rounds over the same keys grew an extra record each time and a
+// lookup by content could never find it.
+func TestDictIndexStoreKeyOwnership(t *testing.T) {
+	got, code := run(t, `
+let by:dict<string, int> = {}
+for (i:int in 0 until 5) {
+    let k:string = "key" + number.to_string(i)
+    by[k] = 1
+}
+for (i:int in 0 until 5) {
+    let k:string = "key" + number.to_string(i)
+    by[k] = 2
+}
+let names:list<string> = by.keys()
+names.sort()
+for (n:string in names) {
+    console.print(n, by[n])
+}
+console.print(length(by), by.contains("key0"), by.get("key4", -1))
+`)
+	if got != "key0 2\nkey1 2\nkey2 2\nkey3 2\nkey4 2\n5 true 2\n" || code != 0 {
+		t.Fatalf("索引赋值写新键之后键坏了：得到 %q 码 %d", got, code)
+	}
+}
+
 // TestSampleWordFreq 把整份 wordfreq.nf 样例编成真实产物运行一遍，期望输出按实际运行结果写死。
 func TestSampleWordFreq(t *testing.T) {
 	const path = "../../../samples/wordfreq.nf"

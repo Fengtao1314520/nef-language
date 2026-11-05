@@ -11,22 +11,22 @@ import wt from "libs/web_test"
 
 method check_int(title:string, got:int, want:int):boolean {
     if (got != want) {
-        console.print("不对  " + title, "给", got, "要", want)
+        console.print("失败  " + title, "给", got, "要", want)
         return false
     }
-    console.print("过  " + title)
+    console.print("通过  " + title)
     return true
 }
 
 let bad:int = 0
-let profile:string = args[0]
+let profile:string = args[0] + ""
 
 // 一、那个程序不在
 let code_one:int = -1
 try {
     let nowhere:wt.Browser = wt.start("C:/Windows/没有这个程序.exe", profile + "/one", 800, 800)
     nowhere.close()
-} catch (c, m) {
+} catch (c, m, at) {
     code_one = c
     console.print("  第一句说的是：", m)
 }
@@ -40,7 +40,7 @@ let code_two:int = -1
 try {
     let notabrowser:wt.Browser = wt.start("C:/Windows/System32/cmd.exe", profile + "/two", 800, 800)
     notabrowser.close()
-} catch (c2, m2) {
+} catch (c2, m2, at2) {
     code_two = c2
     console.print("  第二句说的是：", m2)
 }
@@ -52,8 +52,8 @@ if (!ok2) {
 file.remove_directory(profile + "/one")
 file.remove_directory(profile + "/two")
 file.remove_directory(profile)
-console.print("—— 自测跑完，不对", bad, "处")
+console.print("—— 自测跑完，失败", bad, "处")
 if (bad > 0) {
     exit (1, "起不来那两种情形有 " + number.to_string(bad) + " 处不对")
 }
-console.print("全对")
+console.print("全部通过")

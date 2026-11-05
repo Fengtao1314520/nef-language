@@ -902,7 +902,7 @@ func listJoin(b *rt) {
 
 // @str_index_of(rcx=文本, rdx=要找的那一段)：返回 rax=头一处出现的**码点**序号，一处都没有返回 -1。
 //
-// 底子是 @str_index，可它数的是字节；这里的序号要和 s[i]、length(s) 用同一口径，
+// 底子是 @str_index，可它数的是字节；这里的序号要和 s[i]、length(s) 用同一个计数范围，
 // 所以再数一遍"前面那几字节里有几个码点"（@count_runes）。
 // 要找的那一段是空的，就命中位置 0，与 @str_index 同一句。
 //
@@ -915,7 +915,7 @@ func strIndexOf(b *rt) {
 	const (
 		hHay  = 0 // 文本
 		hNeed = 1 // 要找的那一段
-		hOff  = 2 // @str_index 交回的字节偏移
+		hOff  = 2 // @str_index 返回的字节偏移
 	)
 	a := b.a
 	b.prologue()
@@ -1024,7 +1024,7 @@ func strEdges(b *rt) {
 
 // @str_pad(rcx=文本, rdx=宽度, r8=填充, r9=0 补在头／1 补在尾)：返回 rax=新文本。
 //
-// 宽度数的是码点，与 `length(s)`、`s[i]` 同一口径。已经够长就原样返回一份新的，
+// 宽度数的是码点，与 `length(s)`、`s[i]` 同一个计数范围。已经够长就原样返回一份新的，
 // 不拿旧句柄冒充新的那一份——两个人都能析构同一块。
 // 填充反复取用，最后不够一整段就只取到齐数为止，所以结果的码点数正好是宽度（与 JavaScript
 // 的 padStart 同一条）。填充是空文本时补不上，也原样返回一份新的。
@@ -1049,7 +1049,7 @@ func strPad(b *rt) {
 		dMode = 3 // 0 补在头、1 补在尾
 		dCur  = 4 // 生成的填充段
 		dCut  = 5 // 还要补几个码点
-		dOld  = 6 // 翻倍与裁齐时手上那一份，交回新的一份之后就还掉
+		dOld  = 6 // 翻倍与裁齐时手上那一份，返回新的一份之后就还掉
 	)
 	a := b.a
 	b.prologue()
@@ -1156,7 +1156,7 @@ func strPad(b *rt) {
 // @str_rindex(rcx=文本, rdx=要找的那一段)：返回 rax=最后一处出现的**码点**序号，一处都没有返回 -1。
 //
 // 从最后一个放得下的起点往前比，命中就是答案，所以空的这一段命中位置 0——与 index_of 同一条。
-// 返回的序号要和 s[i]、length(s) 用同一口径，命中的字节偏移再数一遍前面的码点（@count_runes）。
+// 返回的序号要和 s[i]、length(s) 用同一个计数范围，命中的字节偏移再数一遍前面的码点（@count_runes）。
 //
 // en: @str_rindex (rcx = text, rdx = the needle): returns rax = the CODE POINT index of the
 // last occurrence, -1 when there is none. Comparison starts at the last position where the
@@ -1365,7 +1365,7 @@ func strRepeat(b *rt) {
 	empty, loop, done := b.label(), b.label(), b.label()
 	b.get(x64.RAX, pK)
 	a.CmpImm(x64.RAX, 1)
-	a.Jcc(x64.L, empty) // 零份与负数：一份空的交回去
+	a.Jcc(x64.L, empty) // 零份与负数：一份空的直接返回
 	b.get(x64.RCX, pSrc)
 	a.Xor(x64.RDX, x64.RDX)
 	b.get(x64.R8, pSrc)
@@ -1491,7 +1491,7 @@ func bytesToStr(b *rt) {
 	b.get(x64.RCX, qSrc)
 	a.AddImm(x64.RCX, BytesBody)
 	b.get(x64.RDX, qN)
-	b.call("@count_runes") // rax＝几个码点，@str_wrap 要的那一格
+	b.call("@count_runes") // rax＝几个码点，@str_wrap 要的那个位置
 	a.Mov(x64.R8, x64.RAX)
 	b.get(x64.RCX, qSrc)
 	a.AddImm(x64.RCX, BytesBody)

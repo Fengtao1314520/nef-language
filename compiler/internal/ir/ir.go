@@ -112,6 +112,16 @@ func (S) val() { return }
 
 func (s S) String() string { return "$" + strconv.Itoa(int(s)) }
 
+// Fn 是一份机器代码的入口地址：函数名按值交出去时，落进那个位置的就是它。
+//
+// en: Fn is the entry address of one piece of machine code - what a function name leaves in a
+// position when it is handed over as a value.
+type Fn string
+
+func (Fn) val() { return }
+
+func (f Fn) String() string { return "&" + string(f) }
+
 // Label 是函数内的跳转目标。
 //
 // en: Label is a jump target inside one function.
@@ -267,6 +277,22 @@ type Call struct {
 	Args []Val
 	FT   []T
 	RT   T
+	// Site 是这一次调用的调用链记录要用的三串文本。只有调用户函数的才摆，
+	// 标准库与运行期例程那几条不摆——它们说不出自己在源码哪一行。
+	// 发码那一步在这条 call 之后记下返回地址，凑成表里的一项。
+	Site *CallSite
+}
+
+// CallSite 是调用链表一项要带的文本：调用点的位置（`main.nf 12:9`）、调用者所属的函数名、
+// 被调的函数名。三个都是文本池里的编号，表里存的是它们与表起点的字节差。
+//
+// en: CallSite carries the three texts one call-trace row needs: the position of the call
+// ("main.nf 12:9"), the name of the function making the call, and the name of the callee. All
+// three are pool indices; the row stores their byte differences from the start of the table.
+type CallSite struct {
+	Pos    S
+	Caller S
+	Callee S
 }
 
 // Ret 返回结果；Has 为假表示不返回值。
@@ -281,16 +307,26 @@ type Ret struct {
 // PushHandler 挂一层处理器：Catch 是本函数里接住块的开头。
 // 运行期按这一层恢复栈，抛出时跳转到 Catch。
 //
+// Default 说这一条是 nef.main 顶上那一条默认处理（一路没人接住的抛出走到那儿去）：
+// 发码时把它的落点多写一份进运行期的 defaultHandler。抛出这一步要问"这一趟有没有人接住"，
+// 那一条是运行期自己挂的，不算用户写的 catch。
+//
 // en: PushHandler installs one handler layer: Catch is the start of the catch block inside this
 // same function. The runtime rewinds the stack according to this layer, and a throw jumps to
-// Catch.
-type PushHandler struct{ Catch Label }
+// Catch. Default says this one is the fallback layer nef.main hangs on top (a throw nobody
+// catches ends up there): emission copies its landing point into defaultHandler in the runtime,
+// because the throw asks "did anyone catch this one" and that layer is the runtime's own, not a
+// catch the program wrote.
+type PushHandler struct {
+	Catch   Label
+	Default bool
+}
 
-// PushAbandon 给这一帧挂一条"异常越过本帧"标记：Pad 是本函数里先归还自己登记的资源、
+// PushAbandon 给这一帧附加一条"异常越过本帧"标记：Pad 是本函数里先归还自己登记的资源、
 // 再调用 @throw_walk 继续向外传播的代码段，Rec 是本帧为该记录预留的连续五个槽的头一个。
 //
-// 它与 PushHandler 挂同一条链、用同一套字段，只有两处不同：种类位置写 1，且记录住在帧上
-// ——从函数入口挂到帧尾，帧销毁时随之消失，不需要向堆申请再归还。出链时也不区分：
+// 它与 PushHandler 用同一条链、同一套字段，只有两处不同：种类位置写 1，且记录住在帧上
+// ——从函数入口保留到帧尾，帧销毁时随之消失，不需要向堆申请再归还。出链时也不区分：
 // PopHandler 摘的永远是链头（只有链头是接住块记录时才调 @free）。
 //
 // en: PushAbandon attaches to this frame a marker saying "thrown past": Pad is the code in this
@@ -317,6 +353,18 @@ type PushAbandon struct {
 // frame that leaves through Ret removing its own frame-scope record.
 type PopHandler struct{}
 
+// SetPos 把"走到哪一处"摆进运行期那一个静态格：抛出那一句要从那里读位置，接住块的第三个名字
+// 与默认处理那一句末尾的「（在 …）」都是它。它与发一次 `@set_pos` 是同一条规则，换成的是一句
+// 直接写入：位置在一个循环体里每轮都要摆一次，花一次调用太贵——下标读写那条负载每轮摆五次，
+// 实测多出来的那一倍耗时就是这么来的。
+//
+// en: SetPos puts "how far this program has walked" into that one static slot the runtime keeps:
+// the throw reads its position there, and both the catch block's third name and the
+// 「（在 …）」 tail of the fallback line come from it. It is the same rule as calling `@set_pos`,
+// written straight in: a loop body sets the position once per round, and a call each round costs
+// too much - the subscript load sets it five times a round, which is where the doubled time came from.
+type SetPos struct{ S Val }
+
 // Catch 是接住块开头那一步：把 @throw 返回来的码放进 D、消息放进 E。
 // 那两个值躺在 rax／rdx 里，除了这一条没有别的办法把它们落到槽上。
 //
@@ -325,6 +373,9 @@ type PopHandler struct{}
 // there is no other way to land them in slots.
 type Catch struct {
 	D, E Val
+	// A 是抛出这一处在哪个文件第几行第几列，接住块把它交给第三个名字；
+	// 顶层那一条默认处理器不要它（那一处只是把话打印出来就退出），留空即可。
+	A Val
 }
 
 func (*Mov) inst()         {}
@@ -345,10 +396,12 @@ func (*Load) inst()        {}
 func (*Store) inst()       {}
 func (*Addr) inst()        {}
 func (*Call) inst()        {}
+func (*CallValue) inst()   {}
 func (*Ret) inst()         {}
 func (*PushHandler) inst() {}
 func (*PushAbandon) inst() {}
 func (*PopHandler) inst()  {}
+func (*SetPos) inst()      {}
 func (*Catch) inst()       {}
 
 func (m *Mov) String() string  { return fmt.Sprintf("%s = %s :: %s", m.D, m.S, m.T) }
@@ -403,7 +456,13 @@ func (a *Addr) String() string { return fmt.Sprintf("%s = &%s", a.D, a.G) }
 func (p *PushHandler) String() string { return fmt.Sprintf("push handler → L%d", p.Catch) }
 func (p *PushAbandon) String() string { return fmt.Sprintf("push abandon → L%d", p.Pad) }
 func (p *PopHandler) String() string  { return "pop handler" }
-func (c *Catch) String() string       { return fmt.Sprintf("%s, %s = catch", c.D, c.E) }
+func (s *SetPos) String() string      { return fmt.Sprintf("_ = set position %s", s.S) }
+func (c *Catch) String() string {
+	if c.A == nil {
+		return fmt.Sprintf("%s, %s = catch", c.D, c.E)
+	}
+	return fmt.Sprintf("%s, %s, %s = catch", c.D, c.E, c.A)
+}
 
 func (c *Call) String() string {
 	var ts []string
@@ -415,6 +474,31 @@ func (c *Call) String() string {
 		dst = c.D.String()
 	}
 	return fmt.Sprintf("%s = call %s(%s) :: [%s]", dst, c.Fn, join(c.Args), strings.Join(ts, ","))
+}
+
+// CallValue 是按一个函数值调用：Target 里装的是那一份入口地址，其余与 Call 一样。
+//
+// en: CallValue is one call made through a function value: Target carries the entry address, and
+// everything else matches Call.
+type CallValue struct {
+	D      Val
+	HasD   bool
+	Target Val
+	Args   []Val
+	FT     []T
+	RT     T
+}
+
+func (v *CallValue) String() string {
+	var ts []string
+	for _, t := range v.FT {
+		ts = append(ts, t.String())
+	}
+	dst := "_"
+	if v.HasD {
+		dst = v.D.String()
+	}
+	return fmt.Sprintf("%s = callv %s(%s) :: [%s]", dst, v.Target, join(v.Args), strings.Join(ts, ","))
 }
 
 func (r *Ret) String() string {
@@ -519,7 +603,7 @@ type Prog struct {
 	Descs   []Desc // 形状表
 	Globals int
 	Entry   string
-	// Debug 从 check.Program 透传下来：为真才发射 ir.Dbg、记录检查点表，数据段才多出宿主指针槽位。
+	// Debug 由 check.Program 原样传给下游：为真才发射 ir.Dbg、记录检查点表，数据段才多出宿主指针槽位。
 	// 关闭时后端看到的中间码与不带调试功能时完全一致。
 	Debug bool
 	// Names 是各份文件顶层那些 let／const：它们不在任何一帧上，落在静态槽里。

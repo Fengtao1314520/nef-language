@@ -49,16 +49,24 @@ func cmdDAP(args []string) int {
 
 // startDebuggee 起的还是自己这一个可执行文件，只是换了角色。
 // 程序往屏幕与标准错误上写的字逐段转给这一侧，由这一侧报成调试协议里的 output 事件。
+// throwStop 是 launch.json 里 breakOnThrow 那一个开关：它变成子进程自己的一号参数
+// （--break-on-throw），不混进程序的那几段参数里。
 //
 // en: startDebuggee launches the very same executable, only in the other role. The text the
 // program writes to the screen and to standard error is forwarded chunk by chunk to this side,
-// which reports it as Debug Adapter Protocol output events.
-func startDebuggee(program string, progArgs []string, port string, onOutput func(category, text string)) (func() int, error) {
+// which reports it as Debug Adapter Protocol output events. throwStop is launch.json's
+// breakOnThrow switch: it becomes an argument of the child process itself (--break-on-throw)
+// and never joins the program's own arguments.
+func startDebuggee(program string, progArgs []string, port string, throwStop bool, onOutput func(category, text string)) (func() int, error) {
 	exe, err := os.Executable()
 	if err != nil {
 		return nil, err
 	}
-	argv := append([]string{"dap", program, "--debuggee", port}, progArgs...)
+	argv := []string{"dap", program, "--debuggee", port}
+	if throwStop {
+		argv = append(argv, "--break-on-throw")
+	}
+	argv = append(argv, progArgs...)
 	cmd := exec.Command(exe, argv...)
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {

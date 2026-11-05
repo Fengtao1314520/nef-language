@@ -57,24 +57,50 @@ func (c *Checker) stmt(s ast.Stmt) {
 	case *ast.Switch:
 		c.switchStmt(st)
 	case *ast.Break:
+		if c.finallyDepth > 0 {
+			c.fail(st.Where(), "finally 那一段里不能 break：要跳出循环就写在 try 或 catch 里")
+		}
 		if c.loopDepth == 0 {
 			c.fail(st.Where(), "break 只能写在循环里")
 		}
 	case *ast.Continue:
+		if c.finallyDepth > 0 {
+			c.fail(st.Where(), "finally 那一段里不能 continue：要换下一轮就写在 try 或 catch 里")
+		}
 		if c.loopDepth == 0 {
 			c.fail(st.Where(), "continue 只能写在循环里")
 		}
 	case *ast.Return:
+		if c.finallyDepth > 0 {
+			c.fail(st.Where(), "finally 那一段里不能 return：要改变出口就写在 try 或 catch 里")
+		}
 		c.returnStmt(st)
 	case *ast.Try:
 		enter := c.snapshotMoved()
 		out := c.snapshotMoved()
 		c.runBranch(enter, st.Body, out)
-		c.openScope()
-		c.declare(st.CodeName, typeInt, st.Where())
-		c.declare(st.MsgName, typeStr, st.Where())
-		c.runBranch(enter, st.Catch, out)
-		c.closeScope()
+		if st.HasCatch {
+			c.openScope()
+			c.declare(st.CodeName, typeInt, st.Where())
+			c.declare(st.MsgName, typeStr, st.Where())
+			c.declare(st.AtName, typeStr, st.Where())
+			if st.TraceName != "" {
+				// 第四个名字可以省：写了才有整条调用链的那一份文本，没写就一行也不排。
+				c.declare(st.TraceName, typeStr, st.Where())
+			}
+			c.runBranch(enter, st.Catch, out)
+			c.closeScope()
+		}
+		// 收尾那一段是一条独立的支路：接住块那四个名字在这一段里读不到（那四个只登记在
+		// 上面那一个作用域里），这一段里也不能改变出口。四条出口每一条都要先跑完它。
+		//
+		// en: the finally stretch is a stretch of its own: the four catch names live only in the
+		// scope above, and no exit may be changed from inside it. All four exits run it first.
+		if st.HasFinally {
+			c.finallyDepth++
+			c.runBranch(enter, st.Finally, out)
+			c.finallyDepth--
+		}
 		c.moved = out
 	default:
 		c.fail(st.Where(), "认不出的语句")
@@ -215,7 +241,7 @@ func (c *Checker) assignStmt(a *ast.Assign) {
 			return
 		}
 		if subj, isPkgConst := c.pkgConstRead(target); isPkgConst {
-			// 包交出来的数与本文件的 const 同一条规则，只是名字前面挂着包。
+			// 包导出的数与本文件的 const 同一条规则，只是名字前面带着包名。
 			c.fail(a.Where(), "%s 是 const，声明之后不可改", subj)
 			return
 		}
@@ -248,23 +274,22 @@ func (c *Checker) assignStmt(a *ast.Assign) {
 
 // refuseMidTake 拒绝"路径中间还要再下一层"的写入与自增。
 //
-// 落点是最后一个位置时没有问题。要拒绝的是中间那一步：`xs[0][0] = 7`、`a[0].v = 7`、`xs[0][0]++`
-// 里的 `xs[0]`、`a[0]` 都是**读走容器的一个位置**，按容器的读写规则，读完就把那个位置清空，
-// 于是写落在一块已经不在容器上的副本上（实测 `xs[0][0] = 7;` 之后 `length(xs)` 还是 2、
-// 再读 `xs[0][0]` 抛 10092），`++` 要把同一条路径读两遍，第二遍拿到的是空句柄（10092）。
-// 判为不支持；要改先绑一个名字：`let row:list<int> = xs[0]; row[0] = 7;`。
-// 值类型的那个位置不改变源头，所以 `xs[0].n = 3`、`d["甲"].n = 4` 不在这条规则之内。
+// 要拒绝的是中间那一步还要再经过一个容器位置、而且那个位置装的是引用类型：`xs[0][0] = 7`、
+// `a[0].v = 7`、`a[0].kids[0] = 7`、`xs[0][0]++`。中间那一步读出来的是只读借用，容器那个位置
+// 还是持有者，写落在借来的那一份上就是改一份不属于这个名字的值；`++` 还要把同一条路径读两遍。
+// 元素是值类型时没有这件事：`xs[0].n = 3`、`d["甲"].n = 4`（`list<struct Rec>` 那种容器）照改，
+// 中间那一步是一次字段读的 `b.kids[0] = 7` 也照改。要改内层就分三步走：先摘出来，改完之后
+// 再写回容器（`let row:list<int> = xs.remove_at(0); row[0] = 7; xs.add(row);`）。
 //
 // en: refuseMidTake refuses an assignment or increment whose path needs to descend another
-// level in the middle. A destination that is a final position is fine. What is refused is the
-// middle step: in `xs[0][0] = 7`, `a[0].v = 7`, `xs[0][0]++`, the `xs[0]` and `a[0]` each
-// READ ONE CONTAINER POSITION, and by the container read rule the read empties that position -
-// so the write lands on a copy that is no longer in the container (measured: after
-// `xs[0][0] = 7;`, `length(xs)` is still 2 and reading `xs[0][0]` throws 10092), and `++` reads
-// the same path twice, the second read receiving an empty handle (10092). It is judged
-// unsupported; the rewrite is to bind a name first: `let row:list<int> = xs[0]; row[0] = 7;`.
-// A value-typed position does not disturb its source, so `xs[0].n = 3` and `d["a"].n = 4` are
-// outside this rule.
+// level in the middle, where that middle step reads one more container position holding a
+// reference type: `xs[0][0] = 7`, `a[0].v = 7`, `a[0].kids[0] = 7`, `xs[0][0]++`. That middle
+// read yields a read-only borrow while the container keeps holding the value, so writing
+// through it changes something this name does not own; `++` reads the same path twice. A
+// value-typed element raises no such question: `xs[0].n = 3` and `d["a"].n = 4` (over
+// `list<struct Rec>`) still write through, as does `b.kids[0] = 7`, where the middle step is a
+// field read. To change the inner one, split it into three steps - take that entry out with
+// `xs.remove_at(0)`, change it, then `xs.add(row)` puts it back into the container.
 func (c *Checker) refuseMidTake(target ast.Expr, at ast.Pos) bool {
 	var node ast.Expr
 	switch t := target.(type) {
@@ -282,7 +307,7 @@ func (c *Checker) refuseMidTake(target ast.Expr, at ast.Pos) bool {
 			if base.Kind == List || base.Kind == Dict || base.Kind == Set {
 				elem := base.Args[len(base.Args)-1]
 				if !elem.ByValue() && elem.Kind != Str && elem.Kind != ErrT {
-					c.fail(at, "中间那个位置读走就空了，改不到它的下一层：先给它绑一个名字")
+					c.fail(at, "中间那个位置读了不拿走，改不到它的下一层：要改就先把它从容器里摘出来")
 					return true
 				}
 			}
@@ -296,12 +321,25 @@ func (c *Checker) refuseMidTake(target ast.Expr, at ast.Pos) bool {
 }
 
 // transferOut 处理写进容器的那个位置：值类型是拷贝，引用类型的值要交出去。
+// dict 的键同一条：`d[键] = 值` 与 `d.add(键, 值)` 收的是同一个位置，键是引用类型时那个位置接手它，
+// 原名当场作废。先前只记值那一笔，键那个名字仍然登记着持有者，作用域尽头就把桶里正在用的那块文本拆掉了。
 //
 // en: transferOut handles the position written into a container: a value type is copied, a
-// reference-typed value is handed over.
+// reference-typed value is handed over. A dict key takes the same rule: `d[key] = value` and
+// `d.add(key, value)` fill one and the same position, so a reference-typed key is taken there and
+// its name is voided on the spot. Only the value side used to be recorded, which left the key's
+// name registered as a holder - the scope-end teardown then dismantled the text block a bucket
+// was still using.
 func (c *Checker) transferOut(base Type, idx *ast.Index, val ast.Expr) {
+	if base.Kind == Dict {
+		c.putInCell(idx.At, base.Args[0])
+	}
 	elem := base.Args[len(base.Args)-1]
 	if elem.ByValue() {
+		return
+	}
+	if c.borrowRead[val] {
+		c.fail(val.Where(), "读出来的那一份是只读借用，不能放进容器那一个位置：文本拷一份，能摘出来的位置用 remove_at 或 json.take 摘出来")
 		return
 	}
 	if n, ok := val.(*ast.Name); ok {
@@ -325,7 +363,7 @@ func (c *Checker) incdecStmt(s *ast.Incdec) {
 		}
 	}
 	if subj, isPkgConst := c.pkgConstRead(s.What); isPkgConst {
-		// 包交出来的数也是 const，只是名字前面挂着包。
+		// 包导出的数也是 const，只是名字前面带着包名。
 		c.fail(s.Where(), "%s 是 const，不能自增减", subj)
 	}
 }
@@ -481,7 +519,7 @@ func (c *Checker) returnStmt(r *ast.Return) {
 		return
 	}
 	c.exprExpected(r.Val, want)
-	// "return 交回引用类型的值同样是交出"这一条落在这里：交出去的那个名字当场不再是持有者。
+	// "return 返回引用类型的值同样是交出"这一条落在这里：交出去的那个名字当场不再是持有者。
 	// 值类型（`int`、`float`、`boolean`、`byte`、`unicode`、`enum`、`struct`）走 takeFrom
 	// 开头那一句就 return 了——那是整份拷贝，原名字照旧能用（与引用类型分支的分工一致）。
 	c.takeFrom(r.Val, want)
@@ -521,6 +559,11 @@ func switchable(t Type) string {
 // against the field's position (read it and the field is written empty).
 func (c *Checker) takeFrom(v ast.Expr, t Type) {
 	if t.ByValue() || t.Kind == ErrT || t.Kind == Null {
+		return
+	}
+	if c.borrowRead[v] {
+		// 读一个位置拿到的那一份归原来的容器或者那棵树，收到名字里就会有两个持有者。
+		c.fail(v.Where(), "读出来的那一份是只读借用，不能收到名字里、写进字段或者交给调用方：文本拷一份，能摘出来的位置用 remove_at 或 json.take 摘出来")
 		return
 	}
 	if n, ok := v.(*ast.Name); ok {

@@ -1,5 +1,5 @@
 // 示例程序一：一个清单，把每样东西的字数加起来
-// 用到：顶层是一层作用域、length 是函数、遍历交出的是只读借用、`ref` 参数只借不交出
+// 用到：顶层是一层作用域、length 是函数、遍历交出的是只读借用、`ref` 参数只读借用不交出
 // en: One list of items with the character count of each added up. Covers the top level being one scope, length as a function, what iterating hands over (a read-only borrow), and a ref parameter that borrows without taking.
 
 let items:list<string> = ["书包", "笔记本", "雨伞"]
@@ -17,5 +17,5 @@ const n:int = length(items)             // 内建函数按只读借用接收，i
 console.print("共", n, "件，字符数合计:", count_chars(items))
 
 // count_chars 的参数标的是 `ref`：清单借进去读一遍，返回后 items 仍然可用。
-// 这里也可以写 console.print(items[0])，只是那个位置的值会被读走，此后它是 null。
+// 这里也可以写 console.print(items[0])：读一个位置不交出那个值，此后 items[0] 还在。
 console.print("算完了")

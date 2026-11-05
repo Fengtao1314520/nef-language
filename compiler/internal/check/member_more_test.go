@@ -5,7 +5,7 @@ package check
 import "testing"
 
 // 覆盖两条范围问题：list 新添的六个动作能装什么、进制那一对的进制怎么写。
-// 两句都是整句比对（`expectErr` 认 `Error.Msg` 相等），改一个字就红。
+// 两句都是整句比对（`expectErr` 认 `Error.Msg` 相等），改一个字就失败。
 
 func TestListMoreRefuseHandleElements(t *testing.T) {
 	unfit := "C 交不出一份自己的拷贝：C 那一类东西一交就是两个持有者，只有值类型与文本交得回来"

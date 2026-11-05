@@ -209,6 +209,26 @@ func (c *dapClient) takeEvent(kind string, out *strings.Builder) map[string]any 
 	}
 }
 
+// countEvent 在两秒里把送进来的事件数一遍，看指定那一种来了几条。
+// 停过一次之后再放行，程序就该一路跑到结束；同一条抛出被问第二遍会在这儿露出来。
+func (c *dapClient) countEvent(kind string) int {
+	c.t.Helper()
+	n := 0
+	for {
+		select {
+		case got, ok := <-c.events:
+			if !ok {
+				return n
+			}
+			if got["event"] == kind {
+				n++
+			}
+		case <-time.After(2 * time.Second):
+			return n
+		}
+	}
+}
+
 func num(v any) int {
 	if f, ok := v.(float64); ok {
 		return int(f)
@@ -272,6 +292,14 @@ func TestDebugSessionEndToEnd(t *testing.T) {
 	if num(top["line"]) != 3 || top["name"] != "twice" {
 		t.Errorf("栈顶不对：%v", top)
 	}
+	// 第 6 行写下的是 `let k: int = twice(21)`：上一层的位置就是那一次调用之后的第一个字节，
+	// 所以它该说第 6 行——不是再外面一层的位置（早先在这儿读错了一格）。
+	if len(frames) > 1 {
+		f1, _ := frames[1].(map[string]any)
+		if num(f1["line"]) != 6 {
+			t.Errorf("上一层该在第 6 行，得到 %v", f1)
+		}
+	}
 
 	sc := c.request("scopes", map[string]any{"frameId": num(top["id"])})
 	scopes, _ := bodyOf(sc)["scopes"].([]any)
@@ -283,7 +311,7 @@ func TestDebugSessionEndToEnd(t *testing.T) {
 	if name0 != "局部" {
 		t.Errorf("第一个作用域该叫局部，得到 %q", name0)
 	}
-	// 协议里 variablesReference 为 0 说的是"这一格没有可取的内容"，
+	// 协议里 variablesReference 为 0 说的是"那个位置没有可取的内容"，
 	// 编辑器就干脆不来问第二遍——变量栏会整个空着。第一帧的号必须非 0。
 	if ref == 0 {
 		t.Fatalf("作用域的引用号是 0，编辑器会当成没有变量可取：%v", bodyOf(sc))
@@ -415,5 +443,178 @@ func TestBreakpointOnALineWithNoStatement(t *testing.T) {
 	}
 	if msg, _ := bp["message"].(string); msg == "" {
 		t.Errorf("钉不住要说清为什么：%v", bp)
+	}
+}
+
+// dapThrowProgram 是抛出那一条路的样例：第 7 行那一次有人接住，第 12 行那一次没人接住，
+// 两次都由运行期自己抛出（第 2 行那个下标越界 10031）——最常见的就是这一种。
+// 停下时要看的栈顶是 pick 那一帧（第 2 行），上一层是写下那一次调用的第 12 行。
+const dapThrowProgram = "method pick(ref xs: list<int>, at: int): int {\n" +
+	"    return xs[at]\n" +
+	"}\n" +
+	"\n" +
+	"let nums: list<int> = [1, 2, 3]\n" +
+	"try {\n" +
+	"    console.print(pick(nums, 9))\n" +
+	"} catch (code, msg, at) {\n" +
+	"    console.print(\"有人接住\", code)\n" +
+	"}\n" +
+	"console.print(\"照旧往下跑\")\n" +
+	"console.print(pick(nums, 9))\n"
+
+// startThrowDebug 起一趟调试，launch 里带不带 breakOnThrow 由调用方说。
+func startThrowDebug(t *testing.T, throwStop bool) (*dapClient, string, func()) {
+	t.Helper()
+	nf := nfExe(t)
+	dir := t.TempDir()
+	src := filepath.Join(dir, "p.nf")
+	if err := os.WriteFile(src, []byte(dapThrowProgram), 0o644); err != nil {
+		t.Fatalf("备料失败：%v", err)
+	}
+	c := startDAP(t, nf)
+	c.request("initialize", map[string]any{"adapterID": "nf"})
+	c.wantEvent("initialized")
+	launch := map[string]any{"program": filepath.ToSlash(src)}
+	if throwStop {
+		launch["breakOnThrow"] = true
+	}
+	c.request("launch", launch)
+	c.request("configurationDone", nil)
+	return c, filepath.Base(src), func() { c.cmd.Process.Kill() }
+}
+
+// breakOnThrow 开着：有人接住的那一次照旧跑完、不停，没人接住的那一次停在抛出那一句上。
+// 停住时栈与那一帧的局部量都读得出来——陷阱在 @throw 那一步、往下走之前，中间那几帧还没被复用。
+func TestBreakOnThrowStopsOnlyUncaught(t *testing.T) {
+	c, name, kill := startThrowDebug(t, true)
+	defer kill()
+
+	var out strings.Builder
+	stop := c.takeEvent("stopped", &out)
+	if bodyOf(stop)["reason"] != "exception" {
+		t.Fatalf("该停在抛出上，理由却是 %v（已经攒到的输出：%q）", bodyOf(stop), out.String())
+	}
+
+	st := c.request("stackTrace", map[string]any{"threadId": 1})
+	frames := listOf(bodyOf(st)["stackFrames"])
+	if len(frames) < 2 {
+		t.Fatalf("栈里至少要有 pick 与顶层两层，得到 %v", bodyOf(st))
+	}
+	f0, _ := frames[0].(map[string]any)
+	if f0["name"] != "pick" || num(f0["line"]) != 2 {
+		t.Errorf("栈顶该是 pick 的第 2 行，得到 %v", f0)
+	}
+	f1, _ := frames[1].(map[string]any)
+	if num(f1["line"]) != 12 {
+		t.Errorf("上一层该是写下那一次调用的第 12 行，得到 %v", f1)
+	}
+
+	sc := c.request("scopes", map[string]any{"frameId": num(f0["id"])})
+	ref := 0
+	for _, s := range listOf(bodyOf(sc)["scopes"]) {
+		sm, _ := s.(map[string]any)
+		if sm["name"] == "局部" {
+			ref = num(sm["variablesReference"])
+		}
+	}
+	if ref == 0 {
+		t.Fatalf("那一帧没有可问的局部作用域：%v", bodyOf(sc))
+	}
+	vr := c.request("variables", map[string]any{"variablesReference": ref})
+	vals := map[string]string{}
+	for _, v := range listOf(bodyOf(vr)["variables"]) {
+		vm, _ := v.(map[string]any)
+		vals[fmt.Sprint(vm["name"])] = fmt.Sprint(vm["value"])
+	}
+	if vals["at"] != "9" {
+		t.Errorf("停住那一刻 at 该是 9，得到 %v", vals)
+	}
+
+	// 放行：这一次抛出走到最外面，屏幕上照旧是那一句"出错了…"与整条调用链。
+	// 名字里带盘符那一段的位置文本只留文件名，所以链上那两行按 p.nf 认。
+	c.request("continue", nil)
+	c.takeEvent("terminated", &out)
+	got := out.String()
+	if !strings.Contains(got, "有人接住 10031") || !strings.Contains(got, "照旧往下跑") {
+		t.Errorf("有人接住的那一次不该停，实际输出：%q", got)
+	}
+	want := []string{"出错了（10031）", name + " 2:14 pick", name + " 12:15 " + name}
+	for _, w := range want {
+		if !strings.Contains(got, w) {
+			t.Errorf("放行之后要看到的 %q 没看到，实际输出：%q", w, got)
+		}
+	}
+}
+
+// dapFinallyProgram 是往外走的那一条路上带着一段 `finally` 的那种：第 7 行那一次抛出没人接住，
+// 走到第 9 行那一段收尾，收完之后由 `@rethrow` 接着往外走。
+// 只写 `try / finally` 的那一层在处理器链上也是一条接住记录（落点是收尾那一段的开头），
+// 所以 `@throw` 那一步判成"有人接住"、不问；问话落在 `@rethrow` 那一步，
+// 停的位置是这一层收尾，不是最里那一处抛出。同一条抛出只问一次。
+const dapFinallyProgram = "method pick(ref xs: list<int>, at: int): int {\n" +
+	"    return xs[at]\n" +
+	"}\n" +
+	"\n" +
+	"let nums: list<int> = [1, 2, 3]\n" +
+	"try {\n" +
+	"    console.print(pick(nums, 9))\n" +
+	"} finally {\n" +
+	"    console.print(\"收尾这一次\")\n" +
+	"}\n"
+
+// 没人接住的抛出带着一段收尾：只停一次，停过之后收尾照跑、程序按 1 结束。
+func TestBreakOnThrowStopsOnceThroughFinally(t *testing.T) {
+	nf := nfExe(t)
+	dir := t.TempDir()
+	src := filepath.Join(dir, "q.nf")
+	if err := os.WriteFile(src, []byte(dapFinallyProgram), 0o644); err != nil {
+		t.Fatalf("备料失败：%v", err)
+	}
+	c := startDAP(t, nf)
+	defer c.cmd.Process.Kill()
+
+	c.request("initialize", map[string]any{"adapterID": "nf"})
+	c.wantEvent("initialized")
+	c.request("launch", map[string]any{"program": filepath.ToSlash(src), "breakOnThrow": true})
+	c.request("configurationDone", nil)
+
+	var out strings.Builder
+	stop := c.takeEvent("stopped", &out)
+	if bodyOf(stop)["reason"] != "exception" {
+		t.Fatalf("该停在没人接住的那一次抛出上，理由却是 %v（攒到的输出：%q）", bodyOf(stop), out.String())
+	}
+	st := c.request("stackTrace", map[string]any{"threadId": 1})
+	frames := listOf(bodyOf(st)["stackFrames"])
+	if len(frames) < 1 {
+		t.Fatalf("调用栈是空的：%v", bodyOf(st))
+	}
+	c.request("continue", nil)
+	c.takeEvent("terminated", &out)
+	got := out.String()
+	if !strings.Contains(got, "收尾这一次") {
+		t.Errorf("停过之后那一段收尾要跑完，实际输出：%q", got)
+	}
+	if !strings.Contains(got, "出错了（10031）") {
+		t.Errorf("放行之后要打出的那一句没看到，实际输出：%q", got)
+	}
+	// 同一条抛出不能问两遍：`@throw` 判成有人接住、`@rethrow` 才问，一次正好。
+	if extra := c.countEvent("stopped"); extra != 0 {
+		t.Errorf("同一条抛出停了两遍（多 %d 次）：%q", extra, got)
+	}
+}
+
+// 开关关着（默认那一种）：一次也不停——程序一路跑到退出，
+// 屏幕上仍是那一句"出错了…"与整条调用链。
+func TestBreakOnThrowOffRunsThrough(t *testing.T) {
+	c, name, kill := startThrowDebug(t, false)
+	defer kill()
+
+	var out strings.Builder
+	c.takeEvent("terminated", &out)
+	got := out.String()
+	for _, w := range []string{"有人接住 10031", "照旧往下跑", "出错了（10031）", name + " 2:14 pick"} {
+		if !strings.Contains(got, w) {
+			t.Errorf("关着开关时也要看到的 %q 没看到，实际输出：%q", w, got)
+		}
 	}
 }

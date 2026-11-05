@@ -315,7 +315,7 @@ console.print(b.slice(2, 1))`,
 
 // TestBytesNegativeSizeIsRefused 验证 `bytes.new` 收负数的处理：绕回成大数会一路走到"要不到内存"
 // （10091 号），那句报错说的是这台机器给不出这么多，不是"符号写错了"。
-// 错误码取容器那一段的兜底 10030 号。
+// 错误码取容器那一段的默认错误码 10030 号。
 func TestBytesNegativeSizeIsRefused(t *testing.T) {
 	got, code := run(t, `let b:bytes = bytes.new(0 - 4)
 console.print(length(b))`)
@@ -363,9 +363,10 @@ for (i:int in 0 until 20000) {
     b[0] = 200
 }`},
 		{"每一圈造一块放进容器，容器自己散", `
+let total:int = 0
 for (i:int in 0 until 20000) {
     let xs:list<bytes> = [bytes.new(24)]
-    let one:bytes = xs[0]
+    total = total + length(xs[0])
 }`},
 		{"每一圈读一个小文件进来", `
 let p:string = "` + p + `"
@@ -438,8 +439,8 @@ console.print(text.from_bytes(back))
 	}
 }
 
-// TestBytesBase64 验证 bytes 与 base64 文本这一双的互转。期望串一律由 Go 的 `encoding/base64`
-// 算出来再比对——不必手写 RFC 4648 那张表的顺序，错一个位置就红一条。
+// TestBytesBase64 验证 bytes 与 base64 文本这一对的互转。期望串一律由 Go 的 `encoding/base64`
+// 算出来再比对——不必手写 RFC 4648 那张表的顺序，错一个位置就失败一条。
 //
 // 覆盖三处：一、`bytes` 里存的是二进制，`/w==` 解出的那个 0xFF 不是合法 UTF-8，
 // 这一条照样返回那一个字节（`text.from_base64` 在同串字节上抛 10044 号，两条路的分界就在这里）；
@@ -498,7 +499,7 @@ console.print(length(b), b[0])`)
 
 	// 释放账目：两万圈各写一段 base64、各读回一块字节，接在名字上的那两块都应在语句尽头释放。
 	// 名字要写在圈里——`console.print(f(), g())` 那种无名中转值眼下是"释放后同一槽位无法取回"，
-	// 每圈都算进累计（`s.trim()` 同样摆法，量出来一样是每圈 32 字节），拿它当参照会误报
+	// 每轮都算进累计（`s.trim()` 同样摆法，量出来一样是每轮 32 字节），拿它当参照会误报
 	if used := heapAt(t, `
 let b:bytes = "甲a".to_bytes()
 let t:string = b.to_base64()
@@ -561,7 +562,7 @@ console.print(bytes.join(xs))`)
 	}
 
 	// 释放账目：清单留着不动，并出来的那一块没人接住就应在语句尽头释放。
-	// 接结果的名字要写在圈里——无名中转值眼下是"释放后同一槽位无法取回"，每圈都算进累计
+	// 接结果的名字要写在圈里——无名中转值眼下是"释放后同一槽位无法取回"，每轮都算进累计
 	if used := heapAt(t, `
 let parts:list<bytes> = ["甲".to_bytes(), "a".to_bytes()]
 for (i:int in 0 until 20000) {

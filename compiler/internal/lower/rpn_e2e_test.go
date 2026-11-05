@@ -11,6 +11,7 @@ package lower_test
 
 import (
 	"os"
+	"strings"
 	"testing"
 
 	"neflang.org/nf/internal/exetest"
@@ -22,9 +23,22 @@ func TestSampleRpn(t *testing.T) {
 	if err != nil {
 		t.Fatalf("读样例失败：%v", err)
 	}
-	r := exetest.Run(t, buildAt(t, path, string(raw)), "rpn.exe")
+	src := string(raw)
+	exe := buildAt(t, path, src)
+	r := exetest.Run(t, exe, "rpn.exe")
 	want := "9\n4\n算不动: 10022 整数除以 0\n算不动: 121 式子没算完，栈里还剩 3\n"
 	if r.Stdout != want || r.Code != 0 {
 		t.Fatalf("rpn.nf跑出来是 %q 码 %d，要 %q 码 0", r.Stdout, r.Code, want)
+	}
+
+	// 把那两处故意的错误改好一处：应该抛 10022 的那一句算出了结果，接住块的码没接上，
+	// 这一份程序要报失败。改坏样例里"接住的码不对就退出 1"那一句，这一条会红。
+	mended := strings.Replace(src, `console.print(c.run("8 0 /"))`, `console.print(c.run("8 2 /"))`, 1)
+	if mended == src {
+		t.Fatal("样例里找不到那一句除 0，改法失效")
+	}
+	fixed := exetest.Run(t, buildAt(t, path, mended), "rpn.exe")
+	if !strings.Contains(fixed.Stdout, "有 1 处结果不对") || fixed.Code != 1 {
+		t.Fatalf("一处故意的错误没抛出来时得到 %q 码 %d，要含「有 1 处结果不对」、码 1", fixed.Stdout, fixed.Code)
 	}
 }

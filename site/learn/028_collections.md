@@ -157,24 +157,28 @@ for (k:string in scores) {
 
 ## 容器元素的所有权语义
 
-容器存放引用类型（`string`、`class`、`object`、其他容器）时，取出和放入都是**交出**：
+容器存放引用类型（`string`、`class`、`object`、其他容器）时，放进来就是交出，读一下不拿走：
 
 ```nf
 let names:list<string> = ["第一", "第二"]
-let first:string = names[0]
 
-console.print(first)
+console.print(names[0])
 console.print(names[0] == null)
+
+let first:string = names[0] + ""
+let second:string = names.remove_at(1)
+console.print(first, second, length(names))
 ```
 
 ```text
 第一
-true
+false
+第一 第二 1
 ```
 
-这个位置上的值已经归属 `first`，再次读取得到 `null`。需要放回去就写 `names[0] = first`，这又是一次交出。
+`names[0] + ""` 是复制一份：读到的那一份归容器持有，要自己留着就再要一份。`names.remove_at(1)` 是把那个位置上的值摘出来交给 `second`，后面的位置依次前移，`length(names)` 少一。
 
-> 注意：这里的取出不是拷贝。容器最常见的用途是集中存放若干 `class` 对象，这些对象往往较大，还持有自己名下的其他值：如果每次下标访问都拷贝一份，拷贝的层数和开销都难以估计。读走一份就交出一个持有者，需要理解的就是“读走”和“变空”两点。
+> 注意：读一个位置既不产生拷贝，也不产生第二个持有者。`class` 对象往往较大，还持有自己名下的其他值：如果每次下标访问都拷贝一份，拷贝的层数和开销都难以估计。要自己拿着那一个值就明写：文本复制一份，其余类型用 `remove_at`、`remove` 摘出来。
 
 存放值类型（`int`、`float`、`struct`）时，进出都是拷贝，每个位置始终有值，不存在上述问题。
 

@@ -90,6 +90,14 @@ const (
 	// 语言里那一个名字装不下两把，所以手上那个数是运行期那一张表的表项。
 	// 名字走到头调用一次 `@proc_close`：没等它结束就把进程终止、句柄关闭。规则与上面两类相同。
 	Process
+	// FuncVal 是函数值的类型：`fn(int,ref string):int`。Args 里第一个是返回类型（没有返回值时
+	// 是 NoRet），往后依次是参数类型；参数是借用时那一项的 Kind 是 Borrow。
+	// 它是 8 个字节的一个入口地址，按值拷贝、不是句柄、不进容器、不装箱、也打印不出来。
+	FuncVal
+	// Borrow 只出现在函数类型的 Args 里：那一个参数是只读借用（参数前写了 `ref`）。
+	// 它与 FuncVal 一起被 sameType 逐层比较，所以 `fn(string):int` 与 `fn(ref string):int`
+	// 是两个类型，交错了就是类型不符。
+	Borrow
 )
 
 func (k Kind) String() string {
@@ -128,6 +136,10 @@ func (k Kind) String() string {
 		return "Process"
 	case NoRet:
 		return "无返回值"
+	case FuncVal:
+		return "fn"
+	case Borrow:
+		return "ref"
 	case ErrT:
 		return "错误"
 	default:
@@ -154,12 +166,79 @@ func (t Type) String() string {
 		return "hashset<" + t.Args[0].String() + ">"
 	case Struct, Class, Iface, Enum:
 		return bareName(t.Name)
+	case FuncVal:
+		return t.funcText()
+	case Borrow:
+		return "ref " + t.Args[0].String()
 	default:
 		if t.Name != "" {
 			return bareName(t.Name)
 		}
 		return t.Kind.String()
 	}
+}
+
+// funcText 把函数类型写成给读者看的一串：`fn(int,ref string):int`。Args 的第一个是返回类型，
+// 没有返回值时不写冒号那一段；后面依次是参数类型，借用那一个前面多一个 `ref`。
+//
+// en: funcText renders a function type for the reader: `fn(int,ref string):int`. Args[0] is the
+// return type and the colon disappears when nothing comes back; the rest are the parameter types,
+// a borrowed one carrying `ref` in front.
+func (t Type) funcText() string {
+	out := "fn("
+	for i, p := range t.Args[1:] {
+		if i > 0 {
+			out += ","
+		}
+		out += p.String()
+	}
+	out += ")"
+	if len(t.Args) > 0 && t.Args[0].Kind != NoRet {
+		out += ":" + t.Args[0].String()
+	}
+	return out
+}
+
+// funcTypeOf 排一份函数类型：Args 第一位是返回类型，往后是参数；refs 说哪一些是只读借用。
+//
+// en: funcTypeOf lays out one function type: Args[0] is the return type, the rest are parameters,
+// and refs says which of them are read-only borrows.
+func funcTypeOf(ret Type, params []Type, refs []bool) Type {
+	args := []Type{ret}
+	for i, p := range params {
+		if i < len(refs) && refs[i] {
+			p = Type{Kind: Borrow, Name: "ref", Args: []Type{p}}
+		}
+		args = append(args, p)
+	}
+	return Type{Kind: FuncVal, Name: "fn", Args: args}
+}
+
+// funcRefOf 判这份函数类型里第 i 个参数是不是借用（i 从 0 数，对应 Args 的第 i+1 位）。
+//
+// en: funcRefOf says whether the i-th parameter of this function type is borrowed (i counts from
+// zero and maps to Args[i+1]).
+func funcRefOf(t Type, i int) bool {
+	if t.Kind != FuncVal || i < 0 || i+1 >= len(t.Args) {
+		return false
+	}
+	return t.Args[i+1].Kind == Borrow
+}
+
+// FuncRefOf 是 funcRefOf 交给降级那一步看的那一份：这一个位置是不是只读借用。
+//
+// en: FuncRefOf is the copy of funcRefOf shown to the lowering step: whether this position is a
+// read-only borrow.
+func FuncRefOf(t Type, i int) bool { return funcRefOf(t, i) }
+
+// funcRetOf 给出函数类型的返回类型；没排上返回类型的是 NoRet。
+//
+// en: funcRetOf gives the return type of a function type; NoRet when none was written.
+func funcRetOf(t Type) Type {
+	if t.Kind != FuncVal || len(t.Args) == 0 {
+		return Type{Kind: NoRet, Name: "无返回值"}
+	}
+	return t.Args[0]
 }
 
 // Key 是同一个类型在整程序里的**身份**：包里的类型带着它的包根，工程里的类型就是原名。
@@ -251,7 +330,7 @@ func BareName(key string) string { return bareName(key) }
 // en: ByValue decides whether this is one of the value types.
 func (t Type) ByValue() bool {
 	switch t.Kind {
-	case Bool, Int, Float, Byte, Unicode, Struct, Enum:
+	case Bool, Int, Float, Byte, Unicode, Struct, Enum, FuncVal:
 		return true
 	}
 	return false
@@ -379,12 +458,39 @@ type Facts struct {
 	Packages map[string]string
 	Fields   map[string][]FieldInfo // 类型名 → 摊平后的字段表（含偏移）
 	// TopValues 是每一份文件顶层那些 `const` 与 `export shared`：键与 Sigs 同一种写法
-	// （包里的带包根，工程自己的文件就是原名）。包外面按点号取一个交出来的数读的是这张表，
+	// （包里的带包根，工程自己的文件就是原名）。包外面按点号取一个导出的数读的是这张表，
 	// 编辑器列一个包能点出什么时也查它。
 	TopValues map[string]TopValue
-	// PkgValues 记的是"这一次 `.名字` 读的是哪个包交出来的数"，值就是声明它的那个节点——
+	// PkgValues 记的是"这一次 `.名字` 读的是哪个包导出的数"，值就是声明它的那个节点——
 	// 静态槽按节点排，后端拿这个才找得到槽位（与 Imported 上带的 Decl 同一条路）。
 	PkgValues map[ast.Expr]*ast.Decl
+	// FuncRefs 记的是"这一个写出来的函数名是按值读的"，值就是那一个函数的规范名。
+	// 后端据此发一份入口地址（`fn` 类型的位置上才会出现：接给一个名字、当实参交出去、`return` 出去）。
+	//
+	// en: FuncRefs records "this function name was read as a value", with the function's canonical
+	// name as its value. The backend emits that function's entry address for it - which happens
+	// only in an `fn` position: into a name, as an argument, or through `return`.
+	FuncRefs map[ast.Expr]string
+	// BorrowRead 记"这一个表达式读出来的是只读借用"：容器下标与那五个读位置的成员。
+	// 读一个位置不再把值拿走，所以读出来那一份只能在这一段里用；后端也靠这一张表知道
+	// 这些调用返回的不是当场新造的一块，不该在句子的尽头被析构。
+	//
+	// en: BorrowRead marks "this expression yields a read-only borrow": a container index and the
+	// five members that read a position. Reading a position no longer takes the value away, so
+	// what it yields is usable only within the current stretch; the backend reads the same table
+	// to learn that these calls return no freshly built block and must not be dismantled at the
+	// end of the sentence.
+	BorrowRead map[ast.Expr]bool
+	// Members 记的是：这一次 `.名字` 点出来的是什么，以及它属于哪一个类型或组。
+	// 键就是那一次点的语法节点（`*ast.Member`，名字那一段的行列在它上面）。
+	// 编辑器给点号后面那一个名字分档读这一张表——它不再靠“后面跟不跟左括号”这种形状猜，
+	// 检查器在认成员那一步本来就知道这是字段还是方法。
+	//
+	// en: Members records what one `.name` resolved to and which type or group owns it. The key is
+	// that member node - its line and column are the name's. The editor reads this table to
+	// classify the name after a dot, instead of guessing from whether a bracket follows: the
+	// checker already knows whether it is a field or a method.
+	Members map[*ast.Member]MemberNote
 	// Moved 说"这一个局部量的值曾经交出去过"。键是声明它的那个语法节点
 	// （`*ast.Decl` 或 `*ast.Param`）。
 	//
@@ -422,6 +528,31 @@ type Facts struct {
 	Taken map[ast.Expr]bool
 }
 
+// MemberKind 说一次 `.名字` 点出来的是什么。检查器认成员那一步算出来的种类，
+// 编辑器拿同一份结论给点号后面那一个名字分档。
+//
+// en: MemberKind says what one `.name` resolved to. It is the answer the checker worked out while
+// recognising the member; the editor uses the same conclusion to classify the name after a dot.
+type MemberKind uint8
+
+const (
+	MemberField     MemberKind = iota // 类与 struct 的字段
+	MemberMethod                      // 类与 struct 的方法
+	MemberEnumValue                   // 枚举的成员
+	MemberStd                         // 标准库：组名下面的动作，容器与文本身上的成员
+	MemberPkgFunc                     // 包导出的函数
+	MemberPkgConst                    // 包导出的数
+)
+
+// MemberNote 是记给编辑器的那一笔：种类，加上它属于哪一个类型、组或包。
+//
+// en: MemberNote is the entry handed to the editor: the kind, plus the type, group or package it
+// belongs to.
+type MemberNote struct {
+	Kind      MemberKind
+	OwnerName string
+}
+
 // BindKind 说一个名字是哪一类名字——后端要据此决定它在帧上、在静态池里，还是根本不发内存。
 //
 // en: BindKind says which sort of name this is - the backend decides from it whether the name
@@ -456,8 +587,9 @@ type Bind struct {
 type CallKind uint8
 
 const (
-	CallUser CallKind = iota // 自己写的函数或方法
-	CallStd                  // 标准库的组函数
+	CallUser  CallKind = iota // 自己写的函数或方法
+	CallStd                   // 标准库的组函数
+	CallValue                 // 通过一个函数值调用：目标是名字里那一份地址
 )
 
 // CallRef 是一次调用最后算出来的目标。
@@ -468,6 +600,11 @@ type CallRef struct {
 	Func string // CallUser：函数名（全程序唯一）
 	Std  string // CallStd：形如 "console.print"
 	Recv Type   // 方法是挂在哪个类型上的
+	// Sig 只有 CallValue 用：那一个函数值的类型，后端据此摆实参、算返回。
+	//
+	// en: Sig belongs to CallValue alone: the type of that function value, which the backend
+	// uses to place the arguments and to know what comes back.
+	Sig Type
 }
 
 // Signature 是一个函数或方法算好的签名，交给编辑器做补全与悬停。
@@ -496,7 +633,7 @@ type Declared struct {
 	Export bool
 }
 
-// TopValue 是一份文件顶层那一个 `const` 或 `export shared`：它的类型、有没有挂 export、
+// TopValue 是一份文件顶层那一个 `const` 或 `export shared`：它的类型、有没有写 export、
 // 是哪一种（shared 那一半定成不给包外面读）、写在哪一份文件第几行，
 // 以及声明它的那个节点——后端找静态槽要按这个节点。
 //
@@ -528,6 +665,9 @@ func newFacts() *Facts {
 		Fields:       map[string][]FieldInfo{},
 		TopValues:    map[string]TopValue{},
 		PkgValues:    map[ast.Expr]*ast.Decl{},
+		FuncRefs:     map[ast.Expr]string{},
+		BorrowRead:   map[ast.Expr]bool{},
+		Members:      map[*ast.Member]MemberNote{},
 		Moved:        map[any]bool{},
 		Outs:         map[any]int{},
 		Handoff:      map[any][]any{},
@@ -557,11 +697,14 @@ func RunWithFacts(p *Program, wantFacts bool) ([]Error, *Facts) {
 		facts = newFacts()
 	}
 	c := &Checker{prog: p, types: map[string]*typeInfo{}, typeAlias: map[string]*typeAliasInfo{}, funcs: map[string]funcInfo{},
-		vars: map[string]Type{}, moved: map[string]bool{}, consts: map[string]bool{}, borrowed: map[string]string{}, shared: map[string]bool{},
+		vars: map[string]Type{}, moved: map[string]bool{}, consts: map[string]bool{}, borrowed: map[string]string{},
+		borrowRead: map[ast.Expr]bool{}, shared: map[string]bool{},
 		imported: map[string]ImportedName{}, usedImp: map[string]bool{}, usedGroup: map[string]bool{},
 		covered: map[*ast.Switch]bool{}, fieldOf: map[ast.Expr]Type{}, facts: facts,
 		topVals: map[string]TopValue{}}
 	if facts != nil {
+		// 后端要的那一份结论在，读位置的登记就写进那张表：检查这一侧与后端读同一张，不留两份。
+		c.borrowRead = facts.BorrowRead
 		// 顶层那些常量只记一份：facts 在的时候就记到 facts.TopValues 上，
 		// 编辑器与包外面取数读的都是它，不留两份可能不一致的副本。
 		c.topVals = facts.TopValues
@@ -768,7 +911,7 @@ type methodSig struct {
 	Params []Param
 	Ret    Type
 	Pos    ast.Pos
-	// Poly 是从标准库那张表带过来的："交回的类型跟着第一个实参走"那一类
+	// Poly 是从标准库那张表带过来的："返回的类型跟着第一个实参走"那一类
 	// （math.absolute_value／math.minimum／math.maximum）。组名式调用走的是 methodSig 这条路，
 	// 不记录这个字段就会丢失。
 	Poly int
@@ -884,7 +1027,7 @@ type Checker struct {
 	moved     map[string]bool
 	consts    map[string]bool
 	// topVals 是这一趟里每一份文件顶层那些 `const` 与 `export shared`：键与 funcs、types
-	// 同一种写法（包里的带包根）。包外面按点号取一个交出来的数读的就是它。
+	// 同一种写法（包里的带包根）。包外面按点号取一个导出的数读的就是它。
 	topVals map[string]TopValue
 	// hoistedDecl 记的是本文件顶层那些 let／const 的语法节点：名字与类型先收齐
 	// （先用后写那一条），值表达式和交出留到语句流跑到那一行再算。
@@ -898,12 +1041,23 @@ type Checker struct {
 	// receiver, a loop variable, or a ref parameter. The three follow the same rule (a borrower
 	// gets no ownership, so it cannot destroy the original place); each source has its own
 	// error wording.
-	borrowed  map[string]string
-	scopes    []scope
-	loopDepth int
-	curFunc   *funcInfo
-	retType   Type
-	imported  map[string]ImportedName
+	borrowed map[string]string
+	// borrowRead 与 Facts.BorrowRead 是同一张表（检查这一侧写、后端那一侧读），
+	// 内容与用处见 Facts 那一条注释。
+	borrowRead map[ast.Expr]bool
+	scopes     []scope
+	loopDepth  int
+	// finallyDepth 大于 0 表示现在查的这一层在 `finally` 那一段里面。那一段只负责收尾：
+	// 在里面改变出口（`return`、`break`、`continue`）会把正在往外传的那一条顶掉，
+	// 三处拒绝按这一位报。
+	//
+	// en: finallyDepth is positive while checking inside a `finally` stretch. That stretch only does
+	// cleanup: changing the exit from inside it (return, break, continue) would discard whichever
+	// exit was already on its way out, so the three refusals key on this counter.
+	finallyDepth int
+	curFunc      *funcInfo
+	retType      Type
+	imported     map[string]ImportedName
 	// packages 是本文件里挂着的包名：`import a from "libs/a"` 的 a → 那个包的根。
 	// 访问包内成员一律写 `a.成员名`。usedPkg 记它有没有被用上，
 	// 与 imported 的记录在同一时机报出"引进了却没用"。
@@ -1302,7 +1456,7 @@ func (c *Checker) checkImports(f *ast.File) {
 				}
 			}
 			if !found {
-				c.fail(nm.Pos, "%s 里没有对外交出 %s", imp.Path, nm.Name)
+				c.fail(nm.Pos, "%s 里没有导出 %s", imp.Path, nm.Name)
 			}
 		}
 	}
@@ -1360,7 +1514,7 @@ func (c *Checker) bindPackage(f *ast.File, imp *ast.Import) {
 	}
 }
 
-// pkgExported 在一个包里找一个名字。found 说包里有没有这一条，exported 说它挂没挂 export。
+// pkgExported 在一个包里找一个名字。found 说包里有没有这一条，exported 说它写没写 export。
 // 名字表按包根分家，所以这里直接拿"包根 + 原名"去查：同一个包的两份版本
 // 各有各的包根，两个包各有一只同名类型也各归各的，互不遮蔽。
 //
@@ -1389,7 +1543,7 @@ func (c *Checker) pkgExported(root, name string) (fi *funcInfo, ti *typeInfo, fo
 	return nil, nil, false, false
 }
 
-// pkgAlias 判断包里那一个名字是不是一条交出来的类型别名（`export type Row = Point`）。
+// pkgAlias 判断包里那一个名字是不是一条导出的类型别名（`export type Row = Point`）。
 // 别名与真类型在 `a.名字` 这一处是两条路径：解出来的是包自己的规范名，按它处理即可。
 //
 // en: pkgAlias checks whether a name inside a package is an exported type alias (`export type
@@ -1403,23 +1557,23 @@ func (c *Checker) pkgAlias(root, name string) (Type, bool) {
 	return c.resolveTypeAlias(a, a.def.Where()), true
 }
 
-// pkgSay 把"包里没有这个东西"与"有，但没交出来"这两句话分开发出去。
+// pkgSay 把"包里没有这个东西"与"有，但没导出"这两句话分开发出去。
 //
 // en: pkgSay sends out two different sentences: "the package has no such thing" and "it has it
 // but did not export it".
 func (c *Checker) pkgSay(at ast.Pos, pkgName, name string, found, exported bool) bool {
 	if !found {
-		c.fail(at, "%s 这个包里没有对外交出 %s", pkgName, name)
+		c.fail(at, "%s 这个包里没有导出 %s", pkgName, name)
 		return false
 	}
 	if !exported {
-		c.fail(at, "%s 里的 %s 没有挂 export：包只把交出来的东西给别人用", pkgName, name)
+		c.fail(at, "%s 里的 %s 没有写 export：包只把导出的东西给别人用", pkgName, name)
 		return false
 	}
 	return true
 }
 
-// pkgType 识别类型位置上的双名 `a.Pair`：左边必须是本文件挂上的包名，右边得是那个包交出来的类型。
+// pkgType 识别类型位置上的双名 `a.Pair`：左边必须是本文件绑定的包名，右边得是那个包导出的类型。
 // 返回的 Type 带的是那个包的规范名——工程里那只同名的 `Pair` 与它不是同一个类型，
 // 形状表、类型字、字段表都按这一个名字分家。
 //
@@ -1436,7 +1590,7 @@ func (c *Checker) pkgType(nt *ast.NamedType, dot int) Type {
 	}
 	b, ok := c.packages[pkgName]
 	if !ok {
-		c.fail(nt.Where(), "%s 没有挂过包：要写包里的东西，先 import %s from ...", pkgName, pkgName)
+		c.fail(nt.Where(), "%s 没有导入过：要写包里的东西，先 import %s from ...", pkgName, pkgName)
 		return errType
 	}
 	if t, isAlias := c.pkgAlias(b.root, typeName); isAlias {
@@ -1859,12 +2013,30 @@ func (c *Checker) resolveType(t ast.Type, where ast.Pos) Type {
 	if t == nil {
 		return errType
 	}
+	// `fn(参数类型, …):返回类型` 是函数值的类型：返回类型排在 Args 第一位，参数依次往后排，
+	// 借用那一个参数外面套一层 Borrow。这一层记号只在这里出现，往下传的还是同一个 Type。
+	if ft, ok := t.(*ast.FuncType); ok {
+		ret := Type{Kind: NoRet, Name: "无返回值"}
+		if ft.Ret != nil {
+			ret = c.resolveType(ft.Ret, ft.Where())
+			c.checkTypeUsable(ret, ft.Where())
+		}
+		params := make([]Type, 0, len(ft.Params))
+		refs := make([]bool, 0, len(ft.Params))
+		for _, p := range ft.Params {
+			params = append(params, c.resolveType(p.Typ, ft.Where()))
+			refs = append(refs, p.Ref)
+		}
+		fv := funcTypeOf(ret, params, refs)
+		c.checkTypeUsable(fv, ft.Where())
+		return fv
+	}
 	nt, ok := t.(*ast.NamedType)
 	if !ok {
 		c.fail(where, "这里需要一个类型")
 		return errType
 	}
-	// 类型位置上的双名：`a.Pair`。左边必须是本文件挂上的包名。
+	// 类型位置上的双名：`a.Pair`。左边必须是本文件绑定的包名。
 	if i := strings.Index(nt.Name, "."); i >= 0 {
 		return c.pkgType(nt, i)
 	}
@@ -1904,6 +2076,11 @@ func (c *Checker) resolveType(t ast.Type, where ast.Pos) Type {
 			// Process 也在这一条上：它的释放方式同样是调用一次关闭，而且它并不是一块内存。
 			if a.Kind == Socket || a.Kind == Listener || a.Kind == Process {
 				c.fail(nt.Where(), "%s 进不了 %s：它是操作系统给的句柄，只待在名字、实参与返回值里", a, nt.Name)
+			}
+			// 函数值那个位置装的是机器代码的入口地址：它没有运行期的类型字，也打印不出来，
+			// 所以与 Json 走的是同一档处理——先拒在检查这一层，不留到发码那一步。
+			if a.Kind == FuncVal {
+				c.fail(nt.Where(), "%s 进不了 %s：函数值只待在名字、实参、返回值与字段里", a, nt.Name)
 			}
 		}
 		if kind == Dict || kind == Set {

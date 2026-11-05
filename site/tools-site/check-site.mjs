@@ -24,8 +24,8 @@ const nfExe = join(repoRoot, process.platform === 'win32' ? 'nf.exe' : 'nf')
 
 // ---------- 一、高亮器与编译器是否同一套记号 ----------
 
-// 与 nf.exe tokens 对齐的口径：关键字与保留名都算 name；注释不进比较；
-// 字符串与字符只比类型——编译器交回的是解码后的内容，高亮器看到的是原文。
+// 与 nf.exe tokens 的比对标准：关键字与保留名都算 name；注释不进比较；
+// 字符串与字符只比类型——编译器返回的是解码后的内容，高亮器看到的是原文。
 function jsTokens(src) {
   const out = []
   for (const t of tokenize(src)) {

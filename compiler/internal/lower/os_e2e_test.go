@@ -76,11 +76,11 @@ func TestOsGroupThrows(t *testing.T) {
 			t.Fatalf("%s：got %q 码 %d，要含 %q 码 1", one.name, got, c, one.want)
 		}
 	}
-	// 10061 号走"内建错误与手写 throw 形状统一"的路径，包一层 try/catch 即可给出兜底值
+	// 10061 号走"内建错误与手写 throw 形状统一"的路径，包一层 try/catch 即可给出默认值
 	got, code := run(t, `method or_default(key:string, fallback:string):string {
     try {
         return environment.get(key)
-    } catch (code, msg) {
+    } catch (code, msg, at) {
         return fallback
     }
 }

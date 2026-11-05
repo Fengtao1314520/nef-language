@@ -413,9 +413,9 @@ func fileReadFrom(b *rt) {
 		xCount  = 2
 		xObj    = 3 // 读进来的那一块，比最后交出去的多一些（交出去的那一份是精确尺寸）
 		xGot    = 4 // 已经读到几个字节
-		xKeep   = 5 // 退过之后的长度；ReadFile 的"读到了几个"也落在这一格
+		xKeep   = 5 // 退过之后的长度；ReadFile 的"读到了几个"也落在这个位置
 		xHandle = 6
-		xRes    = 7 // 现造的那一份交回给调用方，得留住——@free 要用 RAX
+		xRes    = 7 // 现造的那一份返回给调用方，得留住——@free 要用 RAX
 	)
 	var (
 		none     = b.label()
@@ -511,7 +511,7 @@ func fileReadFrom(b *rt) {
 	b.get(x64.RCX, xHandle)
 	b.impCall("CloseHandle")
 
-	// 从尾巴上退：R10 是段尾（固定不动），RDI 是"正在看的那一格之后"的游标（一个位置一个位置往回找首字节），
+	// 从尾巴上退：R10 是段尾（固定不动），RDI 是"正在看的那个位置之后"的游标（一个位置一个位置往回找首字节），
 	// RSI 是内容起点，R11 是最多看四格。找到首字节后按它该带的格数与"它到段尾实际有几格"比一次：
 	// 不够就把从这个首字节起的那一截全退掉，够就整段留下。
 	b.get(x64.RSI, xObj)
@@ -975,7 +975,7 @@ func fileMkdirs(b *rt) {
 	)
 	a := b.a
 	b.prologue()
-	b.put(mI, x64.RCX) // 路径文本先留在这一格，转宽字符要用它
+	b.put(mI, x64.RCX) // 路径文本先留在这个位置，转宽字符要用它
 	b.leaRIP(x64.RDX, "wPath")
 	b.get(x64.RCX, mI)
 	b.call("@to_wide")
@@ -1044,7 +1044,7 @@ func fileMkdirs(b *rt) {
 	a.MovZX16(x64.R9, x64.RSI, 0)
 	b.leaRIP(x64.RDI, "aWide")
 	a.Add(x64.RDI, x64.RDX)
-	a.MovStore32(x64.RDI, 0, x64.R9) // 低两格是这一格字符，高两格顺手成了结束符（下一轮要么盖掉、要么正是尾巴）
+	a.MovStore32(x64.RDI, 0, x64.R9) // 低两格是这个字符，高两格顺手成了结束符（下一轮要么盖掉、要么正是尾巴）
 	b.get(x64.RDX, mCur)
 	a.AddImm(x64.RDX, 2)
 	b.put(mCur, x64.RDX)
@@ -1164,7 +1164,7 @@ func fileWalk(b *rt) {
 	a.Xor(x64.RAX, x64.RAX)
 	b.put(wTop, x64.RAX)
 
-	// 把 wPut 里那一份文本连同层数挂上栈：交进来的那一个句柄归调用方，压栈的一律是拷出来的
+	// 把 wPut 里那一份文本连同层数一起压栈：交进来的那一个句柄归调用方，压栈的一律是拷出来的
 	push := func(textSlot int, fromDep bool, dep int64) {
 		a.MovImm(x64.RCX, 24)
 		a.MovImm(x64.RDX, 0)
@@ -1215,7 +1215,7 @@ func fileWalk(b *rt) {
 	b.call("@to_wide")
 	a.Test(x64.RAX, x64.RAX)
 	a.Jcc(x64.E, badPath)
-	a.ShrImm(x64.RAX, 1) // @to_wide 交回的是字节数，这里要的是宽字符个数
+	a.ShrImm(x64.RAX, 1) // @to_wide 返回的是字节数，这里要的是宽字符个数
 	b.put(wDLen, x64.RAX)
 
 	// 尾巴上的分隔符：已经有了就把名字接在那个位置之后，没有就先补一个（与 @file_list 同一段）

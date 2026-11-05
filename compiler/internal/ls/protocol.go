@@ -75,6 +75,36 @@ type capabilities struct {
 	// CompletionProvider 与 HoverProvider：声明了这两条编辑器才会发那两种请求。
 	CompletionProvider *completionOptions `json:"completionProvider,omitempty"`
 	HoverProvider      bool               `json:"hoverProvider,omitempty"`
+	// DefinitionProvider：声明了这一条编辑器才会发"跳转定义"（按 F12 那一条）。
+	DefinitionProvider bool `json:"definitionProvider,omitempty"`
+	// DocumentSymbolProvider 与 FoldingRangeProvider：大纲（Ctrl+Shift+O）与左侧那一列折叠箭头，
+	// 同样是声明了编辑器才会发那两种请求。
+	DocumentSymbolProvider bool `json:"documentSymbolProvider,omitempty"`
+	FoldingRangeProvider   bool `json:"foldingRangeProvider,omitempty"`
+	// SemanticTokensProvider 带着图例：编辑器拿图例把答复里的序号换成主题中的颜色。
+	// 只答整份文本那一条（full），没有做增量。
+	SemanticTokensProvider *semanticTokensOptions `json:"semanticTokensProvider,omitempty"`
+	// SignatureHelpProvider 给出触发键：打到左括号与逗号就要问"这一格填什么"。
+	SignatureHelpProvider *signatureHelpOptions `json:"signatureHelpProvider,omitempty"`
+}
+
+// semanticTokensOptions 是语义着色那一条的声明。图例必须在 initialize 里给全：
+// 后面每一串序号都按这张表的顺序解释，改了这里的顺序就要同步改发出去的那张表。
+//
+// en: semanticTokensOptions declares semantic highlighting. The legend must be complete already in
+// initialize: every number sent later is read against this table, so reordering here means
+// reordering what gets sent.
+type semanticTokensOptions struct {
+	Legend SemanticLegend `json:"legend"`
+	Full   bool           `json:"full"`
+}
+
+// signatureHelpOptions 是参数提示那一条的声明：两种触发键都是调用点上会出现的记号。
+//
+// en: signatureHelpOptions declares parameter help; both trigger characters are tokens that appear
+// at a call site.
+type signatureHelpOptions struct {
+	TriggerCharacters []string `json:"triggerCharacters,omitempty"`
 }
 
 // completionOptions 是补全那一条的声明：`.` 是触发键——打到点号后面要立刻把成员列出来，
@@ -86,6 +116,14 @@ type capabilities struct {
 type completionOptions struct {
 	TriggerCharacters []string `json:"triggerCharacters,omitempty"`
 	ResolveProvider   bool     `json:"resolveProvider"`
+}
+
+// SemanticTokensResult 是整份文本的语义着色答复：五个数一组，按出现顺序记差值。
+//
+// en: SemanticTokensResult is the whole-document semantic colouring reply: five numbers per token,
+// each relative to the previous one.
+type SemanticTokensResult struct {
+	Data []int `json:"data"`
 }
 
 // CompletionItem 是一条补全。Kind 用协议那张表的数：2 方法、3 函数、5 字段、6 变量、
@@ -101,7 +139,7 @@ type CompletionItem struct {
 	Documentation string `json:"documentation,omitempty"`
 }
 
-// markup 是带格式的一段话：kind 是 "markdown" 时编辑器按 Markdown 印。
+// markup 是带格式的一段话：kind 是 "markdown" 时编辑器按 Markdown 打印。
 //
 // en: markup is a formatted string: when kind is "markdown" the editor renders it as Markdown.
 type markup struct {

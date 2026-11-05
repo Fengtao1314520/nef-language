@@ -180,26 +180,28 @@ box.add(new Note(body: "甲") as object)
 box.add(new Marker(tag: 7) as object)
 
 for (i:int in 0 until length(box)) {
-    let one:object = box[i]
-    if (one is Note) {
-        let n:Note = one as Note
-        console.print(n.body)
+    if (box[i] is Note) {
+        console.print((box[i] as Note).body)
     } else {
         console.print("不是便条")
     }
 }
+console.print(length(box))
 ```
 
 ```text
 甲
 不是便条
+2
 ```
+
+读一个位置不拿走那个位置上的值，所以 `box` 走完一圈还是满的。要把它接给一个名字由这个名字拿着，写 `let one:object = box.remove_at(i)`：那个位置交出来，后面的位置依次前移。
 
 `is` 不会自动收窄类型，判断通过后仍需写出 `as` 来取值。
 
-从容器中取出对象永远是两步：先用 `let one:object = box[i]` 把这个位置上的值转移出来，再用 `as` 拆箱。
+从容器里读一个位置不拿走值，所以 `(box[i] as Note).body` 这样当场读当场拆就行。要把那个对象留下来自己拿着，先摘出来再拆：`let one:object = box.remove_at(i)`，然后 `one as Note`。
 
-> 注意：两种“更短”的形式会被编译器拒绝。`box[i] as Note` 不合法：下标取出的值还没有归属，`as` 无法处理它。`for (o:object in box)` 交出的 `o` 是只读借用，也不能 `as`：借来的引用没有所有权，无法拆开其他容器中的内容。
+> 注意：拆出来那一份要接手时才拦。`let one:Note = box[i] as Note` 不合法——读一个位置交出的是只读借用，借用不能收进一个名字，报 `读出来的那一份是只读借用，不能收到名字里、写进字段或者交给调用方：文本拷一份，能摘出来的位置用 remove_at 或 json.take 摘出来`；`for (o:object in box)` 交出的 `o` 也是只读借用，写 `let one:Note = o as Note` 报同一句。顺着读不受这条限制，上面那种 `(box[i] as Note).body` 与 `(o as Note).body` 都能通过检查。
 
 `is` 的右侧需要是具名类型（`class`、`struct`、基础类型），不能是 `interface` 的名称。
 

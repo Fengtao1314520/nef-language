@@ -4,7 +4,7 @@
 
 `test_run` 用 Nef 自己写成，只有一个文件。它不负责决定运行哪几份用例文件，也不判断“第几遍”：一份用例文件就是一次程序运行，重试写在脚本的循环里。
 
-函数不能当作值传递，所以框架收不到回调。`before_each`、`after_each` 与分派用例的那个函数都写在同一份文件里，在循环里固定调用。
+框架不接收回调：钩子与用例都由登记表带着走。`before_each`、`after_each` 与分派用例的那个函数都写在同一份文件里，在循环里固定调用。
 
 ## 安装方式
 
@@ -52,16 +52,15 @@ method one_case(which:int) {
 method group_login() {
     let home:int = run.group_begin("表单登录", start_url)
     for (i:int in 0 until length(titles)) {
-        let title:string = titles[i]
-        if (!run.picked(title)) {
+        if (!run.picked(titles[i])) {
             continue
         }
-        page = wt.page_at(run.case_begin(title))
+        page = wt.page_at(run.case_begin(titles[i]))
         try {
             before_each(i)
             one_case(i)
             run.case_pass()
-        } catch (code, msg) {
+        } catch (code, msg, at) {
             run.case_fail(code, msg)
         }
         after_each(i)
@@ -139,7 +138,7 @@ run.finish()
 终端上每一行前面是一个标记：`ok` 表示通过，`x` 表示失败，`--` 表示跳过。最后一行给出总数：
 
 ```text
-→ 5 条：过 3，挂 1，跳 1
+→ 5 条：通过 3，失败 1，跳过 1
 报告 /临时/out/report.jsonl
 ```
 
@@ -163,7 +162,7 @@ run.finish()
 
 - 框架不判断“第几遍”，重试写在脚本的循环里。
 - 没有并发：一条用例运行完才运行下一条，因为这门语言没有线程。
-- 不接收回调函数：函数不能当作值传递，钩子在循环里固定调用。
+- 不接收回调函数：钩子在循环里固定调用。
 - 报告只有终端文本与 `report.jsonl` 两种，没有 html 页面，也不向任何服务上报结果。
 
 ## 参见

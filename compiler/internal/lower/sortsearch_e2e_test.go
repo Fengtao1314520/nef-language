@@ -171,15 +171,15 @@ console.print(length(empty.keys()), length(empty.values()))
 	}
 }
 
-// TestListIndexOnMovedSlot 读走一个位置后该位置变为 null，index_of 不应错误地匹配它。
-// 这里验证一件事：被读走后，原来的值再也找不到（返回 -1），后面的元素仍在。
+// TestListIndexOnMovedSlot 把一个位置摘出来之后，原来的值在这条表里再也找不到（返回 -1），
+// 后面的元素依次顶上来。读一个位置不拿走值，所以这一条只有配合 `remove_at` 才谈得上。
 func TestListIndexOnMovedSlot(t *testing.T) {
 	got, code := run(t, `
 let ws:list<string> = ["甲", "乙", "丙"]
-let first:string = ws[0]
-console.print(ws.index_of("甲"), ws.index_of("乙"), first)
+let first:string = ws.remove_at(0)
+console.print(ws.index_of("甲"), ws.index_of("乙"), first, length(ws))
 `)
-	want := "-1 1 甲\n"
+	want := "-1 0 甲 2\n"
 	if got != want || code != 0 {
 		t.Fatalf("读走一格之后找不对：\n got %q 码 %d\nwant %q", got, code, want)
 	}

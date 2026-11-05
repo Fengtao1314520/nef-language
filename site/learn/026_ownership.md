@@ -156,9 +156,9 @@ method shout(t:string) {
 }
 
 method pick(items:list<string>, take:int) {
-    let one:string = items[take]        // 从容器交出出来，持有者是 one
-    shout(one)                          // one 交出去，此后不能再写它
-    // 容器一直在本地手上，只是少了一个位置上的值
+    let one:string = items[take] + ""    // 读一个位置不拿走值，要自己拿着就复制一份
+    shout(one)                           // one 交出去，此后不能再写它
+    // 走到这里 items 还是原样：读一下不拿走，一个位置都没少
     console.print(length(items))
 }
 ```
@@ -193,13 +193,12 @@ method shout(t:string) {
 
 method shout_all(items:list<string>) {
     for (i:int in 0 until length(items)) {
-        let one:string = items[i]     // 交出出来，一个位置一份
-        shout(one)
+        shout(items[i] + "")     // 读一个位置不拿走值；shout 要自己拿一份，就复制一份
     }
 }
 ```
 
-这个循环结束后，`items` 中每个位置都是 `null`，长度不变，容器本身始终属于本地。
+这个循环结束后，`items` 每个位置上的文本都还在，长度也不变。要让 `shout` 只读一遍而不拿走，把它的参数写成 `ref t:string`，调用处就不用复制：`shout(items[i])`。
 
 ## 接收者与 `this`
 
@@ -280,7 +279,7 @@ console.print(length(box))  // 1
 
 值类型装箱（`42 as object`）本身就是一次拷贝，不涉及交出。
 
-拆箱 `as` 会接管其中的值：拆完之后这个装箱值已经为空，原来的位置再读取得到 `null`。完整说明见[自定义类型](/learn/029_types)。
+拆箱 `as` 接手那一份时才算交出：拆完之后这个装箱值已经为空，原来的位置再读取得到 `null`。只是顺着读一下不算，`(box[i] as Note).body` 这样写，盒子与容器那个位置都不改动。完整说明见[自定义类型](/learn/029_types)。
 
 ## 跨文件共享：`export shared`
 
@@ -305,7 +304,7 @@ export method note(entry:string) {
 
 **不能交出**：`eat(log)`、`let x = log`、`return log` 都是编译错误，只能就地读写。
 
-其中每个元素仍按普通规则处理：`let s:string = log[0]` 合法，该位置此后为 `null`。
+其中每个元素仍按普通规则处理：`log[0]` 读一下不拿走那一份，要自己留着就复制一份。
 
 日常代码很少需要这种共享标注。确实需要使用时，这个关键字会提醒后来读代码的人：这里存在共享状态。
 

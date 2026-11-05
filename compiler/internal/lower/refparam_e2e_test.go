@@ -5,7 +5,7 @@
 //   - 调用方那个名字还在，连续调用两次、调用之后再读都成立；
 //   - 被调方就地修改的那一份就是调用方那一份（与标准库入参同一条待遇）；
 //   - 交进借用位置的那一块不会两头释放，也不会无人释放：从容器读走的一个位置交给借用参数，
-//     两万圈实测每圈 0 字节；把同一个位置交给会拿走它的用户函数曾每圈留 16 字节，
+//     两万圈实测每轮 0 字节；把同一个位置交给会拿走它的用户函数曾每轮留 16 字节，
 //     那是已知尚未处理的遗留泄漏。
 //
 // en: refparam_e2e_test.go covers the three things that must hold once a `ref` parameter is
@@ -67,7 +67,7 @@ for (i:int in 0 until @N@) {
 }
 
 // TestRefParamFreesReadOutCell 从容器读走的一个位置交给借用参数：那一句走完就该释放。
-// 同一个位置交进一个会拿走的参数属于已知遗留泄漏，每圈留 16 字节；这里覆盖的是标了 ref 的那一种。
+// 同一个位置交进一个会拿走的参数属于已知遗留泄漏，每轮留 16 字节；这里覆盖的是标了 ref 的那一种。
 func TestRefParamFreesReadOutCell(t *testing.T) {
 	const src = `method show(ref one:string) {
     console.print(length(one))
@@ -106,7 +106,7 @@ for (i:int in 0 until @N@) {
 }
 
 // TestRefParamReassignmentKeepsCallerBlock 往标了 ref 的参数名字里再赋一个值，改的只是这一个
-// 位置上的句柄：调用方那一块不动，两万圈里每圈改写一次，结束后那个名字仍是原来那一份。
+// 位置上的句柄：调用方那一块不动，两万圈里每轮改写一次，结束后那个名字仍是原来那一份。
 //
 // en: TestRefParamReassignmentKeepsCallerBlock overwriting a ref parameter's own name changes
 // only the handle sitting in that slot: the caller's block is untouched, and after twenty

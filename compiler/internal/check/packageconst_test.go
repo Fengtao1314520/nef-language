@@ -2,11 +2,11 @@
 
 package check
 
-// 包交出来的数（`export const`）在包外面按点号读得到。
+// 包导出的数（`export const`）在包外面按点号读得到。
 //
 // 先前只做了两样：`greet.make()` 是函数（check 侧 memberPkgFunc）、`greet.Pair` 是类型名
 // （resolveType 那一侧的双名分支），`greet.LIMIT` 这一种取一个数没有那条路，报的是
-// "这个包里没有对外交出 LIMIT"——名字明明挂着 export。
+// "这个包里没有导出 LIMIT"——名字明明写了 export。
 //
 // 值类型这一侧没有归属问题：`const` 只能配值类型（检查在 def.go 的 hoistTopDecls），
 // 读出来就是一份数，不存在两个人拿着同一块。`export shared` 那一半定成不交给包外面，
@@ -39,7 +39,7 @@ method later() {
 later()
 `)
 	if len(errs) > 0 {
-		t.Fatalf("包交出来的数该读得到，实际报错：%v", msgs(errs))
+		t.Fatalf("包导出的数该读得到，实际报错：%v", msgs(errs))
 	}
 }
 
@@ -54,12 +54,12 @@ console.print(s)
 }
 
 func TestPackageConstRefused(t *testing.T) {
-	t.Run("没挂 export 的数", func(t *testing.T) {
+	t.Run("没写 export 的数", func(t *testing.T) {
 		errs := pkgRun(t, pkgConstSrc, `import greet from "libs/greet"
 
 console.print(greet.priv)
 `)
-		expectMsg(t, errs, "greet 里的 priv 没有挂 export：包只把交出来的东西给别人用")
+		expectMsg(t, errs, "greet 里的 priv 没有写 export：包只把导出的东西给别人用")
 	})
 
 	t.Run("当函数叫", func(t *testing.T) {
@@ -67,7 +67,7 @@ console.print(greet.priv)
 
 console.print(greet.LIMIT())
 `)
-		expectMsg(t, errs, "LIMIT 是包交出来的数，不能加括号调用")
+		expectMsg(t, errs, "LIMIT 是包导出的数，不能加括号调用")
 	})
 
 	t.Run("shared 还读不到", func(t *testing.T) {

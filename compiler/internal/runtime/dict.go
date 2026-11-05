@@ -221,7 +221,7 @@ func mapFind(b *rt) {
 	b.put(7, x64.RSI)
 	a.Add(x64.RSI, x64.RAX)
 	b.put(2, x64.RSI) // 游标
-	b.put(3, x64.RSI) // 起始格：整轮都没有可让出的位置时的兜底
+	b.put(3, x64.RSI) // 起始格：整轮都没有可让出的位置时的回退位置
 	// 终点 = 开头 + cap*stride
 	a.MovLoad(x64.R9, x64.RDI, cCap)
 	a.MovImm(x64.R8, stride)

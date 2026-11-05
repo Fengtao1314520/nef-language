@@ -83,7 +83,7 @@ let m:int = 300
 try {
     let b:byte = m as byte
     console.print(b)
-} catch (code, msg) {
+} catch (code, msg, at) {
     console.print(code, msg)
 }
 `)

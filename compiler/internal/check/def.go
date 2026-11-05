@@ -536,7 +536,13 @@ func (c *Checker) allPathsReturn(body []ast.Stmt) bool {
 				return true
 			}
 		case *ast.Try:
-			if c.allPathsReturn(st.Body) && c.allPathsReturn(st.Catch) {
+			// 没写 catch 的那一层，抛出从本层往外走，本层剩下的只有一条路：try 体走完。
+			// 写了 catch 就要两边都走到头。收尾那一段不添新的路——四条出口都要经过它。
+			//
+			// en: without a catch this layer has one remaining road - the try body completing (a
+			// throw walks outward past it). With a catch both sides must end. The cleanup stretch
+			// adds no road: all four exits pass through it.
+			if c.allPathsReturn(st.Body) && (!st.HasCatch || c.allPathsReturn(st.Catch)) {
 				return true
 			}
 		case *ast.Switch:

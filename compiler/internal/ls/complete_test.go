@@ -114,7 +114,7 @@ func TestCompletionByShapeGroupEnumAndPackage(t *testing.T) {
 	}
 }
 
-// 包交出来的数：`greet.` 后面列得出它，补全的说明栏与悬停读得到写在它上面那段注释。
+// 包导出的数：`greet.` 后面列得出它，补全的说明栏与悬停读得到写在它上面那段注释。
 func TestPackageConstInEditor(t *testing.T) {
 	dir := t.TempDir()
 	writeIn(t, dir, filepath.Join("libs", "greet", "nf.json"), `{"name":"greet","version":"1.0.0"}`)
@@ -135,7 +135,7 @@ func TestPackageConstInEditor(t *testing.T) {
 		t.Fatalf("greet. 后面补不出包里交出的数：%v", got)
 	}
 	if hasLabel(got, "priv") {
-		t.Errorf("没挂 export 的 priv 不该出现在那一段里：%v", got)
+		t.Errorf("没写 export 的 priv 不该出现在那一段里：%v", got)
 	}
 	if d := detailOf(items, "LIMIT"); d != "LIMIT: int" {
 		t.Errorf("那一条右边那一栏写成 %q，要 LIMIT: int", d)
@@ -230,7 +230,7 @@ func TestHoverOnNamesAndMembers(t *testing.T) {
 		std               bool
 	}{
 		{sampleSrc + "p.close()\n", "close", "Page.close(): int", false},
-		{sampleSrc + "p.width\n", "width", "p.width: int", false},
+		{sampleSrc + "p.width\n", "width", "p.width: int\n\n属于 `Page`", false},
 		{sampleSrc + "console.print(p.url)\n", "print", "console.print(...values)", true},
 		{sampleSrc + "xs.add(3)\n", "add", "list.add(value: int)", true},
 		{sampleSrc + "\nmethod twice(n: int): int {\n    return n * 2\n}\n\nlet m: int = twice(3)\n", "twice", "twice(n: int): int", false},
@@ -290,8 +290,8 @@ func TestCompletionAndHoverPastWideText(t *testing.T) {
 	if h == nil {
 		t.Fatal("同一行前面有过中文，悬停 p.width 什么都没显示")
 	}
-	if got := hoverText(h); got != "p.width: int" {
-		t.Errorf("悬停得到 %q，要 p.width: int", got)
+	if got := hoverText(h); got != "p.width: int\n\n属于 `Page`" {
+		t.Errorf("悬停得到 %q，要 p.width: int 加一句属于 Page", got)
 	}
 }
 
@@ -307,7 +307,7 @@ func TestFactsCarryWhatTheEditorNeeds(t *testing.T) {
 
 	_, facts := inspect(entry, text)
 	if facts == nil {
-		t.Fatal("inspect 没交回结论表")
+		t.Fatal("inspect 没返回结论表")
 	}
 	if root, ok := check.ReceiverIsPackage(entry, "greet", facts); !ok || !strings.HasSuffix(root, "greet") {
 		t.Errorf("包的挂名没记下来：%q %v", root, ok)
@@ -391,7 +391,7 @@ func TestServeAnswersHover(t *testing.T) {
 		t.Errorf("悬停在 xs 上得到 %q，要带它的类型", hover.Contents.Value)
 	}
 	if hover.Contents.Kind != "markdown" {
-		t.Errorf("悬停那一段该按 Markdown 交回，得到 %q", hover.Contents.Kind)
+		t.Errorf("悬停那一段该按 Markdown 返回，得到 %q", hover.Contents.Kind)
 	}
 }
 
@@ -403,7 +403,7 @@ func replyOf(t *testing.T, msgs []got, id string) got {
 			return m
 		}
 	}
-	t.Fatalf("id %s 的答复没交回来：%+v", id, msgs)
+	t.Fatalf("id %s 的答复没返回：%+v", id, msgs)
 	return got{}
 }
 
@@ -466,7 +466,7 @@ func TestHoverCarriesTheDocComment(t *testing.T) {
 
 // 双语与示例的两个前缀：`en: ` 那一句是英文，`例：` 那一段单独包成代码围栏，两个前缀都不上屏。
 func TestHoverSplitsBilingualDocAndExample(t *testing.T) {
-	const src = "// 记一步：过的不打印，挂的才把走过的列出来。\n" +
+	const src = "// 记一步：通过的用例不打印步骤，失败的用例才列出已完成的步骤。\n" +
 		"// en: Records a step; a passed case prints nothing, a failed one lists the trail.\n" +
 		"// 例：\n" +
 		"// run.step(\"点开登录\")\n" +
@@ -475,7 +475,7 @@ func TestHoverSplitsBilingualDocAndExample(t *testing.T) {
 	if h == nil {
 		t.Fatal("悬停在 step 上什么都没有")
 	}
-	want := "step(label: string)\n--\n记一步：过的不打印，挂的才把走过的列出来。\n\n" +
+	want := "step(label: string)\n--\n记一步：通过的用例不打印步骤，失败的用例才列出已完成的步骤。\n\n" +
 		"Records a step; a passed case prints nothing, a failed one lists the trail.\n\n" +
 		"```nf\nrun.step(\"点开登录\")\n```"
 	if got := hoverText(h); got != want {

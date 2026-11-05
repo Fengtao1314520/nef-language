@@ -5,6 +5,7 @@ package parser
 import (
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -100,7 +101,7 @@ switch (items[0]) {
 }
 try {
     let n:int = items[0].to_int()
-} catch (code, msg) {
+} catch (code, msg, at) {
     throw (code, msg)
 }
 exit (100, "收工")
@@ -195,6 +196,76 @@ func TestSemicolonAccepted(t *testing.T) {
 	}
 }
 
+// TestLiteralsSpanLines 钉住跨行书写：容器字面量、struct 字面量、`new` 的字段初值与实参表
+// 在一对没闭合的括号里可以把行尾当空白。括号一闭合，行尾还是一条语句的结束。
+//
+// en: TestLiteralsSpanLines pins writing across lines: a container literal, a struct literal,
+// the field values of `new` and an argument list treat a line feed as whitespace while their
+// bracket stays open. Once the bracket closes, a line feed ends the statement again.
+func TestLiteralsSpanLines(t *testing.T) {
+	f := parseString(t, `
+let xs:list<int> = [
+    1,
+    2,
+    3
+]
+let d:dict<string,int> = {
+    "甲": 1,
+    "乙": 2,
+}
+let s:hashset<int> = {
+    7
+}
+struct P {
+    x:int
+    y:int
+}
+let p:P = P {
+    x: 1,
+    y: 2
+}
+class B {
+    n:int
+}
+let b:B = new B(
+    n: 9
+)
+`)
+	var got []string
+	for _, dc := range decls(f) {
+		switch v := dc.Value.(type) {
+		case *ast.ListLit:
+			got = append(got, "list "+itoa(len(v.Items)))
+		case *ast.MapLit:
+			got = append(got, "dict "+itoa(len(v.Pairs)))
+		case *ast.SetLit:
+			got = append(got, "set "+itoa(len(v.Items)))
+		case *ast.StructLit:
+			got = append(got, "struct "+itoa(len(v.Fields)))
+		case *ast.New:
+			got = append(got, "new "+itoa(len(v.Fields)))
+		}
+	}
+	want := "list 3 dict 2 set 1 struct 2 new 1"
+	if strings.Join(got, " ") != want {
+		t.Fatalf("跨行字面量收得不全：%q，要 %q", strings.Join(got, " "), want)
+	}
+}
+
+func itoa(n int) string { return strconv.Itoa(n) }
+
+// TestStatementStillEndsAtLineFeed 与上一条相对：括号一闭合，行尾就恢复成一条语句的结束，
+// 下一行是另一条语句，不是同一条的继续。
+//
+// en: TestStatementStillEndsAtLineFeed is the counterpart: once the bracket closes a line feed
+// ends the statement again, so the next line is another statement rather than a continuation.
+func TestStatementStillEndsAtLineFeed(t *testing.T) {
+	f := parseString(t, "let xs:list<int> = [\n    1\n]\nlet n:int = xs[0]\n")
+	if len(decls(f)) != 2 {
+		t.Fatalf("闭合之后该分成两条语句，实际收了 %d 条", len(decls(f)))
+	}
+}
+
 func TestMissingTypeAnnotationIsError(t *testing.T) {
 	toks, err := lexer.Lex("let x = 1")
 	if err != nil {
@@ -235,6 +306,37 @@ func TestEnumMembersMayEndWithNewline(t *testing.T) {
 	}
 	if len(e.Members) != 2 || e.Members[1].NameText != "empty_input" {
 		t.Fatalf("成员没收全：%+v", e.Members)
+	}
+}
+
+// TestParseFinally 钉 `finally` 的三种形状：`try / finally`、`try / catch / finally`，
+// 以及 `}` 之后换行再写 `finally { … }` 也算这一句。两句都不写要报错。
+//
+// en: TestParseFinally pins the three shapes of finally: try/finally, try/catch/finally, and a
+// `finally { … }` written on the line after the closing brace - still the same statement. Writing
+// neither catch nor finally is an error.
+func TestParseFinally(t *testing.T) {
+	f := parseString(t, "try {\n    console.print(\"甲\")\n} finally {\n    console.print(\"乙\")\n}\n")
+	st, ok := f.Stmts[0].(*ast.Try)
+	if !ok || !st.HasFinally || st.HasCatch || len(st.Finally) != 1 {
+		t.Fatalf("try / finally 没读对：%+v", f.Stmts[0])
+	}
+
+	f = parseString(t, "try {\n    console.print(\"甲\")\n} catch (c, m, at) {\n    console.print(c)\n}\nfinally {\n    console.print(\"乙\")\n}\n")
+	st, ok = f.Stmts[0].(*ast.Try)
+	if !ok || !st.HasCatch || !st.HasFinally {
+		t.Fatalf("换行写的 finally 没算进这一句：%+v", f.Stmts[0])
+	}
+	if len(f.Stmts) != 1 {
+		t.Fatalf("这一句该是一条语句，实际 %d 条", len(f.Stmts))
+	}
+
+	toks, err := lexer.Lex("try {\n    console.print(1)\n}\nconsole.print(2)\n")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = Parse("t.nf", toks); err == nil || !strings.Contains(err.Error(), "try 后面要跟 catch 或 finally") {
+		t.Fatalf("两句都不写该报错，实际 %v", err)
 	}
 }
 

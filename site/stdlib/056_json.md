@@ -11,9 +11,11 @@
 | `json.kind(doc)` | `string` | 10092 | 判断一个值是哪一类：`null`、`boolean`、`number`、`string`、`array`、`object` 六个词之一 |
 | `json.count(doc)` | `int` | 10092 | 数组有多少个元素、对象有多少个成员；其他种类返回 `0` |
 | `json.keys(doc)` | `list<string>` | 10092 | 返回对象的全部键，顺序依照原文。不是对象时返回空列表。返回的是拷贝，树里的键还在原来的位置 |
-| `json.has(doc, key)` | `boolean` | 10092 | 判断对象里有没有这个键。只询问，不读走对应位置的值 |
-| `json.at(doc, key)` | `Json` | 10092 | 取出对象里该键对应的值。取出即读走：取过一次之后，那个位置就是 `null` |
-| `json.item(doc, index)` | `Json` | 10092 | 数组里指定位置的元素。同样是读走。位置为负、或者不小于个数时，返回 `null` |
+| `json.has(doc, key)` | `boolean` | 10092 | 判断对象里有没有这个键。只询问，不动那一个位置的值 |
+| `json.at(doc, key)` | `Json` | 10092 | 读对象里该键对应的值。读了不拿走：那一个位置之后还留着，同一把键可以读第二遍 |
+| `json.take(doc, key)` | `Json` | 10092 | 把对象里该键对应的值从树上摘下来交给调用方：那一个位置之后是 `null`，键还留着。要接给一个名字就写这一条 |
+| `json.item(doc, index)` | `Json` | 10092 | 读数组里指定位置的元素。读了不拿走：那一个位置之后还留着。位置为负、或者不小于个数时，返回 `null` |
+| `json.take_item(doc, index)` | `Json` | 10092 | 把数组里那个位置的元素从树上摘下来交给调用方：那一个位置之后是 `null`，个数不变。要接给一个名字就写这一条 |
 | `json.to_text(doc)` | `string` | 10092 | 返回文本类型的值的内容，返回的是一份拷贝。其他种类返回 `null` |
 | `json.to_integer(doc, fallback)` | `int` | 10092 | 只有整数形态的数能取到值（`3`、`-12`），其他情况返回默认值 |
 | `json.to_number(doc, fallback)` | `float` | 10092 | 两种形态的数都能取到值，`3` 也算作 `3.0`，其他情况返回默认值 |
@@ -25,7 +27,9 @@
 
 ## 逐层取值
 
-`json.at` 与 `json.item` 返回的还是一个 `Json`，要继续向下取值就再调用一次。
+`json.at` 与 `json.item` 读回来的是一个借来的 `Json`：当场判类型、当场取下一层都可以。
+
+要把它接给一个名字，就得写 `json.take` 或 `json.take_item`：那是从树上摘下来，交给接住它的那个名字。
 
 要把树里的值变成能直接使用的 `string`、`int`、`float`、`boolean`，用表末四条函数。
 
@@ -34,7 +38,7 @@ let doc:Json = json.parse("{\"name\": \"nef\", \"port\": 8080, \"tags\": [\"语�
 console.print(json.kind(doc), json.count(doc))
 console.print(json.to_text(json.at(doc, "name")))
 console.print(json.to_integer(json.at(doc, "port"), 0))
-let tags:Json = json.at(doc, "tags")
+let tags:Json = json.take(doc, "tags")
 console.print(json.count(tags), json.to_text(json.item(tags, 0)))
 ```
 
@@ -98,23 +102,29 @@ true false
 
 `Json` 是引用类型，遵循[值的所有权](/learn/026_ownership)的规则：交给一个名字、放进一个位置都会发生交出。
 
-`json.at` 与 `json.item` 是**读走**那个位置上的值，取过之后那个位置变成 `null`，再取一次拿到的也是 `null`。整棵树由指向根的那个名字持有，它离开作用域时，连最里面的文本与键也一起释放。
+`json.at` 与 `json.item` 读了不拿走：那一个位置之后还是原样，同一把键可以读第二遍。
+
+要把那一节的值接给一个名字，写 `json.take` 或 `json.take_item`：那是从树上摘下来，交给接住它的那个名字，树上那个位置之后是 `null`。整棵树由指向根的那个名字持有，它离开作用域时，连最里面的文本与键也一起释放。
 
 ```nf
 let one:Json = json.parse("{ \"a\": 1 }")
-let a:Json = json.at(one, "a")
+console.print(json.to_integer(json.at(one, "a"), -1))
+console.print(one)
+let a:Json = json.take(one, "a")
 console.print(json.to_integer(a, -1))
 console.print(one)
 ```
 
 ```text
 1
+{"a":1}
+1
 {"a":null}
 ```
 
-最后输出的一行并不是出错了：`"a"` 位置上的值已经转由 `a` 持有，树里的这个位置已经空了，所以输出是 `null`。
+前两行是读：树没有被改动。后两行是摘：`"a"` 位置上的值转由 `a` 持有，树上那个位置空了，所以最后一行输出 `null`。
 
-要再查看一次整棵树，先不要读走，用 `json.has` 判断那个键是否存在。
+要把整棵树再看一遍，用 `json.at` 与 `json.has`，这两条都不改动树。
 
 `Json` 只能出现在名字、实参与返回值里：放进 `list<Json>` 或 `dict<string, Json>`、作为 `class` 的字段，编译期就会拒绝，报 `Json 进不了 list：先把它拆成自己要的值，或者存那段文本`。
 

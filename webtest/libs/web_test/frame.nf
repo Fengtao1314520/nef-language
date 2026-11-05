@@ -23,7 +23,7 @@ export class Wire {
 
 // 把一段文本编码成一帧送出去：FIN 加上 text 操作码（1），长度按三档编码（小于 126 占一个
 // 字节、小于 65536 跟两个字节、更大跟八个字节，都是大端序），再跟上四个字节长的掩码密钥
-// 与遮码后的正文。客户端发出的帧一律要遮码。
+// 与掩码后的正文。客户端发出的帧一律要带掩码。
 // key 必须正好四个字节：比对结果要写成固定值，就得自带一串固定的密钥。
 // en: Packs one text frame: FIN plus opcode 1, the length in its three widths (one byte below 126, two below 65536, eight beyond that, all big-endian), then the four-byte masking key and the masked body. Everything a client sends is masked, and the key has to be exactly four bytes because the comparison values are written out as fixed text.
 export method encode_text(ref payload:bytes, ref key:bytes):bytes {
@@ -35,7 +35,7 @@ export method encode_text(ref payload:bytes, ref key:bytes):bytes {
 // en: The same packing with the opcode given from outside, which is what pong needs (10). Only frames with FIN set are packed here: every command we send fits one message, so nothing is continued.
 export method encode_frame(opcode:int, ref payload:bytes, ref key:bytes):bytes {
     if (length(key) != 4) {
-        throw (203, "遮码的钥匙要四个字节")
+        throw (203, "掩码密钥要四个字节")
     }
     let n:int = length(payload)
     let head:int = 2
@@ -75,7 +75,7 @@ export method encode_frame(opcode:int, ref payload:bytes, ref key:bytes):bytes {
 // 从整块字节的头部拆出第一帧。进来的这块由这一条函数处置（调用者交出的那个名字作废），
 // 返回的 Wire.rest 是剩下未用的部分：拆成一帧时是切掉头与正文后的那一段，
 // 没拆成时是整块抄的一份。
-// 浏览器发来的帧不带遮码；带遮码也识别，把四个掩码字节读掉即可。
+// 浏览器发来的帧不带掩码；带掩码也识别，把四个掩码字节读掉即可。
 // en: Splits the first frame off a block. The block handed in is this function's to dispose of (the caller's name is spent on the way in), and Wire.rest is what is left over: a fresh copy when a frame came off, a copy of what was received when it did not.
 export method take_wire(ref buf:bytes):Wire {
     let out:Wire = new Wire()

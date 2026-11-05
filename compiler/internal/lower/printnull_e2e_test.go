@@ -22,19 +22,19 @@ func TestPrintEmptyHandleEveryKind(t *testing.T) {
     v:int
 }
 let xs:list<list<int>> = [[1, 2]]
-let one:list<int> = xs[0]
-console.print(xs[0], one)
+let one:list<int> = null
+console.print(one, xs[0])
 let s:string = null
 console.print(s, 1, true)
 let bs:list<Bag> = [new Bag(v: 3)]
-let b:Bag = bs[0]
-console.print(bs[0], b)
+let b:Bag = null
+console.print(b, bs[0])
 let ds:list<dict<string, int>> = [{"甲": 4}]
-let d:dict<string, int> = ds[0]
-console.print(ds[0], d)
+let d:dict<string, int> = null
+console.print(d, ds[0])
 let hs:list<hashset<int>> = [{5, 6}]
-let h:hashset<int> = hs[0]
-console.print(hs[0], length(h))
+let h:hashset<int> = null
+console.print(h, length(hs[0]))
 `)
 	want := "null [1, 2]\nnull 1 true\nnull Bag { v: 3 }\nnull {\"甲\": 4}\nnull 2\n"
 	if got != want || code != 0 {
@@ -43,12 +43,13 @@ console.print(hs[0], length(h))
 }
 
 // TestPrintEmptyHandleInsideContainer 空句柄存在容器里也打印 `null`：整个容器仍完整输出。
+// 那个位置是明写成空的（`xs[0] = null`）——读一个位置不把它清空。
 func TestPrintEmptyHandleInsideContainer(t *testing.T) {
 	got, code := run(t, `let xs:list<list<int>> = [[1], [2]]
-let a:list<int> = xs[0]
+xs[0] = null
 console.print(xs)
 let m:dict<string, list<int>> = {"甲": [1], "乙": [2]}
-let b:list<int> = m["乙"]
+m["乙"] = null
 console.print(m)
 `)
 	want := "[null, [2]]\n{\"甲\": [1], \"乙\": null}\n"
@@ -63,14 +64,19 @@ func TestPrintIsNotAPoint(t *testing.T) {
 	for _, one := range []struct {
 		name string
 		src  string
+		want string
 	}{
-		{"数长度", "let s:string = null\nconsole.print(length(s))\n"},
-		{"点成员", "let s:string = null\nconsole.print(s.trim())\n"},
-		{"拼进去", "let s:string = null\nconsole.print(\"甲\" + s)\n"},
-		{"当路径", "let s:string = null\nconsole.print(path.file_name(s))\n"},
+		{"数长度", "let s:string = null\nconsole.print(length(s))\n",
+			"出错了（10092）：对着空句柄取成员或调用方法（在 t.nf 2:15）\n"},
+		{"点成员", "let s:string = null\nconsole.print(s.trim())\n",
+			"出错了（10092）：对着空句柄取成员或调用方法（在 t.nf 2:17）\n"},
+		{"拼进去", "let s:string = null\nconsole.print(\"甲\" + s)\n",
+			"出错了（10092）：对着空句柄取成员或调用方法（在 t.nf 2:21）\n"},
+		{"当路径", "let s:string = null\nconsole.print(path.file_name(s))\n",
+			"出错了（10092）：对着空句柄取成员或调用方法（在 t.nf 2:20）\n"},
 	} {
 		got, code := run(t, one.src)
-		if got != "出错了（10092）：对着空句柄取成员或调用方法\n" || code != 1 {
+		if got != one.want || code != 1 {
 			t.Fatalf("%s：这一处仍该挡在 10092，got %q 码 %d", one.name, got, code)
 		}
 	}
@@ -80,8 +86,8 @@ func TestPrintIsNotAPoint(t *testing.T) {
 // 被修复的正是产物路径：容器那三种在 v0.2.0 上是退出码 139，直跑同样 139。
 func TestPrintEmptyHandleSameOnBothPaths(t *testing.T) {
 	const src = `let xs:list<string> = ["甲"]
-let s:string = xs[0]
-console.print(xs[0], s)
+xs[0] = null
+console.print(xs[0], "甲")
 `
 	got, code := run(t, src)
 	if got != "null 甲\n" || code != 0 {
@@ -93,15 +99,15 @@ console.print(xs[0], s)
 	}
 }
 
-// TestPrintEmptyHandleKeepsHeap 验证每圈打印一次空句柄不多要内存：换出的那段文本每句都释放。
+// TestPrintEmptyHandleKeepsHeap 验证每轮打印一次空句柄不多要内存：换出的那段文本每句都释放。
 // 圈数取 200 与 5000 之差；`console.print` 现造的那一整段由释放窗口那一层归还。
 func TestPrintEmptyHandleKeepsHeap(t *testing.T) {
 	const tmpl = `let total:int = 0
 for (i:int in 0 until @N@) {
     let xs:list<list<int>> = [[i]]
-    let one:list<int> = xs[0]
-    console.print(xs[0])
-    total = total + length(one)
+    let one:list<int> = null
+    console.print(one)
+    total = total + length(xs[0])
 }
 console.print(total)
 `

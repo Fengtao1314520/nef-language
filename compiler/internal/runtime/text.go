@@ -786,7 +786,7 @@ func strToFloat(b *rt) {
 	a.Jcc(x64.E, expTop)
 	a.CmpImm(x64.RAX, 'E')
 	a.Jcc(x64.E, expTop)
-	a.AddImm(x64.RAX, -'0') // RAX 从这一格起装的是这一位的值
+	a.AddImm(x64.RAX, -'0') // RAX 从这个位置起装的是这一位的值
 	a.CmpImm(x64.RAX, 9)
 	a.Jcc(x64.A, bad) // 无符号比较：不在 0～9 内的字符都落到上界之外
 	// 前 17 位有效数字进累加值，之后的丢掉——整数部分每丢掉一位，数量级要补回来。

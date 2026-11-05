@@ -1,5 +1,5 @@
 // web_test 这一层的实际运行检查：起一个浏览器、连上、发两条浏览器层的命令，
-// 再开一页挂上去、读得出标题、截一张图落成文件。
+// 再开一页并附加、读得出标题、截一张图落成文件。
 //
 // 跑法（在仓库根，浏览器路径、一只空的个人资料目录、那一页的网址从命令行进来）：
 //
@@ -16,9 +16,9 @@
 
 import wt from "libs/web_test"
 
-let exe:string = args[0]
-let profile:string = args[1]
-let start_url:string = args[2]
+let exe:string = args[0] + ""
+let profile:string = args[1] + ""
+let start_url:string = args[2] + ""
 let shot:string = profile + "/live.png"
 console.print("起这个浏览器:", exe)
 
@@ -32,7 +32,7 @@ if (product == null) {
     console.print("第一条答复里没有 product:", wt.first_chars(first, 120))
     exit (1, "Browser.getVersion 交不回 product")
 }
-console.print(" Browser.getVersion 交回:", product)
+console.print(" Browser.getVersion 返回:", product)
 
 // 二、命令的号往后走了，答复按号认得对
 let second:string = browser.call("Target.getTargets", "{}")
@@ -42,18 +42,18 @@ if (!second.contains("\"id\":2")) {
 }
 if (!second.contains("targetInfos")) {
     console.print("第二条答复里没有 targetInfos:", wt.first_chars(second, 120))
-    exit (1, "Target.getTargets 没交回那一份清单")
+    exit (1, "Target.getTargets 没返回那份列表")
 }
 console.print("过  两条命令都按号认出来了")
 
-// 三、开一页并挂上去：返回的是 Page，页号在库里记着，命令都还走这一条连接
+// 三、开一页并附加：返回的是 Page，页号在库里记着，命令都还走这一条连接
 let page:wt.Page = browser.open_page(start_url)
 let session:string = page.session_id()
 if (length(session) != 32) {
     console.print("sessionId 看着不对:", session)
     exit (1, "开一页那一步取不到 sessionId")
 }
-console.print("过  开一页挂上去，sessionId 是 32 个字符")
+console.print("通过  打开一页并附加到它，sessionId 是 32 个字符")
 
 // 四、页面层的命令走到了：标题是从那一页里读出来的
 let title:string = page.read_title()

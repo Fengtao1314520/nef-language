@@ -2,7 +2,7 @@
 
 // uncaught_e2e_test.go 覆盖一条规则：**无人接住的抛出同样要走顶层那份释放记录**。
 //
-// nef.main 开场挂一条**兜底处理器**：抛出走完中间各帧的帧内清理记录后仍无人接住时命中这一段——
+// nef.main 开场挂一条**默认处理器**：抛出走完中间各帧的帧内清理记录后仍无人接住时命中这一段——
 // 打印提示、释放顶层的块、以退出码 1 结束，与"正常走完"和 `exit` 的释放行为对齐；
 // 若没有这条处理器，`@throw_walk` 命中空链时会直接"打印提示 → @exit(1)"，跳过 `nef.release_top`。
 //
@@ -118,18 +118,18 @@ func TestUncaughtThrowRunsTopLevelAccount(t *testing.T) {
 	if push > firstTop(main) {
 		t.Fatalf("兜底那条要排在所有 nef.top.* 之前：挂 %d、头一调 %d", push, firstTop(main))
 	}
-	// 正常走完的路径先摘除兜底记录再做顶层释放——不摘除会留下一条指向程序尽头的孤立记录。
+	// 正常走完的路径先摘除默认处理记录再做顶层释放——不摘除会留下一条指向程序尽头的孤立记录。
 	if !(lastTop < pop && pop < exit0) {
 		t.Fatalf("正常走完那一条要摘掉兜底那条再叫 @exit：末调 %d、摘 %d、@exit %d", lastTop, pop, exit0)
 	}
-	// 兜底那一段的顺序：Catch → 打印提示 → 检查护栏 → 释放该释放的块（若不在释放中）→ 退出码 1。
+	// 默认处理那一段的顺序：Catch → 打印提示 → 检查护栏 → 释放该释放的块（若不在释放中）→ 退出码 1。
 	if !(exit0 < errline) {
 		t.Fatalf("印那一句的 @put_errline 要在 @exit(0) 之后那一段里：%d 与 %d", exit0, errline)
 	}
 	if idxOf(main, func(in ir.Inst) bool { _, ok := in.(*ir.Catch); return ok }) != errline-1 {
 		t.Fatal("兜底那一段的开头不是 Catch（错误码与消息要先落进两个槽位，后面要调用）")
 	}
-	// 护栏：release_top 进门时设立"正在释放"标记，兜底那一段在调用它之前读的是**同一个槽**。
+	// 护栏：release_top 进门时设立"正在释放"标记，默认处理那一段在调用它之前读的是**同一个槽**。
 	flag, ok := release.Body[0].(*ir.Mov)
 	if !ok || flag.S != ir.K(1) {
 		t.Fatalf("nef.release_top 开头不是\"立一块正在还的标记\"：%v", release.Body[0])
@@ -226,8 +226,8 @@ throw (120, "不干了")
 	}{
 		{normal, "跑到尽头 3\n", 0},
 		{withExit, "先印一行 3\n收工\n", 100},
-		{uncaught, "跑到尽头 3\n出错了（120）：不干了\n", 1},
-		{uncaught, "跑到尽头 3\n出错了（120）：不干了\n", 1}, // 同一场景运行两遍，第二遍验证重复执行结果一致
+		{uncaught, "跑到尽头 3\n出错了（120）：不干了（在 t.nf 7:1）\n", 1},
+		{uncaught, "跑到尽头 3\n出错了（120）：不干了（在 t.nf 7:1）\n", 1}, // 同一场景运行两遍，第二遍验证重复执行结果一致
 	} {
 		body, code, heap := runHeapAny(t, one.src)
 		if body != one.body || code != one.code {
@@ -243,29 +243,30 @@ throw (120, "不干了")
 }
 
 // TestUncaughtThrowFromDepth 用实际运行覆盖"抛出发生在三帧之下、顶层还登记着几块"的场景：
-// 兜底那一段进入的是 nef.main 的帧，释放的是静态槽那份记录登记的块——栈摆错就会析构别人持有的内存。
+// 默认处理那一段进入的是 nef.main 的帧，释放的是静态槽那份记录登记的块——栈摆错就会析构别人持有的内存。
 func TestUncaughtThrowFromDepth(t *testing.T) {
 	body, code, _ := runHeapAny(t, uncaughtSrc)
-	want := "跑到这儿\n出错了（120）：不干了\n"
+	want := "跑到这儿\n出错了（120）：不干了（在 t.nf 8:5）\n" +
+		"    t.nf 8:5 deep3\n    t.nf 13:12 deep2\n    t.nf 16:12 deep1\n    t.nf 21:15 t.nf\n"
 	if body != want || code != 1 {
 		t.Fatalf("三帧之下的抛出没走到兜底那一段：\n got %q 码 %d\nwant %q 码 1", body, code, want)
 	}
 }
 
-// TestUncaughtRethrowPrintsOnce 验证"接住块里再抛也只打印一次提示"：再抛命中兜底那一段之前，
+// TestUncaughtRethrowPrintsOnce 验证"接住块里再抛也只打印一次提示"：再抛命中默认处理那一段之前，
 // 该条记录已被 @throw_walk 摘掉——第二次抛出走的是链空那一步，不会成环。
 func TestUncaughtRethrowPrintsOnce(t *testing.T) {
 	body, code, _ := runHeapAny(t, `
 let xs:list<int> = [1]
 try {
     throw (121, "头一趟")
-} catch (code, msg) {
+} catch (code, msg, at) {
     console.print("接住了", code, length(xs))
     throw (122, "再抛一趟")
 }
 console.print("这行不该印")
 `)
-	want := "接住了 121 1\n出错了（122）：再抛一趟\n"
+	want := "接住了 121 1\n出错了（122）：再抛一趟（在 t.nf 7:5）\n"
 	if body != want || code != 1 {
 		t.Fatalf("接住块里再抛没收好：\n got %q 码 %d\nwant %q 码 1", body, code, want)
 	}

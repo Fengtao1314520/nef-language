@@ -1,22 +1,22 @@
 // Copyright 2026 Feng Tao (Nate). Apache-2.0. See LICENSE.
 
-// webtest_test.go 固定 `webtest/libs/web_test` 这个位置：底下到浏览器那一层（起进程、连上、
-// 把帧收发对、一条命令一个号），上面到页面与元素那一层（五种定位、点与填、断言、等待）。
+// webtest_test.go 覆盖 `webtest/libs/web_test` 这两层：底下到浏览器进程那一层（启动进程、建立连接、
+// 帧的收发配对、一条命令一个编号），上面到页面与元素那一层（五种定位方式、点击与填写、断言、等待）。
 //
 // 七份自测用 .nf 写成，放在仓库根的 webtest/selftest 下面：
-// frame_check.nf     不起浏览器：帧的编码与解码，拿定值比字节
-// socket_check.nf    不起浏览器：自己listen、自己 connect，验送完为止、两段拼一条、ping 回 pong、答复夹在通知后面
-// page_check.nf      不起浏览器：拿 selftest/data 那四份真答复原文验取字段与截图落成 png
-// error_check.nf     不起浏览器：程序不在（10111）与等不到端口文件（200）
-// live_check.nf      真起一个 headless 浏览器：两条命令、开一页、读标题、截一张图
-// element_check.nf   真起一个 headless 浏览器：开 webtest/fixtures 那两份本地页面，定位、动作、断言、等待、关掉一页那三十九项
-// site_check.nf      真起一个 headless 浏览器开真站：https://example.com 那八项（吃网络，红就红）
+// frame_check.nf     不启动浏览器：帧的编码与解码，拿定值逐字节比对
+// socket_check.nf    不启动浏览器：自己 listen、自己 connect，验证收到为止、两段拼成一条、ping 回 pong、答复跟在通知后面
+// page_check.nf      不启动浏览器：拿 selftest/data 那四份真实答复原文验证字段读取，以及截图写成 png
+// error_check.nf     不启动浏览器：程序不存在（10111）与等不到端口文件（200）
+// live_check.nf      启动一个 headless 浏览器：两条命令、打开一页、读标题、截一张图
+// element_check.nf   启动一个 headless 浏览器：打开 webtest/fixtures 那两份本地页面，定位、动作、断言、等待、关闭一页那三十九项
+// site_check.nf      启动一个 headless 浏览器访问真实网站：https://example.com 那八项（需要网络，失败也不跳过）
 //
-// 还有一份不在 selftest 下面：webtest/cases/login.nf 是"脚本运行那一层"给人看的那一份用例，
-// 钉在 TestWebTestRunCheck 里（六行结果：过、过、过、跳、挂、重试后过，两份报告与一张截图）。
+// 还有一份不在 selftest 下面：webtest/cases/login.nf 是给人看的"脚本运行那一层"用例，
+// 钉在 TestWebTestRunCheck 里（六行结果：通过、通过、通过、跳过、失败、重试后通过，两份报告与一张截图）。
 //
-// 真起浏览器那三条用这台机器上装着的 Chrome 或 Edge（找不到就红，不跳过）。
-// 只能真起子进程（与这个位置里别的测试同一条理由）：产物收尾是 ExitProcess。
+// 启动浏览器那三条用这台机器上装着的 Chrome 或 Edge（找不到就失败，不做跳过）。
+// 只能实际启动子进程（与这个位置里别的测试同一条理由）：产物收尾是 ExitProcess。
 package main
 
 import (
@@ -37,7 +37,7 @@ func webtestDir(t *testing.T) string {
 	return dir
 }
 
-// runSelftest 跑一份自测，要它返回退出码 0 且最后一行是"全对"。
+// runSelftest 跑一份自测，要它返回退出码 0 且最后一行是"全部通过"。
 // 不比对整份输出：那几份里"过  …"那一串会随检查项增加而变，红了看的是最后那一行与尾巴。
 func runSelftest(t *testing.T, nf string, script string, args ...string) string {
 	t.Helper()
@@ -46,8 +46,8 @@ func runSelftest(t *testing.T, nf string, script string, args ...string) string 
 	if code != 0 {
 		t.Fatalf("%s 没跑过：退出码 %d，输出 %q", script, code, out)
 	}
-	if !strings.HasSuffix(out, "全对\n") {
-		t.Fatalf("%s 的最后一行不是\"全对\"：%q", script, out)
+	if !strings.HasSuffix(out, "全部通过\n") {
+		t.Fatalf("%s 的最后一行不是\"全部通过\"：%q", script, out)
 	}
 	if strings.Contains(out, "\n不对") || strings.HasPrefix(out, "不对") {
 		t.Fatalf("%s 的输出里有失败的行：%q", script, out)
@@ -55,13 +55,13 @@ func runSelftest(t *testing.T, nf string, script string, args ...string) string 
 	return out
 }
 
-// passedCount 数"过  "那一串，少一项就是有一条检查没被执行到。
+// passedCount 数"通过  "那一串，少一项就是有一条检查没被执行到。
 func passedCount(out string) int {
-	return strings.Count(out, "过  ")
+	return strings.Count(out, "通过  ")
 }
 
 // TestWebTestFrameCheck 钉帧的编码与解码：定值两头都要一样，直跑与产物也要一样。
-// 定值的出处写在 frame_check.nf 头上那一段（RFC 6455 第 5 节那三个长度档与遮码的例子，
+// 定值的出处写在 frame_check.nf 头上那一段（RFC 6455 第 5 节那三个长度档与掩码的例子，
 // 加上从本机 Edge 155 真收下来的答复帧的形状）。
 func TestWebTestFrameCheck(t *testing.T) {
 	nf := nfExe(t)
@@ -95,7 +95,7 @@ func TestWebTestSocketCheck(t *testing.T) {
 }
 
 // TestWebTestPageCheck 拿 selftest/data 那四份真答复原文（从本机 Chrome 155
-// 取的）验取字段与截图落成 png：不浏览器也能固定"sessionId 在 result 那一格里"这件事。
+// 取的）验取字段与截图落成 png：不浏览器也能固定"sessionId 在 result 那个位置里"这件事。
 func TestWebTestPageCheck(t *testing.T) {
 	nf := nfExe(t)
 	dataDir := filepath.Join(webtestDir(t), "selftest", "data")
@@ -119,7 +119,7 @@ func TestWebTestErrorCheck(t *testing.T) {
 }
 
 // browserPath 找这台机器上那两个默认装上去的位置之一。
-// 找不到就红，不做跳过：这个位置的测试没跑过就等于没验过，安静地跳过最容易被当成过了。
+// 找不到就失败，不做跳过：这个位置的测试没实际运行就等于没验证过，静默跳过最容易被当成通过。
 func browserPath(t *testing.T) string {
 	t.Helper()
 	candidates := []string{
@@ -142,8 +142,8 @@ func fileURL(t *testing.T, name string) string {
 	return "file:///" + filepath.ToSlash(filepath.Join(webtestDir(t), "fixtures", name))
 }
 
-// TestWebTestLiveCheck 真起一个浏览器走一遍：起进程、等它写下调试端口、连上去、
-// 不带 Origin 握手、两条浏览器层的命令按号认答复、开一页挂上去、读得出标题、
+// TestWebTestLiveCheck 实际启动一个浏览器走一遍：启动进程、等它写下调试端口、连上去、
+// 不带 Origin 握手、两条浏览器层的命令按编号认答复、开一页并附加到它、读得出标题、
 // 截一张图落成 png、收尾把自己起的那个进程带走。
 func TestWebTestLiveCheck(t *testing.T) {
 	browser := browserPath(t)
@@ -161,7 +161,7 @@ func TestWebTestLiveCheck(t *testing.T) {
 // TestWebTestElementCheck 真起一个浏览器把页面与元素那一面走一遍：三种定位与复数那一份、
 // 点两下与悬停与滚、填与读、属性与方框、看得见与不能用、五种断言与两种等不到的错误号、
 // 两页同时在手里、截图、重新加载、等一条通知、关掉一页，三十九项。
-// 这一条也是"库交出的成员每一个都真被调用过"那一份清单。
+// 这一条也是"库导出的成员每一个都实际被调用过"那份名单。
 func TestWebTestElementCheck(t *testing.T) {
 	browser := browserPath(t)
 	nf := nfExe(t)
@@ -190,10 +190,10 @@ func TestWebTestExamples(t *testing.T) {
 	}
 }
 
-// TestWebTestSiteCheck 开一个真站（https://example.com）走一遍：读标题与整页文字、
+// TestWebTestSiteCheck 访问一个真实网站（https://example.com）走一遍：读标题与整页文字、
 // 按 CSS 数链接、读那一个链接的 href、点它跳到另一家、在跳到的那一页上截一张图。
 //
-// 这一条吃网络，红就红，不做跳过。它同时是"鼠标动作要先把元素滚进视口"
+// 这一条需要网络，失败也不跳过。它同时是"鼠标动作要先把元素滚进视口"
 // 那一条改动的凭据：无头浏览器的视口只有 800×600，那一页的链接在上边 657 像素那一行，
 // 不先滚一下的话鼠标事件送过去什么也不发生（本地那两份页面都在一屏之内，测不出来）。
 func TestWebTestSiteCheck(t *testing.T) {
@@ -206,9 +206,9 @@ func TestWebTestSiteCheck(t *testing.T) {
 	}
 }
 
-// TestWebTestRunCheck 真起一个浏览器把 webtest/cases/login.nf 那一组跑一遍（测试脚本运行那一层）。
-// 五条用例走出六行结果：过、过、过、跳、挂、重试之后过；两份报告都落得下来，
-// 挂的那一条带着截图与整页文字。这一条该红的时候是退 1（那一条故意等 20 毫秒必然挂），不是崩溃。
+// TestWebTestRunCheck 实际启动一个浏览器把 webtest/cases/login.nf 那一组跑一遍（测试脚本运行那一层）。
+// 五条用例走出六行结果：通过、通过、通过、跳过、失败、重试之后通过；两份报告都写得下来，
+// 失败的那一条带着截图与整页文字。这一条该失败的时候是退 1（那一条故意等 20 毫秒必然失败），不是崩溃。
 //
 // 后半截再跑一次挑跑：命令行里给一个标题，报告里就只剩那一行，退 0。
 func TestWebTestRunCheck(t *testing.T) {
@@ -223,7 +223,7 @@ func TestWebTestRunCheck(t *testing.T) {
 	if code != 1 {
 		t.Fatalf("那一组该退 1（有一条故意挂）：实际退出码 %d，输出 %q", code, tail(out))
 	}
-	for _, want := range []string{"表单登录", "  -- 空账号也点", "  x 等那块后出来的", "→ 6 条：过 4，挂 1，跳 1"} {
+	for _, want := range []string{"表单登录", "  -- 空账号也点", "  x 等那块后出来的", "→ 6 条：通过 4，失败 1，跳过 1"} {
 		if !strings.Contains(out, want) {
 			t.Fatalf("终端那份里没有 %q，输出尾巴 %q", want, tail(out))
 		}
@@ -243,14 +243,14 @@ func TestWebTestRunCheck(t *testing.T) {
 		}
 	}
 	if !strings.Contains(lines[4], "\"code\":205") || !strings.Contains(lines[4], "case-5.png") {
-		t.Fatalf("挂的那一行要带上错误号与那一张图：%q", lines[4])
+		t.Fatalf("失败的那一行要带上错误号与那张截图：%q", lines[4])
 	}
 	shot, err := os.Stat(filepath.Join(outDir, "case-5.png"))
 	if err != nil || shot.Size() < 1000 {
 		t.Fatalf("那一张截图不在或太小：%v，尺寸 %+v", err, shot)
 	}
 	if _, err := os.Stat(filepath.Join(outDir, "case-5.txt")); err != nil {
-		t.Fatalf("挂的那一条没留下整页文字：%v", err)
+		t.Fatalf("失败的那一条没留下整页文字：%v", err)
 	}
 	text, err := os.ReadFile(filepath.Join(outDir, "report.txt"))
 	if err != nil || !strings.Contains(string(text), "表单登录") {
@@ -292,7 +292,7 @@ func TestWebTestRunAllCheck(t *testing.T) {
 	if code != 1 {
 		t.Fatalf("全跑那一趟该退 1：实际 %d，输出 %q", code, tail(out))
 	}
-	if !strings.Contains(out, "→ 2 份，9 条：过 7，挂 1，跳 1") {
+	if !strings.Contains(out, "→ 2 份，9 条：通过 7，失败 1，跳过 1") {
 		t.Fatalf("没看见合起来那一句总结：%q", tail(out))
 	}
 	merged, err := os.ReadFile(filepath.Join(outDir, "all.jsonl"))
@@ -308,7 +308,7 @@ func TestWebTestRunAllCheck(t *testing.T) {
 			t.Fatalf("all.jsonl 里没有 %s：%q", want, merged)
 		}
 	}
-	if !strings.Contains(mergedLines[9], "过 7，挂 1，跳 1") {
+	if !strings.Contains(mergedLines[9], "通过 7，失败 1，跳过 1") {
 		t.Fatalf("最后一行不是那一句总结：%q", mergedLines[9])
 	}
 	if _, err := os.Stat(filepath.Join(outDir, "all.txt")); err != nil {
@@ -323,7 +323,7 @@ func TestWebTestRunAllCheck(t *testing.T) {
 	}
 	shot, err := os.Stat(filepath.Join(outDir, "login", "case-5.png"))
 	if err != nil || shot.Size() < 1000 {
-		t.Fatalf("挂的那一条的截图不对：%v，尺寸 %+v", err, shot)
+		t.Fatalf("失败的那一条的截图不对：%v，尺寸 %+v", err, shot)
 	}
 
 	// 挑跑那一份：第五个参数是文件名（不带 .nf），逗号分隔。
@@ -373,14 +373,14 @@ func TestWebTestFromContainer(t *testing.T) {
 	if err := os.WriteFile(mainPath, []byte(main), 0o644); err != nil {
 		t.Fatalf("写主文件失败：%v", err)
 	}
-	// 遮码钥匙是 37 FA 21 58 时，"Hi" 那一帧按 RFC 6455 的算法是 81 82 + 钥匙 + 7F 93
+	// 掩码密钥是 37 FA 21 58 时，"Hi" 那一帧按 RFC 6455 的算法是 81 82 + 密钥 + 7F 93
 	ran, ranCode := runNf(t, nf, mainPath)
 	if ranCode != 0 {
 		t.Fatalf("用容器里那份包没跑过：退出码 %d，输出 %q", ranCode, ran)
 	}
 	want := "[129, 130, 55, 250, 33, 88, 127, 147]\nABC\nabc\n"
 	if ran != want {
-		t.Fatalf("容器里那几个成员交回的不是这个：给 %q，要 %q", ran, want)
+		t.Fatalf("容器里那几个成员返回的不是这个：给 %q，要 %q", ran, want)
 	}
 }
 

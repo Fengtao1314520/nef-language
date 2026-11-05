@@ -91,9 +91,9 @@ var Keywords = map[string]bool{}
 var Reserved = map[string]bool{}
 
 func init() {
-	for _, w := range strings.Fields("let const method struct class interface enum type " +
+	for _, w := range strings.Fields("let const method struct class interface enum type fn " +
 		"import export shared ref base this new return " +
-		"as is throw try catch " +
+		"as is throw try catch finally " +
 		"if else while for in until switch default break continue " +
 		"true false null") {
 		Keywords[w] = true

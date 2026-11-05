@@ -12,11 +12,10 @@
 //    覆盖一次，比把句柄逐个传进函数短（要传也可以：`ref` 是只读借用，借进去那个名字不作废）；
 // ② 顶层 `let` 在自己写的函数里可以重新赋值，所以 `page = wt.page_at(...)` 这一句合法，
 //    一条用例覆盖一次；
-// ③ `list` 里那个位置只要读一次就是读走（装引用类型时进出都是交出；实测同一位置第二次读
-//    当场 10092，`xs[0]` 同样会把那个位置读空），
-//    所以每条标题只从 `titles[i]` 取一次，取下来接在 `title` 上，后面全用那个名字；
+// ③ 读一个位置交出的是只读借用，那个位置读完还在；借用不能直接接给一个名字，
+//    所以要留着的标题写的是 `let title:string = titles[i] + ""`（拷一份出来），后面全用这个名字；
 // ④ 重试写在脚本里："等那块后出来的"那一条跑两遍，第一遍故意只等
-//    20 毫秒、必然挂在 205，第二遍等 3000 毫秒就过——报告里因此有同一句标题的两行。
+//    20 毫秒、必然在 205 上失败，第二遍等 3000 毫秒就通过——报告里因此有同一句标题的两行。
 
 import wt from "libs/web_test"
 import tr from "libs/test_run"
@@ -72,7 +71,7 @@ method group_login() {
     let home_index:int = run.group_begin("表单登录", start_url)
     wt.page_at(home_index).expect_title("登录")
     for (i:int in 0 until length(titles)) {
-        let title:string = titles[i]
+        let title:string = titles[i] + ""
         if (!run.picked(title)) {
             continue
         }
@@ -91,12 +90,12 @@ method group_login() {
                 before_each(i)
                 one_case(i)
                 run.case_pass()
-            } catch (bad_code, bad_msg) {
+            } catch (bad_code, bad_msg, bad_at) {
                 run.case_fail(bad_code, bad_msg)
             }
             try {
                 after_each(i)
-            } catch (bad_code2, bad_msg2) {
+            } catch (bad_code2, bad_msg2, bad_at2) {
                 run.case_fail(bad_code2, bad_msg2)
             }
             run.case_end()
@@ -107,17 +106,17 @@ method group_login() {
 
 let titles:list<string> = ["填对了就进得去", "错密码进不去", "那半秒后的提示自己消失", "空账号也点", "等那块后出来的"]
 let picks:list<string> = []
-let exe:string = args[0]
-let profile:string = args[1]
-let out_dir:string = args[2]
-let fixdir:string = args[3]
+let exe:string = args[0] + ""
+let profile:string = args[1] + ""
+let out_dir:string = args[2] + ""
+let fixdir:string = args[3] + ""
 let start_url:string = "file:///" + fixdir + "/form.html"
 let page:wt.Page = null
 let tries:int = 0
 let run:tr.Run = tr.begin_run(exe, profile, out_dir)
 
 if (length(args) > 4) {
-    picks.add(args[4])
+    picks.add(args[4] + "")
 }
 run.pick(picks)
 group_login()

@@ -14,11 +14,11 @@ import (
 //
 // 这组测试覆盖的是释放策略的核心判断："少还是安全的漏，两个持有者指向同一块时
 // 释放别人那一份就是错误"。这条判断只能推理、无法直接度量；而"实际释放了多少"
-// 每次改动之后都要比对。于是用两段相同的负载各跑一遍：一段每圈在块尾释放，
-// 一段把每圈造出的对象一路保留。前者应停留在第一块附近，后者会扩出多块新内存。
+// 每次改动之后都要比对。于是用两段相同的负载各跑一遍：一段每轮在块尾释放，
+// 一段把每轮造出的对象一路保留。前者应停留在第一块附近，后者会扩出多块新内存。
 
 // heapLine 从输出末尾取出 "heap <累计要过的字节> <链上现有的字节>" 那一行，并把这一行从输出里移除。
-// 取的是第一个数（累计）——每圈增长表要回答"每多一圈多要几字节"，第二个数用于"值不值"的取舍判断。
+// 取的是第一个数（累计）——每轮增长表要回答"每多一圈多要几字节"，第二个数用于"值不值"的取舍判断。
 func heapLine(t *testing.T, out string) (string, int64) {
 	t.Helper()
 	re := regexp.MustCompile(`(?m)^heap (\d+)(?: \d+)?\r?\n$`)
@@ -72,11 +72,11 @@ func heapSrc(decls, keeps string) string {
 }
 
 // TestHeapFreedIsReused 验证"块还回空闲链之后，下一圈能重新分配到它"：
-// 每圈造一个 list、一个 dict、一个 class（连同它的 kids 那一段），在块尾按声明反序释放。
+// 每轮造一个 list、一个 dict、一个 class（连同它的 kids 那一段），在块尾按声明反序释放。
 // 二十万次分配若无人释放会扩出好几 MB；正常释放则应停留在第一块之内。
 func TestHeapFreedIsReused(t *testing.T) {
 	out, used := runHeap(t, heapSrc("", ""))
-	// 圈数 20000，每圈 total 加的是 i：0+1+…+19999
+	// 圈数 20000，每轮 total 加的是 i：0+1+…+19999
 	if strings.TrimSpace(out) != "199990000" {
 		t.Fatalf("数不对：%q", out)
 	}
@@ -88,7 +88,7 @@ func TestHeapFreedIsReused(t *testing.T) {
 // TestHeapKeptGrows 用同一段负载把对象全部保留：三个 keep 外层 list 是顶层名字，落在静态槽上，
 // 作用域到整个程序跑完才结束——二十万圈里它们一直被持有，所以内存占用持续增长、
 // 扩出多块新内存，到程序结束才一次释放（堆用量记录的是峰值，释放不会让它回落）。
-// 两条一起看才是"每圈释放"与"一路持有"的对照，单看任何一条都不足以说明问题。
+// 两条一起看才是"每轮释放"与"一路持有"的对照，单看任何一条都不足以说明问题。
 func TestHeapKeptGrows(t *testing.T) {
 	decls := `let keepA:list<list<int>> = []
 let keepD:list<dict<string, int>> = []
@@ -116,8 +116,8 @@ func TestHeapQuietWithoutFlag(t *testing.T) {
 
 // 按种类度量：每一类各跑两种圈数，算出"每多一圈多要几个字节"。
 //
-// 度量每圈增量而不是绝对值的原因：`heapFrom` 落在哪儿、第一块多大都由本机决定，绝对值换台
-// 机器就会漂移；而"每圈漏几个字节"只与程序本身有关——正常释放是 0，未释放是一整块的大小。
+// 度量每轮增量而不是绝对值的原因：`heapFrom` 落在哪儿、第一块多大都由本机决定，绝对值换台
+// 机器就会漂移；而"每轮漏几个字节"只与程序本身有关——正常释放是 0，未释放是一整块的大小。
 // 两个阈值（释放 < 40 字节／未释放 > 28 字节）之间留出的是同类差额的最小长度：一个空容器
 // 连头带对象最小也有 40 字节，一段两个汉字的新文本 32 字节，所以两档之间不会混淆。
 func heapAt(t *testing.T, src string) int64 {
@@ -171,7 +171,7 @@ for (i:int in 0 until @N@) {
 }
 console.print(total)
 `},
-		{"continue 走的那一圈", true, `
+		{"continue 走的那一轮", true, `
 let total:int = 0
 for (i:int in 0 until @N@) {
     let acc:list<int> = [i]
@@ -197,8 +197,8 @@ for (i:int in 0 until @N@) {
 }
 console.print(total)
 `},
-		// 同一段负载只差一处：被调方把值 `return` 出去。释放判据是"这个参数除了被交回没有
-		// 别的外流，而每一条带值的 return 交回的都是它"（`Facts.Back`）：递进去的那个名字
+		// 同一段负载只差一处：被调方把值 `return` 出去。释放判据是"这个参数除了被返回没有
+		// 别的外流，而每一条带值的 return 返回的都是它"（`Facts.Back`）：递进去的那个名字
 		// 交出之后就作废 ⇒ 接住结果的那个位置是唯一的持有者。
 		// 识别不出这种写法的照旧不释放：`return h.peer`（从字段读出来的）那一行仍在下面单独覆盖。
 		{"交给带走的函数（被调方把它 return 出去）", true, `
@@ -231,8 +231,8 @@ console.print(total)
 `},
 		// 覆盖容器的那个位置：被换下来的旧值与没被收下的键都当场析构。
 		// 三条各覆盖一种：dict 的 class 值、list 里的文本、add 命中已有键时交进来的那个键。
-		// 每一圈都只覆盖、不再去读那个位置——读一次就是"读走"，读走的临时值无人认领是
-		// 另一处独立的覆盖点（下面那条单独验证），混在这里就测不出覆盖这一步了。
+		// 每一轮都只覆盖、不再去读那个位置——读了不拿走，读出来的那一份归谁另有单独的覆盖点
+		// （下面那一条验证它），混在这里就测不出覆盖这一步了。
 		{"覆盖 dict 的那个位置（换下来的 class 值）", true, `
 class Row {
     n:int
@@ -282,8 +282,8 @@ console.print(total)
 `},
 		// 这两个形状此前只有文字描述、没有可复跑的源码，这里把源码固定进测试：
 		// 以后复测直接跑这一条，不必重新构造。
-		// list 每圈增长到 20 格（`@list_add` 一路翻倍、搬完把旧的几块释放）⇒ 应当释放。
-		{"list 每圈长到 20 个位置再整条释放", true, `
+		// list 每轮增长到 20 格（`@list_add` 一路翻倍、搬完把旧的几块释放）⇒ 应当释放。
+		{"list 每轮长到 20 个位置再整条释放", true, `
 let total:int = 0
 for (i:int in 0 until @N@) {
     let xs:list<int> = []
@@ -294,7 +294,7 @@ for (i:int in 0 until @N@) {
 }
 console.print(total)
 `},
-		// 计算得到的三段文本存进**顶层** dict ⇒ 键仍被持有，堆水位按圈增长是预期行为。
+		// 计算得到的三段文本存进**顶层** dict ⇒ 键仍被持有，堆用量按圈增长是预期行为。
 		// 这一行验证反方向：不要把"仍被持有"当成"泄漏"去多余释放（容器位置会析构，
 		// 但这本 dict 到程序结束才散，中间每一圈的键都还在它手里）。
 		{"算出来的三段文本存进顶层 dict（键还活着，该涨）", false, `
@@ -311,10 +311,10 @@ console.print(length(d))
 		// 整块交出不拆两半**。
 		// 一个文本键的块是 32 字节（头 8 ＋ 字节数 8 ＋ 码点数 8 ＋ UTF-8），`Row2` 的块是 24（头 8 ＋ 两个 int），
 		// 两块同在上界 32 那一档。拆表时先释放键再释放值 ⇒ 链头是那块小的；下一圈先要 32 的那一笔，
-		// 链头只有 24 ⇒ 按空闲链表的既有规矩原样挂回去、这一笔改走 bump ⇒ **每圈多切一块 32**。
+		// 链头只有 24 ⇒ 按空闲链表的既有规矩原样挂回去、这一笔改走 bump ⇒ **每轮多切一块 32**。
 		// 八条对照把这条固定住：两块一样大（三个 int 的 class＝32）0／键换成八个字节（还是 32）32／
 		// 键换成四个码点（40，另一档）0／值换成一个 int 的 class（16，另一档）0／值换成 int 0／
-		// `hashset<string>` 只一块 0／`list<Row2>` 只一块 0。一块都没漏还，只是水位每圈涨一档。
+		// `hashset<string>` 只一块 0／`list<Row2>` 只一块 0。一块都没漏还，只是堆用量每轮涨一档。
 		// **"大块拆两半"的方案治不到这个位置**：余量只有 24−16＝8 字节，装不下一个新的块头加
 		// 8 字节的挂链处（`freeSplitMin`），无法拆分 ⇒ 照旧整块给出去（`runtime` 那条测试里"无法拆分"
 		// 那一半验证的就是这个）。收掉它的做法是**低段按 8 字节精确分档**：一档一种尺寸
@@ -337,7 +337,7 @@ console.print(total)
 		// 与上一条同族（同一档里两种尺寸差 8 字节 ⇒ 无法拆分）：换下来的旧值确实被析构了
 		// （"覆盖 dict 的那个位置（换下来的 class 值）"那条量着 0），这里每格再要一次"大小交替"，
 		// 所以是 2 × 32 而不是 1 × 32。
-		// 对照：同样两个槽位、把 `kids` 换成八个元素（那块进入另一档）⇒ 每圈 32，不是 64。
+		// 对照：同样两个槽位、把 `kids` 换成八个元素（那块进入另一档）⇒ 每轮 32，不是 64。
 		// 同样由低段精确分档收掉：改分档前后这一行 64 → 0。
 		{"覆盖 dict 的那个位置（换下来的 class 连着 list，同属低段精确分档那一族）", true, `
 class Row {
@@ -355,12 +355,11 @@ for (i:int in 0 until @N@) {
 }
 console.print(total)
 `},
-		// 一处历史遗留：`xs[0]`、`d[k]` 这种读就是读走，取出的那个句柄原先落在**没名字的临时槽**
-		// 上——`claim` 只管有名字的、`takeArg` 只管交给用户函数的，两头都不沾，量着 32 字节／圈。
-		// 这个位置已收进释放规则：交给**只读借用**（标准库组函数）的那些当场释放。安全依据有两条：
-		// 源位置在读走那一刻被抹成 `null`（没有第二个出处），而标准库不收留值。
-		// 仍漏的另一半（进运算式的那些）也已收掉：交完当场释放，见下面那条。
-		{"按下标读走之后交给标准库的那个临时值", true, `
+		// 一处历史遗留：`xs[0]`、`d[k]` 这种读法交出的句柄原先落在**没名字的临时槽**上——
+		// `claim` 只管有名字的、`takeArg` 只管交给用户函数的，两头都不沾，量着 32 字节／圈。
+		// 这个位置先收进释放规则（交给只读借用的那一步当场释放），现在整条改掉：
+		// 读一个位置不再交出值，那个位置上还留着，标准库读完谁都不必释放它，量出来还是 0。
+		{"按下标读出来交给标准库的那一步", true, `
 let total:int = 0
 for (i:int in 0 until @N@) {
     let xs:list<string> = ["甲乙".slice(0, 2)]
@@ -388,7 +387,7 @@ for (i:int in 0 until @N@) {
 console.print(total)
 `},
 		// 早退路径上的退出清理代码。三条早退路各一条用例：return、throw、break。
-		// 没有清理代码时这三条每条都会整块泄漏——最初量得 return 一侧为每圈 40 字节。
+		// 没有清理代码时这三条每条都会整块泄漏——最初量得 return 一侧为每轮 40 字节。
 		{"函数以 return 收场（帧里登记过的靠退出清理代码还）", true, `
 method make(n:int):int {
     let xs:list<int> = [n]
@@ -401,7 +400,7 @@ for (i:int in 0 until @N@) {
 }
 console.print(total)
 `},
-		{"每圈抛一次、由外面接住", true, `
+		{"每轮抛一次、由外面接住", true, `
 method risky(n:int) {
     let xs:list<int> = [n]
     throw (120, "每圈都抛")
@@ -410,13 +409,29 @@ let total:int = 0
 for (i:int in 0 until @N@) {
     try {
         risky(i)
-    } catch (code, msg) {
+    } catch (code, msg, at) {
         total = total + 1
     }
 }
 console.print(total)
 `},
-		{"内圈每圈 break 出去", true, `
+		// 接住块的第四个名字（调用链那一份文本）每轮排一份：那是一块新要到的堆，
+		// 登记在接住那一段的作用域上，走到尽头当场还掉，所以每轮该是 0 字节。
+		{"每轮抛一次、接住时取走链的那一份文本", true, `
+method risky(n:int) {
+    throw (120, "每圈都抛")
+}
+let total:int = 0
+for (i:int in 0 until @N@) {
+    try {
+        risky(i)
+    } catch (code, msg, at, trace) {
+        total = total + length(trace)
+    }
+}
+console.print(total)
+`},
+		{"内层每轮 break 出去", true, `
 let total:int = 0
 for (i:int in 0 until @N@) {
     for (j:int in 0 until 2) {
@@ -428,7 +443,7 @@ for (i:int in 0 until @N@) {
 console.print(total)
 `},
 		// 跨帧抛出：中间那一帧与接住块自己 try 体里那一笔都没走过本帧的退出清理代码。
-		// 补上帧内清理记录之前这一条实测每圈 176 字节（中间那一帧与 try 体里各一个 list），补完是 0。
+		// 补上帧内清理记录之前这一条实测每轮 176 字节（中间那一帧与 try 体里各一个 list），补完是 0。
 		{"跨两帧抛（中间那一帧＋接住块那一层）", true, `
 method deep(n:int) {
     throw (130, "跨帧抛")
@@ -443,7 +458,7 @@ for (i:int in 0 until @N@) {
     try {
         let held:list<int> = [i]
         total = total + middle(i) + length(held)
-    } catch (code, msg) {
+    } catch (code, msg, at) {
         total = total + code
     }
 }
@@ -519,10 +534,10 @@ for (i:int in 0 until @N@) {
 }
 console.print(total)
 `},
-		// ---- 先度量这三族的每圈字节，不改实现 ----
-		// 读走的那一个句柄进了运算式：`xs[0] + "丙丁"` 两个操作数读完即无其他持有者，
+		// ---- 先度量这三族的每轮字节，不改实现 ----
+		// 读出来的那一份进了运算式：`xs[0] + "丙丁"` 左边是借来的那一份，只读着拼出新的一段，
 		// 拼出来的那一段交给外层那一步（`length(...)`）用完再释放。该规则实现后量回 0。
-		{"读走的文本进加法", true, `
+		{"读出来的文本进加法", true, `
 let total:int = 0
 for (i:int in 0 until @N@) {
     let xs:list<string> = ["甲乙".slice(0, 2)]
@@ -534,7 +549,7 @@ console.print(total)
 		// 曾量得 248 字节／圈——大头不在归属规则，而是**打印机每打印一次复合值就泄漏一整段
 		// 攒出来的文本**（一路 `@str_cat` 把前一段丢了）。改为每拼一次释放一次（print.go 的
 		// catFree）之后，这一条回到 0。
-		{"读走的 class 进盒子", true, `
+		{"读出来的 class 进盒子", true, `
 class Note {
     n:int
 }
@@ -547,7 +562,7 @@ for (i:int in 0 until @N@) {
 console.print(total)
 `},
 		// 同一份负载把装箱去掉，只打印字段：用于分离 248 字节里由装箱那一步贡献的部分。
-		{"对照：读走的 class 只读字段就印", true, `
+		{"对照：读出来的 class 只读字段就印", true, `
 class Note {
     n:int
 }
@@ -560,7 +575,7 @@ for (i:int in 0 until @N@) {
 console.print(total)
 `},
 		// 同一份负载一次都不读走，整个容器直接打印。
-		{"对照：整只 list 直接印，不读走", true, `
+		{"对照：整只 list 直接印，不读里面的位置", true, `
 class Note {
     n:int
 }
@@ -572,12 +587,12 @@ for (i:int in 0 until @N@) {
 }
 console.print(total)
 `},
-		// 读走的那一个句柄交给用户函数，被调方只读不带走：**实测为 0**，这一条覆盖"该释放"。
-		{"读走的 class 交给不带走的函数", true, `
+		// 读出来的那一份直接交给只读借用的参数：被调方读完就还，容器那个位置也不空，每轮 0 字节。
+		{"读出来的 class 交给只读借用的参数", true, `
 class Note {
     n:int
 }
-method onlyRead(n:Note):int {
+method onlyRead(ref n:Note):int {
     return n.n
 }
 let total:int = 0
@@ -588,7 +603,7 @@ for (i:int in 0 until @N@) {
 console.print(total)
 `},
 		// 同一份值经被调方 `return` 转手回来，由接住它的那一个 `let` 位置持有；实现后回到 0。
-		{"读走的 class 转手回来", true, `
+		{"摘出来的 class 转手回来", true, `
 class Note {
     n:int
 }
@@ -598,7 +613,7 @@ method passOn(n:Note):Note {
 let total:int = 0
 for (i:int in 0 until @N@) {
     let cs:list<Note> = [new Note(n: i)]
-    let got:Note = passOn(cs[0])
+    let got:Note = passOn(cs.remove_at(0))
     total = total + got.n
 }
 console.print(total)
@@ -619,7 +634,7 @@ console.print(total)
 `},
 		// 度量交出一族时新查出来的一行：把 struct 交给一条函数，调用点要整份拷贝一块
 		// （传参对值类型就是"给它一份副本"），那一块是这一刻为这一个位置造的，
-		// 除了被调方那个位置无人持有 ⇒ 调用方登记成持有者。收掉之前两万圈 320,184 字节（每圈 16），
+		// 除了被调方那个位置无人持有 ⇒ 调用方登记成持有者。收掉之前两万圈 320,184 字节（每轮 16），
 		// `release/v0.2.0/nf.exe` 同一段是 320,200——这一族早就存在，不是新引入的。
 		{"值类型实参在调用点拷出来的那一块", true, `
 struct P {
@@ -636,10 +651,10 @@ for (i:int in 0 until @N@) {
 console.print(total)
 `},
 		// 一个式子中间那几步读走的值，落在没名字的中转位置上，此前的规则只看得到最外面那一个值。
-		// 下面每一行收掉之前都是每圈 88 或 16 字节（一个 list 连头带那一串位置、或一个 class 对象），
+		// 下面每一行收掉之前都是每轮 88 或 16 字节（一个 list 连头带那一串位置、或一个 class 对象），
 		// 九种写法各覆盖一处落点：这一句无人接、声明的初值、赋值两侧、return、遍历所用的那一条、
 		// 计数边界、读出来作方法接收者、字典位置的下标访问。
-		{"这一句没人接住、中间那一步读走的那一条（xs[0][0]）", true, `
+		{"这一句没人接住、中间那一步读出来的那一条（xs[0][0]）", true, `
 let total:int = 0
 for (i:int in 0 until @N@) {
     let xs:list<list<int>> = [[i, i], [i, i]]
@@ -648,7 +663,7 @@ for (i:int in 0 until @N@) {
 }
 console.print(total)
 `},
-		{"声明的初值里中间那一步读走的那一条", true, `
+		{"声明的初值里中间那一步读出来的那一条", true, `
 let total:int = 0
 for (i:int in 0 until @N@) {
     let xs:list<list<int>> = [[i, i], [i, i]]
@@ -657,7 +672,7 @@ for (i:int in 0 until @N@) {
 }
 console.print(total)
 `},
-		{"等号右边中间那一步读走的那一条", true, `
+		{"等号右边中间那一步读出来的那一条", true, `
 let total:int = 0
 for (i:int in 0 until @N@) {
     let xs:list<list<int>> = [[i, i], [i, i]]
@@ -667,17 +682,17 @@ for (i:int in 0 until @N@) {
 }
 console.print(total)
 `},
-		{"等号左边先绑一个名字再写那一格", true, `
+		{"等号左边先把那个位置摘出来再写", true, `
 let total:int = 0
 for (i:int in 0 until @N@) {
     let xs:list<list<int>> = [[1, 1], [1, 1]]
-    let row:list<int> = xs[0]
+    let row:list<int> = xs.remove_at(0)
     row[0] = 7;
-    total = total + row[0]
+    total = total + row[0] + length(xs)
 }
 console.print(total)
 `},
-		{"return 那一句里中间那一步读走的那一条", true, `
+		{"return 那一句里中间那一步读到的那一个位置", true, `
 method head(xs:list<list<int>>):int {
     return xs[0][0];
 }
@@ -688,7 +703,7 @@ for (i:int in 0 until @N@) {
 }
 console.print(total)
 `},
-		{"遍历用的那一条是读走的", true, `
+		{"遍历用的那一条是读出来的", true, `
 let total:int = 0
 for (i:int in 0 until @N@) {
     let xs:list<list<int>> = [[i, i], [i, i]]
@@ -698,7 +713,7 @@ for (i:int in 0 until @N@) {
 }
 console.print(total)
 `},
-		{"计数循环的边界里中间那一步读走的那一条", true, `
+		{"计数循环的边界里中间那一步读出来的那一条", true, `
 let total:int = 0
 for (i:int in 0 until @N@) {
     let xs:list<list<int>> = [[2, 2], [2, 2]]
@@ -723,7 +738,7 @@ for (i:int in 0 until @N@) {
 }
 console.print(total)
 `},
-		{"字典里那一格再点一下", true, `
+		{"字典里那个位置再点一下", true, `
 let total:int = 0
 for (i:int in 0 until @N@) {
     let d:dict<string, list<int>> = {"甲": [1, 2], "乙": [3, 4]}
@@ -734,7 +749,7 @@ console.print(total)
 `},
 		// `bytes` 那一档的四行：一块连续存放的字节，每格宽一个字节。
 		// 这四行各覆盖一处"谁持有这一块"：名字作废、容器的那个位置、字段被换下、slice 造出的那一片。
-		{"每一圈造一块 bytes，名字到尽头就散", true, `
+		{"每一轮造一块 bytes，名字到尽头就散", true, `
 let total:int = 0
 for (i:int in 0 until @N@) {
     let b:bytes = bytes.new(24)
@@ -742,7 +757,7 @@ for (i:int in 0 until @N@) {
 }
 console.print(total)
 `},
-		{"每一圈把一块 bytes 放进容器那一格", true, `
+		{"每一轮把一块 bytes 放进容器那个位置", true, `
 let total:int = 0
 for (i:int in 0 until @N@) {
     let xs:list<bytes> = [bytes.new(24)]
@@ -762,7 +777,7 @@ for (i:int in 0 until @N@) {
 }
 console.print(total)
 `},
-		{"每一圈从一块 bytes 里 slice 出那一片（顶层那一块留着，slice 的每一片散）", true, `
+		{"每一轮从一块 bytes 里 slice 出那一片（顶层那一块留着，slice 的每一片散）", true, `
 let head:bytes = bytes.new(64)
 let total:int = 0
 for (i:int in 0 until @N@) {
@@ -785,7 +800,7 @@ console.print(total)
 }
 
 // TestHeapSlopeHandles 覆盖新增的一类资源：句柄不是堆上的一块内存，名字到作用域尽头调用一次
-// `closesocket`，所以每圈多出来的字节应为 0；漏关的那种写法暴露的是"连不上"，不是字节数。
+// `closesocket`，所以每轮多出来的字节应为 0；漏关的那种写法暴露的是"连不上"，不是字节数。
 //
 // 单独成一条而不并入上面那张表：那几条的源码只有一个 @N@ 要填，这几条还需要一个本机监听端——
 // 端口由测试进程现场取得，填入的是第二个位置 @P@。
@@ -798,7 +813,7 @@ func TestHeapSlopeHandles(t *testing.T) {
 		port int
 		tmpl string
 	}{
-		{"每一圈连一次、送一段、再收回来", echo, `
+		{"每一轮连一次、送一段、再收回来", echo, `
 let total:int = 0
 for (i:int in 0 until @N@) {
     let s:Socket = net.connect("127.0.0.1", @P@, 3000)
@@ -809,7 +824,7 @@ for (i:int in 0 until @N@) {
 }
 console.print(total)
 `},
-		{"每一圈连一次（不设超时那一条路）", echo, `
+		{"每一轮连一次（不设超时那一条路）", echo, `
 let total:int = 0
 for (i:int in 0 until @N@) {
     let s:Socket = net.connect("127.0.0.1", @P@, 0)
@@ -817,7 +832,7 @@ for (i:int in 0 until @N@) {
 }
 console.print(total)
 `},
-		{"每一圈 listen 一次", bind, `
+		{"每一轮 listen 一次", bind, `
 let total:int = 0
 for (i:int in 0 until @N@) {
     let l:Listener = net.listen(@P@)

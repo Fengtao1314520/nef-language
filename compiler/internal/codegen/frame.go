@@ -29,7 +29,10 @@
 // discussed after the linked list runs.
 package codegen
 
-import "neflang.org/nf/internal/x64"
+import (
+	"neflang.org/nf/internal/runtime"
+	"neflang.org/nf/internal/x64"
+)
 
 // 帧的形状。被调方进来先 push rbp 把帧基立起来，于是：
 //
@@ -59,7 +62,8 @@ const (
 	stackAlign  = 16   // Windows x64 要求调用点 rsp 16 字节对齐
 
 	// tebStackBase 是线程控制块里"这一段的栈基"那个位置——NT_TIB 的第二格，8 字节指针。
-	tebStackBase = 0x08
+	// 运行期沿帧链往外走那一步也要比它一次，所以号数在运行期那一份里（`runtime.TebStackBase`）。
+	tebStackBase = runtime.TebStackBase
 	// stackSlack 是触到边界之前先让出来的一段：检查在离栈底还差这一截时就停，
 	// 于是 @die_stack 那一帧、输出错误信息那一路调用、以及 WriteFile 自己用的栈都还在保留里。
 	stackSlack = 0x10000

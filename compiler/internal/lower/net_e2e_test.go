@@ -19,7 +19,7 @@ import (
 // 端口一律现场取得（`freePort`：让系统选一个未占用的，读出后立即归还系统），固定端口会与其他机器上的进程冲突。
 // 对端要么是同一个 nf 程序自己（自己 listen、自己 connect，回环的 backlog 收得下连接，
 // 没有线程也走得通），要么是本测试进程里用 Go 启动的回声服务——所有用例都不出本机。
-// 访问外网的测试一条都没有：那类需要当日数据落盘并设离线开关才可靠，这里要验证的只是这一层自身是否连通。
+// 访问外网的测试一条都没有：那类需要当日数据写入文件并设离线开关才可靠，这里要验证的只是这一层自身是否连通。
 
 // freePort 取得一个空闲的本机端口：开一次监听、读出端口号、立即关闭。
 //
@@ -78,7 +78,7 @@ func echoOnce(t *testing.T) (int, func()) {
 }
 
 // echoServe 启动一台持续服务的回声服务器：每来一条连接就把收到的字节原样送回，
-// 直到调用者执行 stop 关闭。`echoOnce` 只服务一条连接；每圈增长表的用例要跑几千圈，用的是这一台。
+// 直到调用者执行 stop 关闭。`echoOnce` 只服务一条连接；每轮增长表的用例要跑几千圈，用的是这一台。
 func echoServe(t *testing.T) (int, func()) {
 	t.Helper()
 	l, err := net.Listen("tcp", "127.0.0.1:0")
@@ -346,7 +346,7 @@ console.print(s.recv_into(buf))
 }
 
 // TestNetConnectLoopReleases 验证"反复创建句柄"这条路径可用：一千圈各连接一次、
-// 每圈到名字尽头自动关闭，全程不崩溃。
+// 每轮到名字尽头自动关闭，全程不崩溃。
 //
 // 它无法证明"那次关闭确实发出"——即使删掉 `releaseOne`（`internal/lower/lower.go`）里的
 // `@net_close` 调用，这一千圈仍然通过，因为漏掉的是对端一侧的临时端口，系统并不阻止第二次连接。
@@ -354,7 +354,7 @@ console.print(s.recv_into(buf))
 //
 // 圈数不能继续增加：在本机上"对端先关闭"的这种连接方式会把临时端口占用一段时间，
 // 几千圈会命中 10048（地址或端口不可用）——那是系统的端口表限制，不是内存归属问题。
-// 每圈多出多少字节的问题由 `TestHeapSlopeHandles` 覆盖：五千圈各连接一次，量的正是字节数。
+// 每轮多出多少字节的问题由 `TestHeapSlopeHandles` 覆盖：五千圈各连接一次，量的正是字节数。
 func TestNetConnectLoopReleases(t *testing.T) {
 	l, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {

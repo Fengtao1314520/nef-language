@@ -9,7 +9,7 @@ import (
 
 // `d["甲"].n = 4` 这类写法此前到不了运行期：`placeOf` 取容器尖括号里的第一个类型当"槽位里存的类型"，
 // 对 dict 来说那一个是键类型。读回来的是键类型，降级去它的字段表里找 `n`，报的是
-// "string 里没有字段 n：前端交出来的字段表对不上"——前端交出的字段表没有错，是后端读错了槽位的类型。
+// "string 里没有字段 n：前端给出的字段表对不上"——前端交出的字段表没有错，是后端读错了槽位的类型。
 // 同一条写在 list 上一直正常（`xs[0].n = 4`），因为 list 尖括号里的类型就是元素类型。
 
 func TestDictCellFieldWrite(t *testing.T) {
@@ -43,7 +43,7 @@ console.print(d["甲"])
 	if want := "7\n"; got != want || code != 0 {
 		t.Fatalf("`d[键] = 值` 那条照旧要能走：\n got %q 码 %d\nwant %q", got, code, want)
 	}
-	// 每圈写一次同一个位置，不泄漏内存
+	// 每轮写一次同一个位置，不泄漏内存
 	const prog = `struct Rec {
     n:int
 }

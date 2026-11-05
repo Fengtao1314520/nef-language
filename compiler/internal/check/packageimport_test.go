@@ -33,7 +33,7 @@ func pkgRun(t *testing.T, facadeSrc, mainSrc string) []Error {
 	return Run(prog)
 }
 
-// 包里交出来的函数与类型，外面用点号取，两条都走得通。
+// 包里导出的函数与类型，外面用点号取，两条都走得通。
 const pkgGreetSrc = `export struct Pair {
     left:int
 }
@@ -64,12 +64,12 @@ console.print(p.left, greet.twice(3))
 
 // 拒绝的那六处，各覆盖一句完整文案。
 func TestPackageImportRefused(t *testing.T) {
-	t.Run("没挂 export", func(t *testing.T) {
+	t.Run("没写 export", func(t *testing.T) {
 		errs := pkgRun(t, pkgGreetSrc, `import greet from "libs/greet"
 
 console.print(greet.hidden())
 `)
-		expectMsg(t, errs, "greet 里的 hidden 没有挂 export：包只把交出来的东西给别人用")
+		expectMsg(t, errs, "greet 里的 hidden 没有写 export：包只把导出的东西给别人用")
 	})
 
 	t.Run("包里没这个东西", func(t *testing.T) {
@@ -77,7 +77,7 @@ console.print(greet.hidden())
 
 console.print(greet.nothere())
 `)
-		expectMsg(t, errs, "greet 这个包里没有对外交出 nothere")
+		expectMsg(t, errs, "greet 这个包里没有导出 nothere")
 	})
 
 	t.Run("函数名当类型写", func(t *testing.T) {

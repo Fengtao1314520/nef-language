@@ -1,7 +1,7 @@
 // Copyright 2026 Feng Tao (Nate). Apache-2.0. See LICENSE.
 
 // target_test.go 拿一份假内存验解码：块头、容器那 40 字节、桶、文本、帧链，
-// 每一个偏移都照 internal/runtime 与 codegen 那一侧写的算式来，谁改了布局这里就红。
+// 每一个偏移都照 internal/runtime 与 codegen 那一侧写的算式来，谁改了布局这里就失败。
 package debug_test
 
 import (
@@ -218,24 +218,25 @@ func TestStackWalksTheFrameChain(t *testing.T) {
 	if got[0].Line != 3 || got[0].Name != "twice" {
 		t.Errorf("当前帧不对：%+v", got[0])
 	}
-	if got[1].Line != 2 {
-		t.Errorf("上一层该指到第 2 行：%+v", got[1])
+	if got[1].Line != 3 {
+		t.Errorf("上一层该按里面那一圈读回来的返回地址说（第 3 行那一次调用）：%+v", got[1])
 	}
 	if tg.Depth(frame) != 2 {
 		t.Errorf("帧深该是 2，得到 %d", tg.Depth(frame))
 	}
 }
 
-// 停在 twice 第 3 行时，栈顶那个位置该说第 3 行，不是把它上一层的第 2 行报上来。
+// 停在 twice 第 3 行时，栈顶那个位置该说第 3 行，不是把它上一层的行号报上来；
+// 第二帧的位置 = 从第 0 帧的 [rbp+8] 读回来的那一个返回地址（第 0 帧就是在那一句里调用出去的）。
 func TestStackTopUsesTheStoppedSite(t *testing.T) {
 	tg, _ := newTarget()
 	top := codegen.Site{ID: 2, Func: "twice", Offset: site1, File: "t.nf", Line: 3, Col: 5}
 	got := tg.Stack(frame, top)
 	if got[0].Line != 3 || got[0].Name != "twice" {
-		t.Errorf("栈顶该是停住那一格：%+v", got[0])
+		t.Errorf("栈顶该是停住那一个位置：%+v", got[0])
 	}
-	if len(got) > 1 && got[1].Line != 2 {
-		t.Errorf("第二格该按返回地址指回上一层：%+v", got[1])
+	if len(got) > 1 && got[1].Line != 3 {
+		t.Errorf("第二格该按里面那一圈读回来的返回地址说：%+v", got[1])
 	}
 }
 

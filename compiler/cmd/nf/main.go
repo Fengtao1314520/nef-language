@@ -189,11 +189,16 @@ func compileAll(prog *check.Program) ([]byte, bool) {
 }
 
 // cmdBuild 出一个独立可执行文件：默认与源文件同名同目录、加本机后缀，
-// -o 指定产物名字。产物自己就能跑，这台机器上不需要 nf，也不需要任何运行时。
+// -o 给的名字当作基本名——没带本机后缀就补上，已经带了就不叠第二次。
+// 产物自己就能跑，这台机器上不需要 nf，也不需要任何运行时。
+// 补后缀的原因：Windows 上没有后缀的文件双击打不开，别的程序按 "名字.exe" 去找也是"文件不存在"。
 //
 // en: cmdBuild produces one standalone executable: by default next to the source file
-// with the same name plus the local suffix, and -o names the product explicitly. The product
-// runs by itself - this machine needs neither nf nor any runtime.
+// with the same name plus the local suffix, while a name given by -o is taken as the base name -
+// the local suffix is added when it is missing and never doubled. The product
+// runs by itself - this machine needs neither nf nor any runtime. The suffix is added because on
+// Windows a product without one cannot be started by double-clicking, and another program looking
+// for "name.exe" gets "file not found".
 func cmdBuild(args []string) int {
 	out := ""
 	var rest []string
@@ -226,6 +231,8 @@ func cmdBuild(args []string) int {
 	}
 	if out == "" {
 		out = strings.TrimSuffix(entry, ".nf") + exeSuffix()
+	} else if !strings.HasSuffix(strings.ToLower(out), exeSuffix()) {
+		out += exeSuffix()
 	}
 	if err := os.WriteFile(out, exe, 0o755); err != nil {
 		fmt.Fprintf(os.Stderr, "%s：写不出来：%v\n", out, err)

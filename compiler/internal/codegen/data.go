@@ -21,6 +21,7 @@ import (
 	"unicode/utf8"
 
 	"neflang.org/nf/internal/ir"
+	"neflang.org/nf/internal/runtime"
 )
 
 // 静态数据区的布局。
@@ -53,6 +54,55 @@ type DataLayout struct {
 	// 数据段一个字节也不多。发射那一步每条检查点都 `mov rax,[rip+DbgHost]; call rax`，
 	// 起程序的那一侧在跑之前把 syscall.NewCallback 的地址写进这个位置（cmd/nf 的调试那一路）。
 	DbgHost int
+	// TraceBase 是调用链那一张表在这半截里的位置；一次用户函数调用都没有时是 -1，
+	// 数据段一个字节也不多。TraceN 是表里的项数。
+	TraceBase int
+	TraceN    int
+}
+
+// pokeTraceCode 把第 row 项的返回地址偏移写进表里：发码走到那条 call 之后才知道这一个数。
+//
+// en: pokeTraceCode writes row's return-address offset into the table - only emission knows
+// that number, once the call itself has been written.
+func (d *DataLayout) pokeTraceCode(row int, off int64) {
+	binary.LittleEndian.PutUint64(d.User[d.TraceBase+traceRowSize*row+traceCodeOff:], uint64(off))
+}
+
+// 调用链表一项 32 字节：返回地址在代码段里的偏移、调用点的位置文本、调用者的名、被调者的名。
+// 后三个存的不是地址而是"从表起点算起的字节差"——数据段里没有指针型重定位可用，
+// 理由与形状表那一段相同（运行期先拿到表的地址，再加差值）。
+// 这几个数与运行期读这张表那一方（@trace_print）共用一个出处。
+//
+// en: One call-trace row is 32 bytes: the return address's offset inside the code section, the
+// call site's position text, the caller's name and the callee's name. The last three store byte
+// differences measured from the start of the table rather than addresses - the data section has
+// no pointer relocations, for the same reason the shape table gives: the runtime takes the
+// table's address once, then adds the difference. Emission and the runtime routine that reads
+// the table take these numbers from the same place.
+const (
+	traceRowSize = runtime.TraceRowSize
+	traceCodeOff = runtime.TraceCode
+	tracePos     = runtime.TracePos
+	traceCaller  = runtime.TraceCaller
+	traceCallee  = runtime.TraceCallee
+)
+
+// countTrace 数出整个程序里带调用点记录的调用有多少条。发射那一步按同一个顺序走一遍
+// （函数在 `Prog.Funcs` 里的先后、一个函数体内指令的先后），两边数出来的第几条就是表里的第几项。
+//
+// en: countTrace counts the calls carrying a trace record. Emission walks the very same order
+// (functions in Prog.Funcs, then instructions inside each body), so the n-th one each side sees
+// is row n of the table.
+func countTrace(p *ir.Prog) int {
+	n := 0
+	for _, f := range p.Funcs {
+		for _, in := range f.Body {
+			if ca, ok := in.(*ir.Call); ok && ca.Site != nil {
+				n++
+			}
+		}
+	}
+	return n
 }
 
 // BuildData 排出静态数据区。
@@ -87,11 +137,48 @@ func BuildData(p *ir.Prog) *DataLayout {
 	d.User = append(d.User, make([]byte, 8)...)
 	// 宿主指针那个位置排在栈底之后：只有 debug 构建才有它，摆最后是为了不开的时候
 	// 前面那一段的偏移一个都不动（形状表里的差值都按位置算）。
+	d.buildTrace(p)
+	// 宿主指针那个位置排在最尾（dbg_test 钉着这一条）：调用链表排在它之前，
+	// 表是空的（整个程序没有一次用户函数调用）时前面那一段的偏移一个都不动。
 	if p.Debug {
 		d.DbgHost = len(d.User)
 		d.User = append(d.User, make([]byte, 8)...)
 	}
 	return d
+}
+
+// buildTrace 排出调用链那张表。三项文本先落表（它们的位置现在就知道），
+// 第 0 项那个返回地址留给发码那一步填——偏移要等那条 call 真正写下去才定得下来。
+//
+// en: buildTrace lays out the call-trace table. The three texts go in now (their positions are
+// known), while slot 0 - the return address - is left for emission, since that offset only
+// settles once the call itself has been written.
+func (d *DataLayout) buildTrace(p *ir.Prog) {
+	d.TraceBase, d.TraceN = -1, 0
+	n := countTrace(p)
+	if n == 0 {
+		return
+	}
+	d.TraceBase = len(d.User)
+	d.TraceN = n
+	d.User = append(d.User, make([]byte, traceRowSize*n)...)
+	k := 0
+	for _, f := range p.Funcs {
+		for _, in := range f.Body {
+			ca, ok := in.(*ir.Call)
+			if !ok || ca.Site == nil {
+				continue
+			}
+			at := d.TraceBase + traceRowSize*k
+			for _, cell := range []struct {
+				off int
+				s   ir.S
+			}{{tracePos, ca.Site.Pos}, {traceCaller, ca.Site.Caller}, {traceCallee, ca.Site.Callee}} {
+				binary.LittleEndian.PutUint64(d.User[at+cell.off:], uint64(int64(d.String[cell.s]-d.TraceBase)))
+			}
+			k++
+		}
+	}
 }
 
 // 形状表里一条描述占 9 格：种类、类型字、类型名、元素形状、键形状、字段条数、字段数组、

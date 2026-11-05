@@ -178,7 +178,7 @@ func memberCompletion(path, text string, at Position, e hoverEdge) []CompletionI
 		if fn := facts.Funcs[prefix+m.Name]; fn != nil {
 			doc = docFor(prog, path, text, fn) // 查的是编辑器那一份文本：占位名插在光标处，声明在它上面，行列没动
 		} else if m.Doc != nil {
-			// 包交出来的数：注释写在包那份文件的声明上面，节点由 check 那一张表带过来。
+			// 包导出的数：注释写在包那份文件的声明上面，节点由 check 那一张表带过来。
 			doc = docFor(prog, path, text, m.Doc)
 		} else {
 			// 内建的那一条没有定义节点：中文、英文与示例在 check 那张说明表里。
@@ -305,12 +305,18 @@ func Hover(path, text string, at Position) *HoverResult {
 		recvT = receiverType(facts, ln, e.recvCol+1, e.recv)
 	}
 	doc := func(node any) string { return docFor(prog, path, text, node) }
+	// 点号后面那一个名字：检查器认成员那一步已经说出它属于哪一个类型、组或包，
+	// 悬停在签名后面补那一句。光标不在点号后面就不补——`twice(3)` 没有归属。
+	owner := ""
+	if e.dot >= 0 {
+		owner = memberOwner(facts, ln, bc)
+	}
 	if sig, node, stdDoc := callHover(facts, recvT, ln, bc, name); sig != "" {
-		return markHover(sig, firstOf(stdDoc, doc(node)))
+		return markHover(withOwner(sig, owner), firstOf(stdDoc, doc(node)))
 	}
 	if e.dot >= 0 {
 		if sig, node, stdDoc := memberHover(path, facts, ln, e.recvCol+1, e.recv, name); sig != "" {
-			return markHover(sig, firstOf(stdDoc, doc(node)))
+			return markHover(withOwner(sig, owner), firstOf(stdDoc, doc(node)))
 		}
 	}
 	if b, ok := bindAt(facts, ln, bc); ok {
@@ -333,7 +339,7 @@ func Hover(path, text string, at Position) *HoverResult {
 	return nil
 }
 
-// groupHover 交回鼠标停在标准库的组名上那两行：组名本身，加上它下面那一些动作的签名。
+// groupHover 返回鼠标停在标准库的组名上那两行：组名本身，加上它下面那一些动作的签名。
 // 组名不是一个声明，语言里没有写它的那一行，凑不出一行签名——列出它有什么东西才是有用答复。
 //
 // en: groupHover answers the two lines shown when the mouse rests on a standard-library group
@@ -447,7 +453,7 @@ func callHover(facts *check.Facts, recv check.Type, line, col int, name string) 
 }
 
 // memberHover 认点号后面那一个名字：先问左边那一段是什么，再问那一样身上这一条怎么签名。
-// 第二个答复是那一条动作的定义节点，悬停拿它去找写在上面的注释；内建的那一些没有定义节点，交回 nil。
+// 第二个答复是那一条动作的定义节点，悬停拿它去找写在上面的注释；内建的那一些没有定义节点，返回 nil。
 //
 // en: memberHover handles the name after a dot: first ask what the left side is, then ask how
 // this member is signed on that thing. The second answer is the definition node of that action,
@@ -460,7 +466,7 @@ func memberHover(path string, facts *check.Facts, line, recvCol int, recv, name 
 				if fn := facts.Funcs[root+"/"+name]; fn != nil {
 					return recv + "." + m.Detail, fn, ""
 				}
-				// 包交出来的数：定义节点在 check 那一张表上带着，注释写在它上面。
+				// 包导出的数：定义节点在 check 那一张表上带着，注释写在它上面。
 				return recv + "." + m.Detail, m.Doc, ""
 			}
 		}
@@ -477,6 +483,35 @@ func memberHover(path string, facts *check.Facts, line, recvCol int, recv, name 
 		}
 	}
 	return "", nil, ""
+}
+
+// memberOwner 问检查器：点号后面那一个名字挂在谁身上——自己写的类型名、标准库的组名，
+// 还是一个包。认成员那一步记下的那张表就是答复，光标落在名字上才用得上。
+//
+// en: memberOwner asks the checker whose name sits after the dot: a type the program wrote, a
+// standard-library group, or a package. The table filled while recognising the member is the
+// answer, and it applies only when the cursor rests on that name.
+func memberOwner(facts *check.Facts, line, col int) string {
+	if facts == nil {
+		return ""
+	}
+	for m, note := range facts.Members {
+		if m.Pos.Line == line && m.Pos.Col == col {
+			return note.OwnerName
+		}
+	}
+	return ""
+}
+
+// withOwner 把归属接到签名那一行后面；签名里已经带着那一个前缀的就不重复写。
+//
+// en: withOwner appends the owner to the signature line, skipping it when the line already starts
+// with that prefix.
+func withOwner(sig, owner string) string {
+	if owner == "" || strings.HasPrefix(sig, owner+".") {
+		return sig
+	}
+	return sig + "\n\n属于 `" + owner + "`"
 }
 
 // typeAtLineCol 问写在这一行这一列的那一段是什么类型：先问名字绑在哪儿（那份答复更准，
@@ -615,26 +650,39 @@ func importedDetail(nm check.ImportedName, f *check.Facts) string {
 // When more than one thing under that name matches, nothing is guessed - it is better for the
 // detail column to carry only the name.
 func sigFrom(f *check.Facts, name, from string) string {
-	if sg := f.Signature(name); sg != "" {
-		return sg
+	key := sigKeyFrom(f, name, from)
+	if key == "" {
+		return ""
 	}
-	var hit string
+	return f.Signature(key)
+}
+
+// sigKeyFrom 按名字找那一条自己写的函数或方法在表里的键：当前位置能叫到的那一个优先
+// （挂在同一个身上的方法先算），名字在几个身上都有、又都叫得动时返回空，不猜一个。
+//
+// en: sigKeyFrom finds the table key of the declared function or method with that name: the one
+// reachable from this position wins (a method on the same owner first), and when the name sits on
+// several owners all reachable it returns nothing rather than guessing.
+func sigKeyFrom(f *check.Facts, name, from string) string {
+	if f.Signature(name) != "" {
+		return name
+	}
+	var hitKey string
 	n := 0
 	for key := range f.Sigs {
 		if check.SealedName(key) != name {
 			continue
 		}
-		sg := f.Signature(key)
-		if sg == "" {
+		if f.Signature(key) == "" {
 			continue
 		}
 		if sameOwner(key, from) {
-			return sg
+			return key
 		}
-		hit, n = sg, n+1
+		hitKey, n = key, n+1
 	}
 	if n == 1 {
-		return hit
+		return hitKey
 	}
 	return ""
 }
@@ -794,7 +842,7 @@ func byteColOf(line string, u16 int) int {
 	return len(line)
 }
 
-// firstOf 交回第一个不是空串的答复：内建那一条的说明与声明上面的注释不会同时存在。
+// firstOf 返回第一个不是空串的答复：内建那一条的说明与声明上面的注释不会同时存在。
 //
 // en: firstOf returns the first non-empty answer: a built-in action's doc and a declaration's
 // own comment are never both present.

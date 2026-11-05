@@ -450,7 +450,7 @@ func fileReadBytes(b *rt) {
 		xPath   = 0 // 路径那一段文本
 		xHandle = 1
 		xSize   = 2 // 文件有几个字节
-		xGot    = 3 // ReadFile 交回的"读到了几个"
+		xGot    = 3 // ReadFile 返回的"读到了几个"
 		xObj    = 4 // 造好的 bytes
 	)
 	var (

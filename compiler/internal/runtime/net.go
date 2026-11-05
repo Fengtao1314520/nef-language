@@ -143,7 +143,7 @@ func netData(put func(name string, bs []byte)) {
 // 这张表与站上 tools/ 的码表是同一份，改一处要同步改另一处。
 // 两套系统各占一段：winsock 的十九行是 `net` 组会遇到的（号码取自 WSAGetLastError），
 // winhttp 的八行是 `http` 组会遇到的（号码取自 GetLastError）；两段的号码不重叠，
-// 一张表即可走完。都未命中时落到 10100 兜底：不新增号码，但系统原号码照原样带进消息。
+// 一张表即可走完。都未命中时落到默认码 10100 上：不新增号码，但系统原号码照原样带进消息。
 //
 // en: netCodeOf is the error-number table: rcx in = the system number, rax out = the code in
 // the 10100 band, rdx = the address of the message sentence, r8 = 1 meaning this one splices
@@ -184,7 +184,7 @@ func netCodeOf(b *rt) {
 		{wsaNotConn, 10105, "sNetDead", 0},
 		{wsaNotSock, 10105, "sNetDead", 0},
 		// winhttp（winhttp.dll）段：12000 起的那一串，这里折算八行。
-		// 未折算的（家族不支持 12006、内存不足 12001 那一类）落 10100 兜底，
+		// 未折算的（家族不支持 12006、内存不足 12001 那一类）落到默认码 10100 上，
 		// 消息里照样带系统原号码——本组自身只产生 12005 与 GetLastError 返回的号码。
 		{errHttpTimeout, 10102, "sNetTimeout", 0},
 		{errHttpNoName, 10103, "sNetParse", 1},
@@ -201,7 +201,7 @@ func netCodeOf(b *rt) {
 		a.CmpImm(x64.RCX, int32(r.n))
 		a.Jcc(x64.E, hits[i])
 	}
-	// 一路比下来都没中：兜底那一句
+	// 一路比下来都没中：走默认那一句
 	a.MovImm(x64.RAX, 10100)
 	b.leaRIP(x64.RDX, "sNetAsk")
 	a.MovImm(x64.R8, 0)
@@ -429,7 +429,7 @@ func netConnect(b *rt) {
 	b.impCallFrom(ws2, "GetAddrInfoW")
 	// `getaddrinfo` 把结果直接放在返回值里（不走 WSAGetLastError）：0 才是成功。
 	// 那一句「解析不到 <名字> 这个地址」只在 11001／11004／11010 三个号码上说，
-	// 其余号码落 10100 兜底，系统原号码一律带进消息。
+	// 其余号码落到默认码 10100 上，系统原号码一律带进消息。
 	a.Mov(x64.RCX, x64.RAX)
 	b.put(cLast, x64.RCX)
 	a.Test(x64.RCX, x64.RCX)
@@ -631,7 +631,7 @@ func netConnect(b *rt) {
 	b.put(cS, x64.RCX)
 	a.Jmp(top)
 
-	// 表走完：以最后一个记录的号码为准（一个条目都没试过时为 0，走兜底句）
+	// 表走完：以最后一个记录的号码为准（一个条目都没试过时为 0，走默认那一句）
 	a.Mark(none)
 	b.leaRIP(x64.RAX, "netRes")
 	a.MovLoad(x64.RCX, x64.RAX, 0)

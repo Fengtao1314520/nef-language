@@ -44,7 +44,7 @@ const (
 // 与 nef.destroy 路径同一套护栏：进入一块之前先把其头部的类型字写成"正在被拆"，
 // 看到该标记或"已在空闲链上"就不做处理（见 destroy.go）。两个名字持有同一棵树的写法
 // 走不到这里——读走那个位置会把它抹成 0——保留这道护栏是为了在按保守方式处理归属的
-// 场景下兜底。
+// 场景下作为默认处理。
 //
 // 文本节点里的文本、键表里的每条键都由这一个节点独占（由 @str_sub 当场创建），
 // 所以直接 @free；这与"字段里的文本这一版不释放"那条规则不冲突：那里同一个串被两处
@@ -471,16 +471,23 @@ func jsonBuildHas(l *L) {
 	j.ret(j.zero())
 }
 
-// nef.json.at(节点, 键)：取对象里那把键对应的值——**读走**那个位置。
+// nef.json.at(节点, 键) 与 nef.json.take(节点, 键)：取对象里那把键对应的值。
 //
-// 不是对象、或者没有这把键，返回空句柄；取过一次之后那个位置就是 null，
-// 与 `xs[0]`、`o.f` 是同一套读走规则。
+// `take` 为假是读：树上那一个位置读之后照旧留着，与 `xs[0]`、`d[键]` 同一本账。
+// `take` 为真是从树上摘下来交给调用方：那一个位置之后是空句柄，键还留在树上。
+// 不是对象、或者没有这把键，两种都返回空句柄。
 //
-// en: nef.json.at(node, key): take the value for a key in an object - a READ-OUT of that
-// position. Not an object, or no such key, returns an empty handle; after one read
-// that position is null, following the same read-out rule as `xs[0]` and `o.f`.
-func jsonBuildAt(l *L) {
-	j, ok := openJSON(l, fnJSONAt, 2)
+// en: nef.json.at(node, key) and nef.json.take(node, key) read the value for a key in an object.
+// With take false the position on the tree keeps its value, the same ledger as `xs[0]` and
+// `d[key]`. With take true the value is taken off the tree and handed to the caller: that
+// position reads null afterwards, while the key stays on the tree. Neither an object nor a
+// missing key answers an empty handle in either case.
+func jsonBuildAt(l *L, take bool) {
+	name := fnJSONAt
+	if take {
+		name = fnJSONTake
+	}
+	j, ok := openJSON(l, name, 2)
 	if !ok {
 		return
 	}
@@ -491,21 +498,31 @@ func jsonBuildAt(l *L) {
 	j.br("<", i, j.num(0), nope)
 	cell := j.idx(j.ld(j.ld(node, jsonVals), runtime.CellData), i, 8)
 	v := j.ld(cell, 0)
-	j.st(cell, 0, j.zero())
+	if take {
+		j.st(cell, 0, j.zero())
+	}
 	j.ret(v)
 	j.at(nope)
 	j.ret(j.zero())
 }
 
-// nef.json.item(节点, 位置)：取数组里那个位置的值——同样是读走。
+// nef.json.item(节点, 位置) 与 nef.json.take_item(节点, 位置)：取数组里那个位置的值。
 //
-// 位置为负、或者不小于长度，返回空句柄：这一组取不到一律返回 null，不新增错误码。
+// `take` 为假读了不拿走；`take` 为真从树上摘下来交给调用方，那一个位置之后是空句柄，
+// 数组的长度不变。位置为负、或者不小于长度，两种都返回空句柄：这一组取不到一律返回 null，
+// 不新增错误码。
 //
-// en: nef.json.item(node, index): take the value at an array index - also a read-out. A
-// negative index, or one not less than the length, returns an empty handle: this group answers
-// every failure with null and adds no error code.
-func jsonBuildItem(l *L) {
-	j, ok := openJSON(l, fnJSONItem, 2)
+// en: nef.json.item(node, index) and nef.json.take_item(node, index) read the value at an array
+// index. With take false the position keeps its value; with take true the value comes off the
+// tree and that position reads null afterwards, while the length stays. A negative index, or one
+// not less than the length, answers an empty handle in either case: this group answers every
+// failure with null and adds no error code.
+func jsonBuildItem(l *L, take bool) {
+	name := fnJSONItem
+	if take {
+		name = fnJSONTakeI
+	}
+	j, ok := openJSON(l, name, 2)
 	if !ok {
 		return
 	}
@@ -517,7 +534,9 @@ func jsonBuildItem(l *L) {
 	j.br(">=", at, j.ld(vals, runtime.CellLen), nope)
 	cell := j.idx(j.ld(vals, runtime.CellData), at, 8)
 	v := j.ld(cell, 0)
-	j.st(cell, 0, j.zero())
+	if take {
+		j.st(cell, 0, j.zero())
+	}
 	j.ret(v)
 	j.at(nope)
 	j.ret(j.zero())

@@ -217,7 +217,7 @@ func (d *drv) listLen(hn int) {
 	d.nl()
 }
 
-// finish 挂上运行期那整块、翻译它内部的待回填点，然后装配成 PE。
+// finish 追加运行期那整块、翻译它内部的待回填点，然后装配成 PE。
 func (d *drv) finish(t *testing.T, exitCode int64) []byte {
 	t.Helper()
 	d.a.MovImm(x64.RCX, exitCode)
@@ -639,7 +639,7 @@ func TestFreeListKeepsUndersized(t *testing.T) {
 	d.save(1)
 	d.addrOf(1)
 	d.sameAndPrint(0)       // 0：小的那一块不顶替大的这一笔
-	d.headerAndPrint(1, -4) // 1920：交回的这一块自身够这一笔
+	d.headerAndPrint(1, -4) // 1920：返回的这一块自身够这一笔
 	d.headerAndPrint(1, -8) // 9：类型字跟着这一次走
 
 	// 那一块小的仍完整挂在链上：再要一笔一样大的，原样取回
@@ -673,7 +673,7 @@ func TestFreeListSplitsBigBlock(t *testing.T) {
 	d.alloc(1120, 9) // 同一档里小一点的分配：切一刀
 	d.save(1)
 	d.addrOf(1)
-	d.sameAndPrint(0)       // 1：交回的仍是原块的起点（切走的是尾部那一节）
+	d.sameAndPrint(0)       // 1：返回的仍是原块的起点（切走的是尾部那一节）
 	d.headerAndPrint(1, -4) // 1120：用掉那一半的尺寸跟着这一笔改小
 	d.headerAndPrint(1, -8) // 9：类型字跟着这一次走
 
@@ -767,7 +767,7 @@ func TestDictIntKeys(t *testing.T) {
 	d.mapRemoved(0, 5, -1) // 删成的那一条把值带回来：99
 	d.mapContains(0, 5, -1)
 	d.mapLen(0)
-	d.mapRemoved(0, 5, -1) // 同一个键再删一次：没删成就交回 0，值那一格也早在上一条抹空了
+	d.mapRemoved(0, 5, -1) // 同一个键再删一次：没删成就返回 0，值那个位置也早在上一条抹空了
 	got, code := run(t, d.finish(t, 0))
 	want := "2\n77\n2\n99\ntrue\nfalse\n99\nfalse\n1\n0\n"
 	if got != want {

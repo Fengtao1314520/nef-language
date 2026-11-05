@@ -98,7 +98,7 @@ func sameNode(node, want any) bool {
 	return node != nil && node == want
 }
 
-// docAbove 交回写在第 line 行（1 起）上面那一段注释；没有就交回空串。
+// docAbove 返回写在第 line 行（1 起）上面那一段注释；没有就返回空串。
 //
 // en: docAbove returns the comment written above line `line` (1-based), or an empty string when
 // there is none.
@@ -162,7 +162,7 @@ func trimBlankEdges(in []string) []string {
 }
 
 // docFor 问一句：这一个节点上面写了什么注释。找不到的那几种（局部量、参数、内建那一条动作）
-// 交回空串。交回的是排好版的 markdown：中文一句、英文一句、示例一个围栏（见 renderDoc）。
+// 返回空串。返回的是排好版的 markdown：中文一句、英文一句、示例一个围栏（见 renderDoc）。
 //
 // en: docFor asks what comment is written above this node. The kinds with nothing to find
 // (locals, parameters, built-in actions) return an empty string. What comes back is laid-out
@@ -255,7 +255,7 @@ func joinEdge(in []string) string {
 }
 
 // renderDoc 把三块排成 markdown：中文、英文各一段，示例单独一个 nf 围栏。
-// 三块都空就交回空串——屏幕上只留签名那一行，不凑话。
+// 三块都空就返回空串——屏幕上只留签名那一行，不凑话。
 //
 // en: renderDoc lays the three blocks out as markdown: Chinese and English each a paragraph,
 // the example as its own nf fence. If all three are empty it returns an empty string - the
@@ -274,7 +274,7 @@ func renderDoc(block string) string {
 	return strings.Join(parts, "\n\n")
 }
 
-// fileLines 交回那一份文件的行：手上这一份用编辑器推过来的文本，别的花名从盘上读
+// fileLines 返回那一份文件的行：手上这一份用编辑器推过来的文本，别的花名从盘上读
 // （`import` 进来的那些本来就在盘上，检查走的是同一份内容）。
 //
 // en: fileLines returns the lines of a file: the one in hand uses the text the editor pushed,

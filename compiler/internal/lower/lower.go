@@ -78,7 +78,7 @@ const recordSlots = 5
 // program: writing the two bands adjacently would make people think they hit a
 // built-in code, and starting at ten thousand keeps them apart.
 const (
-	codeUnbox    = 10011 // 拆盒时类型不匹配
+	codeUnbox    = 10011 // 拆箱时类型不匹配
 	codeRange    = 10013 // 换算出来的值超出目标类型（目前只有 as byte 与 byte 的 ++／-- 会触发）
 	codeOverflow = 10021
 	codeDivZero  = 10022
@@ -263,12 +263,12 @@ func Run(prog *check.Program, f *check.Facts) (*ir.Prog, error) {
 	// winsock 的初始化，排在所有文件的顶层之前。
 	// 放在这里而不是每个用得到它的成员里，是因为这条路只有一条：一次调用、一次收尾（在 `@exit` 里）。
 	main.Emit(&ir.Call{Fn: "@winsock_start", FT: []ir.T{}})
-	// 兜底处理：一路没人接住的抛出走到 @throw_walk 时若链已为空，会只打印消息就直接退 1，
-	// 把顶层的释放整个跳过。挂上这一个处理点后，抛出走完中间那些帧内清理记录、仍没人接住时
+	// 默认处理：一路没人接住的抛出走到 @throw_walk 时若链已为空，会只打印消息就直接退 1，
+	// 把顶层的释放整个跳过。附加这一个处理点后，抛出走完中间那些帧内清理记录、仍没人接住时
 	// 到达的是这里：打印消息、释放顶层持有的全部值、再退 1——与"正常走完"和 `exit` 三条收尾路径一致。
 	// 正常走完时在调用 release_top 之前先把它摘掉，链上不留残留条目。
 	uncaught := main.Fresh()
-	main.Emit(&ir.PushHandler{Catch: uncaught})
+	main.Emit(&ir.PushHandler{Catch: uncaught, Default: true})
 	for _, file := range order {
 		top := "nef.top." + file.Path
 		tf := l.p.Func(top)
@@ -304,13 +304,13 @@ func Run(prog *check.Program, f *check.Facts) (*ir.Prog, error) {
 	// 这一段单独成一个函数的原因是 `exit` 也要调用它（"已经建好的值照常释放"）：
 	// exit 可以在任何深度上被调用，帧链无法回退，所以顶层这一段必须做成任何位置都能调用的独立函数。
 	release := l.p.Func(releaseTopFn)
-	// 这一个函数一进门就设置一个"正在释放"的标记（静态槽，用户拿不到名字）：兜底那一段要根据它
+	// 这一个函数一进门就设置一个"正在释放"的标记（静态槽，用户拿不到名字）：默认处理那一段要根据它
 	// 决定是否再调用一遍 release_top——这是防止递归进入的护栏。
 	releasing := l.hidden()
 	release.Emit(&ir.Mov{D: releasing, S: ir.K(1), T: ir.TInt})
 	(&fc{l: l, f: release, name: releaseTopFn}).destroyAll(l.topOwns)
 	release.Emit(&ir.Ret{})
-	// 正常走完时先摘掉兜底处理点，再释放顶层持有的值（处理点是堆上的一块，不摘就留在链上）。
+	// 正常走完时先摘掉默认处理点，再释放顶层持有的值（处理点是堆上的一块，不摘就留在链上）。
 	main.Emit(&ir.PopHandler{})
 	main.Emit(&ir.Call{Fn: releaseTopFn, FT: []ir.T{}})
 	c.close()
@@ -320,7 +320,7 @@ func Run(prog *check.Program, f *check.Facts) (*ir.Prog, error) {
 	// rax／rdx 里的值一过 call 就没了（catch 块那一步实测的结论，规则同样适用于此处）。
 	// @throw_walk 命中这一个处理点时已经把它从链上摘除并 @free 了，所以再次抛出通常到达的是空链、
 	// 直接由 @throw_walk 打印后就退出。**还存在一条能绕回这里的路径**：`exit` 调完 release_top
-	// 再退出时，兜底处理点还挂在链上，若释放途中抛出一次就会绕回这一段——所以这里先检查
+	// 再退出时，默认处理点还挂在链上，若释放途中抛出一次就会绕回这一段——所以这里先检查
 	// "正在释放"标记，标记在就只打印、只退出，绝不再调用第二遍 release_top。
 	main.Emit(&ir.Lbl{At: uncaught})
 	errCode := main.Temp()
@@ -328,6 +328,8 @@ func Run(prog *check.Program, f *check.Facts) (*ir.Prog, error) {
 	main.Emit(&ir.Catch{D: errCode, E: errMsg})
 	main.Emit(&ir.Call{Fn: "@put_errline", Args: []ir.Val{errCode, errMsg},
 		FT: []ir.T{ir.TInt, ir.TInt}})
+	// 那一句下面接调用链：一路没人接住的抛出就在这里结束，链要在这一号程序退出去之前打出来。
+	main.Emit(&ir.Call{Fn: "@trace_print", FT: []ir.T{}})
 	busy := main.Temp()
 	releaseNow := main.Fresh()
 	skipRelease := main.Fresh()
@@ -604,12 +606,13 @@ func (c *fc) keyMode(bt check.Type) int64 {
 	return 0
 }
 
-// indexRead 落 `a[i]`。装的是引用类型时这一读就是**读走**：那个位置之后返回 null，
-// 所以读完顺手把那个位置写空。装值类型时是普通拷贝，不碰那个位置。
+// indexRead 落 `a[i]`。装的是引用类型时这一读**不拿走**：那个位置之后还是原样，读出来的那一份
+// 只是借来看一眼（哪些地方不许收走它由检查那一层拦，见 check.takeOut）。装值类型时是普通拷贝。
 //
-// en: indexRead lowers `a[i]`. When the position holds a reference type this read IS a
-// read-out: the position returns null afterwards, so the position is written empty right
-// after. A value type is an ordinary copy and the position is untouched.
+// en: indexRead lowers `a[i]`. When the position holds a reference type this read does NOT take
+// it away: the position stays as it was, and what the read yields is only looked at - the places
+// that may not keep it are refused by the checker (see check.takeOut). A value type is an
+// ordinary copy.
 func (c *fc) indexRead(x *ast.Index, t check.Type) (ir.Val, check.Type, error) {
 	base, bt, err := c.expr(x.What)
 	if err != nil {
@@ -619,6 +622,7 @@ func (c *fc) indexRead(x *ast.Index, t check.Type) (ir.Val, check.Type, error) {
 	if err != nil {
 		return nil, t, err
 	}
+	c.markPos(x.Where()) // 下标越界与没有这个键都从这一处报出去
 	c.guardNotNull(base)
 	if bt.Kind == check.Str {
 		// 文本的第 i 个码点没有现成地址：UTF-8 变长，只能从字节 0 逐码点定位。
@@ -670,10 +674,8 @@ func (c *fc) readCell(cell ir.Val, bt check.Type, t check.Type) (ir.Val, check.T
 		c.noteBorrowed(cp, t)
 		return cp, t, err
 	}
-	if !t.ByValue() {
-		c.f.Emit(&ir.Store{Base: cell, Off: 0, S: ir.K(0), T: ir.TInt})
-	}
-	c.noteBorrowed(d, t)
+	// 引用类型读完不抹那个位置，也不登记这一份：值还归容器所有，登记成中间值就会错误归还
+	// 别人那一块。值类型本来就是一份拷贝，同样不登记。
 	return d, t, nil
 }
 
@@ -729,7 +731,7 @@ func (c *fc) freeTemps(n int) {
 //
 // 中间那几步要单独登记的原因是：只管最外层值的规则只看得到这一句最外面那一个值，而 `xs[0][0]`、`cs[0].n`
 // 这类写法中间那一步读走的也落在一个没有名字的中转上——源位置那一步已经抹成 `null`，
-// 外面那一个值又用不上它，于是一次循环遗留一块。实测两万圈每圈 88 字节。
+// 外面那一个值又用不上它，于是一次循环遗留一块。实测两万圈每轮 88 字节。
 //
 // keep 是这一句要留下来的那几个位置（进名字的那一份、返回调用方的那一份、进容器那个位置的那一份）：
 // 它们只是从这本账里挑出去，持有者是接住它们的那一侧。
@@ -950,7 +952,7 @@ func (c *fc) placeOf(e ast.Expr) (ir.Val, check.Type, error) {
 // not be left outside.
 func (c *fc) listLit(x *ast.ListLit, t check.Type) (ir.Val, check.Type, error) {
 	// 这一句里的每一步都登记（与语句那一侧的窗口同一套机制），进位置的那几份按位置挑出去；
-	// 此前这一段整体不登记，`[src[0]]` 那种"从另一只容器读走的槽位"因此每圈遗留一块无人归还。
+	// 此前这一段整体不登记，`[src[0]]` 那种"从另一只容器读走的槽位"因此每轮遗留一块无人归还。
 	outer, from := c.openWindow()
 	vals := make([]ir.Val, len(x.Items))
 	for i, it := range x.Items {
@@ -1010,18 +1012,22 @@ func containerAction(name string) bool {
 // stdBorrowsArgs 说这一条标准库动作是不是只"读"参数（标准库组函数收参数按只读借用、
 // 不收留值）。容器那几条一律返回"不是"：`add` 会把值留在槽位里（那一本账由那个位置
 // 接管），remove／contains 走的是同一条 `stdContainer` 分派，分开要多看一层——宁可少归还，不多归还。
+// `dict.get(键, 默认)` 是例外：键与默认值都只读一次，命中不拆下任何东西，没命中就把默认值
+// 原样读回来一份给这一句用——两个位置都不留东西，所以它返回"是"，用不完的默认值由这一句尽头归还。
 //
 // en: stdBorrowsArgs says whether this standard-library action only READS its arguments
 // (standard-library group functions take parameters as read-only borrows and keep no
 // value). The container members always answer "no": `add` keeps the value in a position (that
 // position takes over the ownership ledger), and remove/contains travel the
 // same stdContainer dispatch, so telling them apart would need another level of analysis -
-// better to return one block too few than one too many.
+// better to return one block too few than one too many. `dict.get(key, default)` is the
+// exception: it reads both the key and the default and keeps neither, so it answers "yes" and
+// the unused default is returned at the end of the sentence.
 func stdBorrowsArgs(name string) bool {
 	switch name {
 	case "list.add", "list.remove", "dict.add", "dict.remove", "dict.contains",
 		"hashset.add", "hashset.remove", "hashset.contains",
-		"list.sort", "list.index_of", "dict.keys", "dict.values", "dict.get",
+		"list.sort", "list.index_of", "dict.keys", "dict.values",
 		"list.first", "list.last", "list.clear",
 		"list.reverse", "list.add_all", "list.to_set", "list.slice", "list.insert_at", "list.remove_at",
 		"hashset.union", "hashset.intersect", "hashset.difference",
@@ -1560,7 +1566,7 @@ func (c *fc) bitsOf(v ir.Val, t check.Type) ir.Val {
 
 // forString 按码点遍历文本（`for (c:unicode in s)` 逐个交出码点）。
 //
-// 游标是**字节偏移**：每圈先比较偏移与字节数，未走完就解出当前位置、再跳到下一个位置。
+// 游标是**字节偏移**：每轮先比较偏移与字节数，未走完就解出当前位置、再跳到下一个位置。
 // 文本不可变，所以没有"遍历途中改容器"这条规则要检查——版本号机制只覆盖三种容器。
 //
 // en: forString iterates text by code point (`for (c:unicode in s)` yields code points one at a
@@ -1597,8 +1603,8 @@ func (c *fc) forString(x *ast.For, iter ir.Val) error {
 	c.cont = c.cont[:len(c.cont)-1]
 
 	// `next` 这个标签要发在析构**之前**：`continue` 跳的就是它，跳过来之后照样走完这一圈的
-	// 块尾，圈里登记的局部量一圈都不留。反过来摆在析构之前，就成了每圈漏一整块——
-	// 这条由 heap_e2e_test.go 那组按每圈增量测得（continue 那一圈实测 88 字节）。
+	// 块尾，圈里登记的局部量一圈都不留。反过来摆在析构之前，就成了每轮漏一整块——
+	// 这条由 heap_e2e_test.go 那组按每轮增量测得（continue 那一圈实测 88 字节）。
 	// `break` 跳的是 `end`，它跳过析构：那一圈的块留到进程结束，属泄漏而非错误。
 	c.f.Emit(&ir.Lbl{At: next})
 	c.close()
@@ -1611,7 +1617,7 @@ func (c *fc) forString(x *ast.For, iter ir.Val) error {
 
 // forList 是 `for (v:T in list)`：交出的是这个位置的**只读借用**，不动那个位置，
 // 所以遍历完容器还是满的。中途添删要抛 10033 号——
-// 版本号在进圈那一刻抄一份，每圈圈头比一次，比不上一律先抛再看边界。
+// 版本号在进圈那一刻抄一份，每轮在圈头比一次，比不上一律先抛再看边界。
 //
 // en: forList is `for (v:T in list)`: what is yielded is a READ-ONLY BORROW of that position,
 // the position is untouched, so after the loop the container is still full. Adding or
@@ -1667,7 +1673,7 @@ func (c *fc) forList(x *ast.For, iter ir.Val, it check.Type) error {
 
 // forMap 是 `for (k:T in 表)`：dict 交出的是**键**，hashset 交出的是成员。
 // 走法是扫描一遍桶数组，跳过空槽与墓碑槽；顺序不保证。
-// 途中添删同样抛 10033 号——版本号在进圈那一刻抄一份，每圈圈头比一次。
+// 途中添删同样抛 10033 号——版本号在进圈那一刻抄一份，每轮在圈头比一次。
 //
 // en: forMap is `for (k:T in table)`: a dict yields the KEY, a hashset yields its
 // member. It scans the bucket array and skips empty and tombstone slots; order is not
@@ -1862,6 +1868,20 @@ type fc struct {
 	cont     []exitSite
 	// tries 记当前打开着的每一层 try 的体：抛出去要释放到哪一层为止（leaveToHandler）。
 	tries []int
+	// tryRegs 记当前打开着的每一层 try：mark 是它那一层 try 体的登记下标（与 tries 同一数法），
+	// finally 说这一层有没有写收尾那一段，stmts 就是那一段的体。
+	//
+	// en: tryRegs tracks every try layer currently open: mark is the registration index of that
+	// try body (the same numbering tries uses), finally says whether the layer has a cleanup
+	// stretch, and stmts is that stretch.
+	tryRegs []tryRegion
+	// hands 记本帧此刻挂着的处理器：mark 同上，region 指回 tryRegs 的那一层，popped 说它摘掉了没有。
+	// 一层 try 可能挂两条：接住块外面再挂一条，是为了"接住块里再抛出也要先跑收尾"。
+	//
+	// en: hands tracks the handler layers this frame has installed: mark as above, region pointing
+	// back into tryRegs, popped saying whether it came off. One try can install two - the second
+	// wraps the catch block so a throw from inside it still runs the cleanup stretch.
+	hands []handSite
 	// owns 是本帧负责归还的那些位置，按声明顺序排；marks 记每一层作用域从哪个下标开始。
 	// 语言规则"局部值随作用域结束自动析构，顺序为声明的反序"，落到机器上就是 close 里倒序释放这一段。
 	owns  []own
@@ -1877,6 +1897,8 @@ type fc struct {
 	// 因为它们那一侧已经有持有者在等着了。
 	borrow int
 	temps  []own
+	// posSet 是已经摆进运行期那个位置的源码位置：同一个位置连着发只发一次（见 markPos）。
+	posSet ast.Pos
 }
 
 // own 是一笔登记：哪个位置、按哪条形状归还、这一笔登记的名字。
@@ -1913,6 +1935,97 @@ type own struct {
 type exitSite struct {
 	to   ir.Label
 	mark int
+}
+
+// tryRegion 是一层打开着的 try：mark 是那一段 try 体的登记下标，stmts 是 `finally` 的体。
+//
+// en: tryRegion is one open try: mark is the registration index of its body, stmts the stretch
+// written after `finally`.
+type tryRegion struct {
+	stmts   []ast.Stmt
+	mark    int
+	finally bool
+}
+
+// handSite 是本帧挂着的一层处理器。
+//
+// en: handSite is one handler layer this frame has installed.
+type handSite struct {
+	mark   int
+	region int
+	popped bool
+}
+
+// pushHand 挂一层处理器，并把这一层记在本帧的账上。
+//
+// en: pushHand installs one handler layer and records it on this frame's book.
+func (c *fc) pushHand(mark, region int, catch ir.Label) {
+	c.f.Emit(&ir.PushHandler{Catch: catch})
+	c.hands = append(c.hands, handSite{mark: mark, region: region})
+}
+
+// popHandOf 摘掉某一层 try 挂着的处理器：走完那一条路与早退那三条路都先摘，再发收尾。
+// 摘掉的记在账上，popsTo 不会第二次发。
+//
+// en: popHandOf takes one try layer's handler off: the fall-through road and the three early exits
+// all take it off before emitting the cleanup stretch. The book records it, so popsTo does not
+// emit a second one.
+func (c *fc) popHandOf(region int) {
+	for i := range c.hands {
+		if c.hands[i].region != region || c.hands[i].popped {
+			continue
+		}
+		c.f.Emit(&ir.PopHandler{})
+		c.hands[i].popped = true
+	}
+}
+
+// dropHandOf 是把账对上而不发指令：抛出落到这一层时，运行期走路那一步已经把它摘了。
+//
+// en: dropHandOf only fixes the book without emitting: when a throw lands here, the runtime's walk
+// already took that layer off.
+func (c *fc) dropHandOf(region int) {
+	for i := range c.hands {
+		if c.hands[i].region == region {
+			c.hands[i].popped = true
+		}
+	}
+}
+
+// runFinally 发一段收尾的体：它自己一个作用域，里面写的名字出这一段就没有了。同一段体在四条路上
+// 各发一份——走完、接住、再抛出、早退，这是复制而不是循环。
+//
+// en: runFinally emits one cleanup stretch: its own scope, so names written there end with it. The
+// stretch is emitted once per road - falling through, catching, re-throwing, leaving early - which
+// is duplication rather than a loop.
+func (c *fc) runFinally(stmts []ast.Stmt) error {
+	c.open()
+	for _, s := range stmts {
+		if err := c.stmt(s); err != nil {
+			return err
+		}
+	}
+	c.close()
+	return nil
+}
+
+// runFinaleTo 把比 mi 更里层的每一层收尾从里到外各发一遍，发之前先摘掉那些层的处理器。
+// `return`、`break`、`continue` 三条早退路各叫一次：那三条不走抛出落点那几段，收尾只能在这里补。
+//
+// en: runFinaleTo emits every cleanup stretch inside mi, innermost first, taking those layers'
+// handlers off beforehand. The three early exits call it once each - they never reach the throw
+// landing blocks, so the stretches have to be emitted here.
+func (c *fc) runFinaleTo(mi int) error {
+	for i := len(c.tryRegs) - 1; i >= 0; i-- {
+		if !c.tryRegs[i].finally || c.tryRegs[i].mark <= mi {
+			continue
+		}
+		c.popHandOf(i)
+		if err := c.runFinally(c.tryRegs[i].stmts); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // unwind 发一段**退出清理代码**：把这一帧上从 mi 那一层登记进来的条目按声明反序归还，记录本身不动。
@@ -2446,7 +2559,7 @@ func returnsProvablyNew(l *L, body []ast.Stmt) bool {
 			}
 			t, ok := l.f.Types[x.Val]
 			if !ok || !reclaimable(t) {
-				continue // 交回的是值类型与无法识别的类型：与这本账无关
+				continue // 返回的是值类型与无法识别的类型：与这本账无关
 			}
 			if !l.handsBackOne(x.Val, t) {
 				return false
@@ -2520,6 +2633,9 @@ func (l *L) handsBackOne(e ast.Expr, t check.Type) bool {
 			return false
 		}
 		if ref.Kind == check.CallStd {
+			if l.f.BorrowRead[root] {
+				return false // 读位置那几条（`json.at`、`xs.first()` 那一族）返回的是别人那一份
+			}
 			return freshValue(root, true, t)
 		}
 		return ref.Kind == check.CallUser && reclaimable(t) && l.handsBackFresh(ref.Func)
@@ -2543,6 +2659,9 @@ func (c *fc) fresh(e ast.Expr, t check.Type) bool {
 		return false
 	}
 	if ref.Kind == check.CallStd {
+		if c.l.f.BorrowRead[cal] {
+			return false // 读位置那几条返回的是容器或树上现成的一份，句子尽头不许析构它
+		}
 		return freshValue(e, true, t)
 	}
 	return reclaimable(t) && c.l.handsBackFresh(ref.Func)
@@ -2641,7 +2760,7 @@ func (c *fc) claim(slot ir.Val, x *ast.Decl, t check.Type, copied bool) (own, bo
 // （见 `internal/codegen/data.go` 文件头那一段）。所以把这样的名字登记成持有者是安全的：
 // 覆盖时要析构的是换下来的那一份，第一次析构的对象是那段字面量——@free 对它不做处理；往后每次析构的都是堆上的块。
 // 不登记就没有这一步：往这个名字里赋新造出来的文本，每一圈都遗留一块无人处理
-// （登记之后实测每圈 32 → 0）。
+// （登记之后实测每轮 32 → 0）。
 //
 // en: staticText says this declaration's initialiser is text baked into the program (`let
 // s:string = "a"`). That copy lies in the data section behind an all-zero placeholder header,
@@ -2730,7 +2849,7 @@ func freshValue(e ast.Expr, ref bool, t check.Type) bool {
 	case *ast.New, *ast.ListLit, *ast.MapLit, *ast.SetLit, *ast.StructLit:
 		return true
 	case *ast.Call:
-		return ref // 标准库的调用：交回的是新造的一块
+		return ref // 标准库的调用：返回的是新造的一块
 	case *ast.Binary:
 		return x.Op == "+" && t.Kind == check.Str
 	}
@@ -2798,6 +2917,10 @@ func (c *fc) expr(e ast.Expr) (ir.Val, check.Type, error) {
 	case *ast.Lit:
 		return c.lit(x, t)
 	case *ast.Name:
+		// 函数名按值读出来的那一次：那一个位置装的是它入口的地址，没有槽位可查
+		if key, ok := c.l.f.FuncRefs[x]; ok {
+			return ir.Fn(key), t, nil
+		}
 		// 局部槽（参数、this、块里的 let）先查，查不到才识别方法自己的字段，最后才是本文件顶层
 		if v, ok := c.find(x.Text); ok {
 			return v, t, nil
@@ -2833,23 +2956,24 @@ func (c *fc) expr(e ast.Expr) (ir.Val, check.Type, error) {
 	case *ast.Call:
 		return c.call(x, t)
 	case *ast.Throw:
+		c.markPos(x.Where()) // 手写的那一次抛出：位置就是这一句
 		return nil, t, c.throwLike(x.Code, x.Msg, "@throw")
 	case *ast.Exit:
 		// exit 的码是给操作系统的，不套"出错了（…）"那个格式
 		return nil, t, c.throwLike(x.Code, x.Msg, "@die")
 	case *ast.Member:
 		if d, ok := c.l.f.PkgValues[x]; ok {
-			// 包交出来的数：静态槽按节点排，检查那一步把声明节点记在 PkgValues 上，
+			// 包导出的数：静态槽按节点排，检查那一步把声明节点记在 PkgValues 上，
 			// 这里拿它取回同一个槽。值类型，读出来就是一份数，不进交出那本账。
 			g, laid := c.l.glob[d]
 			if !laid {
-				return nil, t, fmt.Errorf("包交出来的 %s 还没排到静态槽", x.NameText)
+				return nil, t, fmt.Errorf("包导出的 %s 还没排到静态槽", x.NameText)
 			}
 			return g, t, nil
 		}
-		if t.Kind == check.Enum {
-			// 识别的是解到底的类型名，不是写出来的名字：`type Choice = D` 之后
-			// `Choice.b` 与 `D.b` 是同一个成员。
+		// 分派看检查器认出来的那一次点号，不看结果类型：字段 `d:D` 读出来的结果类型也是枚举，
+		// 按类型分派会把一次字段读当成取成员。查表用的名字照旧解到底：`Choice.b` 与 `D.b` 是同一个成员。
+		if c.l.f.Members[x].Kind == check.MemberEnumValue {
 			b, ok := c.l.f.EnumVals[t.Name+"."+x.NameText]
 			if !ok {
 				return nil, t, fmt.Errorf("枚举成员 %s.%s 的值没记上", describe(x.What), x.NameText)
@@ -3016,6 +3140,7 @@ func (c *fc) binary(x *ast.Binary, t check.Type) (ir.Val, check.Type, error) {
 	}
 	if at.Kind == check.Str && x.Op == "+" {
 		// 拼接要先读两段的长度，那就是"取它的内容"：空文本当场抛 10092 号
+		c.markPos(x.Where())
 		c.guardNotNull(a)
 		c.guardNotNull(b)
 		d := c.f.Temp()
@@ -3047,6 +3172,7 @@ func (c *fc) binary(x *ast.Binary, t check.Type) (ir.Val, check.Type, error) {
 // en: arith emits one arithmetic instruction together with the required checks.
 func (c *fc) arith(op string, a, b ir.Val, t check.Type, at ast.Pos) (ir.Val, check.Type, error) {
 	d := c.f.Temp()
+	c.markPos(at) // 溢出与除零都从这一处抛：位置先摆好，抛出那一步才报得出是谁
 	switch op {
 	case "+", "-", "*":
 		c.f.Emit(&ir.Bin{Op: op, D: d, A: a, B: b, T: c.rt(t)})
@@ -3093,7 +3219,7 @@ func (c *fc) returnKeep(v ast.Expr, t check.Type) map[string]bool {
 		return nil
 	}
 	// `return o.f` 交出去的正好是字段里那个位置，读完那个位置就空了，
-	// 源头不再持有它 ⇒ 这一帧不必为它保留（此前这一条造成的每圈 104 字节遗留随之归零）。
+	// 源头不再持有它 ⇒ 这一帧不必为它保留（此前这一条造成的每轮 104 字节遗留随之归零）。
 	if e := unwrappedConvert(v); c.l.f.Taken[e] {
 		return nil
 	}
@@ -3184,10 +3310,12 @@ func chainRoot(e ast.Expr) string {
 // code 0 in front of the user (observed while testing the exit cleanup code). So every early
 // exit that leaves several try-body layers first unwinds them inside out.
 func (c *fc) popsTo(mi int) {
-	for i := len(c.tries) - 1; i >= 0; i-- {
-		if c.tries[i] > mi {
-			c.f.Emit(&ir.PopHandler{})
+	for i := len(c.hands) - 1; i >= 0; i-- {
+		if c.hands[i].popped || c.hands[i].mark <= mi {
+			continue
 		}
+		c.f.Emit(&ir.PopHandler{})
+		c.hands[i].popped = true
 	}
 }
 
@@ -3210,6 +3338,70 @@ func (c *fc) throw(code int) {
 	}
 	c.leaveToHandler()
 	c.f.Emit(&ir.Call{Fn: "@throw", Args: []ir.Val{ir.K(int64(code)), c.l.msg(msg)}, FT: []ir.T{ir.TInt, ir.TInt}})
+}
+
+// markPos 把"走到哪一处"摆进运行期那个位置：抛出那一句要从那里读位置，
+// 接住块的第三个名字与默认处理那一句末尾的「（在 …）」都是它。
+// 同一个位置连着发只发一次；换一处就再发一次——发一次是两条指令：取地址与一次直接写入，不动内存。
+// 位置串是当场拼好的一份字面量（`rpn.nf 6:16` 这一串），文本池里同一串只留一份。
+//
+// en: markPos puts "how far this program has walked" into the runtime's slot: the throw reads its
+// position there, and both the catch block's third name and the 「（在 …）」 tail of the fallback
+// line come from it. The same position is written once; a different one is written again - each
+// write is two instructions, take the address and store it straight, no memory touched. The text
+// is built here (`rpn.nf 6:16`) and the pool keeps one copy of each.
+func (c *fc) markPos(at ast.Pos) {
+	if at.Line == 0 || c.filePath == "" || (at == c.posSet) {
+		return
+	}
+	c.posSet = at
+	c.f.Emit(&ir.SetPos{S: c.l.msg(positionText(c.filePath, at))})
+}
+
+// positionText 排那一串给读者看的位置：文件的名（不带目录那一段）、行、列。
+//
+// en: positionText lays out the position the reader sees: the file's name (without its
+// directory), the line and the column.
+func positionText(file string, at ast.Pos) string {
+	if i := strings.LastIndexAny(file, "/\\"); i >= 0 {
+		file = file[i+1:]
+	}
+	return file + " " + strconv.Itoa(at.Line) + ":" + strconv.Itoa(at.Col)
+}
+
+// traceSite 给调用链表备下这一次调用要用的三串文本：调用点的位置、调用者的名、
+// 被调者的名。位置说不出就不给——没有文件路径或行号是 0 的那些（运行期与合成出来的代码）不进表，
+// 表里少一项，抛出的链就少一行，而不是报出一行假的位置。
+//
+// en: traceSite prepares the three texts one call-trace row needs (the call position, the
+// caller's name, the callee's name). When there is no position to name - no file path, or line 0
+// in synthesized code - it returns nothing: that call is simply absent from the table, so the
+// printed chain has one line fewer rather than one line made up.
+func (c *fc) traceSite(x *ast.Call, callee string) *ir.CallSite {
+	at := x.Where()
+	if c.filePath == "" || at.Line == 0 {
+		return nil
+	}
+	return &ir.CallSite{
+		Pos:    c.l.msg(positionText(c.filePath, at)),
+		Caller: c.l.msg(traceName(c.f.Name)),
+		Callee: c.l.msg(traceName(callee)),
+	}
+}
+
+// traceName 把中间码里的规范键换成给读者看的名：一个文件的顶层那一段写成那个文件的名，
+// 其余去掉包根那一段（方法写成 `类型.方法`，这一段留着）。
+//
+// en: traceName turns an IR key into the name a reader gets: a file's top level shows the
+// file's name, anything else drops the package-root part (`Type.method` stays as written).
+func traceName(key string) string {
+	if rest, ok := strings.CutPrefix(key, "nef.top."); ok {
+		if i := strings.LastIndexAny(rest, "/\\"); i >= 0 {
+			return rest[i+1:]
+		}
+		return rest
+	}
+	return check.BareName(key)
 }
 
 // throwIfOverflow 紧跟在上一条 add／sub／imul 之后：结果回绕溢出就跳转去抛出。
@@ -3401,6 +3593,7 @@ func (c *fc) fieldRead(x *ast.Member, t check.Type) (ir.Val, check.Type, error) 
 	if err != nil {
 		return nil, t, err
 	}
+	c.markPos(x.Where()) // 对着空句柄取成员（10092 号）就在这一处
 	c.guardNotNull(base)
 	d := c.f.Temp()
 	c.f.Emit(&ir.Load{D: d, Base: base, Off: int(off), T: c.rt(t), Size: c.l.narrow(t)})
@@ -3450,7 +3643,7 @@ func (c *fc) selfField(x *ast.Name, off int64, t check.Type) (ir.Val, check.Type
 func (c *fc) fieldOffset(typeName, field string) (int64, error) {
 	off, ok := c.l.fieldOff(typeName, field)
 	if !ok {
-		return 0, fmt.Errorf("%s 里没有字段 %s：前端交出来的字段表对不上", typeName, field)
+		return 0, fmt.Errorf("%s 里没有字段 %s：前端给出的字段表对不上", typeName, field)
 	}
 	return off, nil
 }
@@ -3528,7 +3721,7 @@ func (c *fc) test(x *ast.Test, t check.Type) (ir.Val, check.Type, error) {
 	return d, t, nil
 }
 
-// convert 里盒子那一侧单独走：装箱与拆盒都是交出，只是谁在堆上多一块的区别。
+// convert 里盒子那一侧单独走：装箱与拆箱都是交出，只是谁在堆上多一块的区别。
 //
 // en: In convert, the boxing side takes its own path: boxing and unboxing are both handovers,
 // the only difference being who gets one more block on the heap.
@@ -3541,10 +3734,11 @@ func (c *fc) convert(x *ast.Convert, t check.Type) (ir.Val, check.Type, error) {
 		return c.box(v, vt)
 	}
 	if vt.Kind == check.Obj && t.Kind != check.Obj {
+		c.markPos(x.Where()) // 拆箱拆不开就是 10011 号，位置记在这一个 as 上
 		return c.unbox(v, t)
 	}
 	if t.Kind == check.Obj || vt.Kind == check.Obj {
-		// 装箱与拆盒上面两支已经走完，两头都是盒子那一例前端就拦了（不必再装箱），
+		// 装箱与拆箱上面两支已经走完，两头都是盒子那一例前端就拦了（不必再装箱），
 		// 走到这里就是前端与后端对不上号。
 		return nil, t, fmt.Errorf("%s 转 %s：前端拦下的写法走到了后端", vt, t)
 	}
@@ -3603,7 +3797,7 @@ func (c *fc) box(v ir.Val, vt check.Type) (ir.Val, check.Type, error) {
 	return d, obj, nil
 }
 
-// unbox 拆盒：先认标记，对不上就抛 10011 号；认过了才按目标类型取那个位置。
+// unbox 拆箱：先认标记，对不上就抛 10011 号；认过了才按目标类型取那个位置。
 // 盒子本身是 @alloc 出来的，用完还回堆里要等"还自由"接上，眼下先让它留在堆上。
 //
 // en: unbox is unboxing: check the tag first and throw code 10011 when it does not
@@ -3632,6 +3826,12 @@ func (c *fc) call(x *ast.Call, t check.Type) (ir.Val, check.Type, error) {
 	ref, ok := c.l.f.Calls[x]
 	if !ok {
 		return nil, t, fmt.Errorf("这次调用的落点没记上")
+	}
+	// 标准库那几条自己抛出来的错（遍历途中改了容器、向系统要不到东西这一类）说不出自己在哪，
+	// 读的就是这个位置里最近摆进来的一次——先把这一个调用点摆上。
+	c.markPos(x.Where())
+	if ref.Kind == check.CallValue {
+		return c.callValue(x, ref, t)
 	}
 	// 只读借用那一族（标准库组函数）：参数交完就不归它们管了，所以这一段里
 	// "从容器位置读走、落在没名字临时槽上"的那一块由这一侧当场还。
@@ -3737,7 +3937,7 @@ func (c *fc) call(x *ast.Call, t check.Type) (ir.Val, check.Type, error) {
 	if !has {
 		dv = nil
 	}
-	c.f.Emit(&ir.Call{D: dv, HasD: has, Fn: ref.Func, Args: args, FT: fts, RT: c.rt(t)})
+	c.f.Emit(&ir.Call{D: dv, HasD: has, Fn: ref.Func, Args: args, FT: fts, RT: c.rt(t), Site: c.traceSite(x, ref.Func)})
 	if has {
 		return d, t, nil
 	}
@@ -3792,7 +3992,7 @@ func (c *fc) args(list []ast.Expr) ([]ir.Val, []ir.T, error) {
 
 // argsOf 是调用点那一份实参表：写出来的照旧，**没写出来的从被调方的默认值补上**。
 //
-// 补在哪儿很重要：默认值是在调用这一侧算的，不是被调方进门时兜底——被调方一进门
+// 补在哪儿很重要：默认值是在调用这一侧算的，不是被调方进门时按默认处理——被调方一进门
 // 参数槽就得有值，而它不知道来的是实参还是替身。字面量当默认值最省事也最安全：
 // 它不读任何东西，因而不存在"这句在调用方这边算，读到的却是调用方的同名变量"那种事。
 // 想要 `x:int = 别的变量` 这种默认值，要先定下"在哪个作用域里算"，这一版不接受这种写法。
@@ -3805,6 +4005,52 @@ func (c *fc) args(list []ast.Expr) ([]ir.Val, []ir.T, error) {
 // expression is evaluated on the caller's side but reads the caller's variable of the same
 // name". A default like `x:int = someOtherVariable` would first need a decision on "in which
 // scope it is evaluated"; this version does not accept that form.
+// callValue 是按一个函数值调用那一句：先把地址取出来，实参按那一份函数类型摆。
+// 借用位上的实参只读一次，出了这一句就按反序归还；其余那几位不参与归还
+// （那六种值类型没有要还的东西），所以整份实参表都挑出这一句的账。
+// 值类型那一侧照 `args` 的老规矩整份拷一份给被调方。
+//
+// en: callValue is the call made through a function value: it first takes the address out and
+// then places the arguments according to that function type. An argument in a borrowed position
+// is read once and returned in reverse order when this sentence ends; the other positions take no
+// part in dismantling (those six value types have nothing to return), so the whole argument list
+// is picked out of this sentence's ledger. Value types follow the standing rule in args: the
+// callee gets its own copy.
+func (c *fc) callValue(x *ast.Call, ref check.CallRef, t check.Type) (ir.Val, check.Type, error) {
+	outer, from := c.openWindow()
+	target, _, err := c.expr(x.Callee)
+	if err != nil {
+		return nil, t, err
+	}
+	// 那一个位置没填过函数时是 0（`new C()` 给出的默认值），照着它调用就是跳进空地址。
+	// 这一道检查把它挡在 10092 号上，与"对着空句柄调用方法"是同一条。
+	c.markPos(x.Where())
+	c.guardNotNull(target)
+	vals, kinds, err := c.args(x.Args)
+	if err != nil {
+		return nil, t, err
+	}
+	// 借用的那几位留在这一句的账里还掉；不参与归还的那几位挑出去（它们本来就没有要还的东西）
+	keep := []ir.Val{target}
+	for i, v := range vals {
+		if !check.FuncRefOf(ref.Sig, i) {
+			keep = append(keep, v)
+		}
+	}
+	d := c.f.Temp()
+	var dv ir.Val = d
+	has := t.Kind != check.NoRet
+	if !has {
+		dv = nil
+	}
+	c.f.Emit(&ir.CallValue{D: dv, HasD: has, Target: target, Args: vals, FT: kinds, RT: c.rt(t)})
+	c.closeWindow(outer, from, keep...)
+	if !has {
+		return nil, t, nil
+	}
+	return d, t, nil
+}
+
 func (c *fc) argsOf(list []ast.Expr, fnName string) ([]ir.Val, []ir.T, error) {
 	// 开一层窗口，最后把交出去的每一个槽挑出去（那一块的归属由 `takeArg` 与交出那本账
 	// 判，被调方带走了的话这里当场还就是拆仍在活动的持有者手里的），剩下没挑出去的——`wear(src[0])` 里
@@ -4098,7 +4344,7 @@ func (c *fc) printVal(v ir.Val, t check.Type) (ir.Val, error) {
 // 方向问的是 @f_order 那个整数位型掩码。
 //
 // `math.random` 也在这一张表里（种子取系统里的高精度计数器，不另开"设种子"那个开关；
-// 空范围报数值组的兜底 10020 号），两个入参都是整数，所以走 call2 这一步。
+// 空范围报数值组的默认错误码 10020 号），两个入参都是整数，所以走 call2 这一步。
 //
 // en: mathAction lowers the seven math members: absolute_value, floor, ceiling, round, minimum,
 // maximum, power. The float side always takes the bit pattern before handing to the runtime
@@ -4553,7 +4799,7 @@ func (c *fc) stdAction(x *ast.Call, ref check.CallRef, t check.Type) (ir.Val, ch
 		return c.httpAction(x, ref, t)
 	case "bytes.new":
 		// `bytes.new(容量)` 那一档：造一块连着摆的字节，长度定下之后不再增减。
-		// 负的字节数由 @bytes_new 当场抛 10030 号（容器那一段的兜底检查）——那一个数
+		// 负的字节数由 @bytes_new 当场抛 10030 号（容器那一段的默认错误码检查）——那一个数
 		// 常来自变量与 `file.size`，检查这一侧看不到，无法在编译期拒绝。
 		n, _, err := c.expr(x.Args[0])
 		if err != nil {
@@ -4718,7 +4964,7 @@ func (c *fc) stmt(s ast.Stmt) error {
 		// struct 是值类型：`let q:P = p` 之后 p 还能用，所以必须另起一块，不能照抄句柄。
 		// 初值本来就是"这一句才造出来的那一块"（`Row { ... }` 字面量、`time.calendar(...)`
 		// 这类标准库返回的 struct、从容器位置读走时已经拷过一份的那一块）就不用再拷：
-		// 除了这个名字没别人拿着，多拷一份反而把原来那一块丢在堆上（实测每圈留 24 与 64 字节）。
+		// 除了这个名字没别人拿着，多拷一份反而把原来那一块丢在堆上（实测每轮留 24 与 64 字节）。
 		// 判据与 claim 那一条同一个，不用 `argOwnedByCaller`——它把"交出去过的名字"也算成最后一份，
 		// 而值类型的名字不管交出过没交出过，读了都还得拷一份。
 		copied := false
@@ -4784,6 +5030,9 @@ func (c *fc) stmt(s ast.Stmt) error {
 
 	case *ast.Return:
 		if x.Val == nil {
+			if err := c.runFinaleTo(0); err != nil {
+				return err
+			}
 			c.popsTo(0)
 			c.leaveFrame(nil)
 			c.f.Emit(&ir.Ret{})
@@ -4804,6 +5053,9 @@ func (c *fc) stmt(s ast.Stmt) error {
 		// 返回的那一个位置（拷过之后的那一个）留给调用方。
 		c.closeWindow(outer, from, v)
 		// 退出清理代码：这一帧到此为止，登记过的都还掉——**除了那一个可能正是交出去的值自己的位置**
+		if err := c.runFinaleTo(0); err != nil {
+			return err
+		}
 		c.popsTo(0)
 		c.leaveFrame(c.returnKeep(x.Val, t))
 		c.f.Emit(&ir.Ret{D: v, Has: true, T: c.rt(t)})
@@ -4813,9 +5065,12 @@ func (c *fc) stmt(s ast.Stmt) error {
 		if len(c.brk) == 0 {
 			return fmt.Errorf("break 不在循环里，检查器本该拦住")
 		}
-		// 跳出循环要把这一圈块里登记过的还掉：`end` 标签在块尾析构之外，不垫就等于每圈漏一块。
+		// 跳出循环要把这一圈块里登记过的还掉：`end` 标签在块尾析构之外，不垫就等于每轮漏一块。
 		// 记录本身不动（正常走完那一路的 close() 还要自己发一遍），两条路各走一次不会重还。
 		site := c.brk[len(c.brk)-1]
+		if err := c.runFinaleTo(site.mark); err != nil {
+			return err
+		}
 		c.popsTo(site.mark)
 		c.unwind(site.mark, nil)
 		c.f.Emit(&ir.Jump{To: site.to})
@@ -4826,6 +5081,9 @@ func (c *fc) stmt(s ast.Stmt) error {
 			return fmt.Errorf("continue 不在循环里，检查器本该拦住")
 		}
 		// continue 的落点就在本圈圈尾之前，那一圈的析构照样走完——只欠 try 体那几颗处理器记录。
+		if err := c.runFinaleTo(c.cont[len(c.cont)-1].mark); err != nil {
+			return err
+		}
 		c.popsTo(c.cont[len(c.cont)-1].mark)
 		c.f.Emit(&ir.Jump{To: c.cont[len(c.cont)-1].to})
 		return nil
@@ -4839,29 +5097,44 @@ func (c *fc) stmt(s ast.Stmt) error {
 	return fmt.Errorf("还不支持这条语句 %T", s)
 }
 
-// tryStmt 降 `try { 体 } catch (code, msg) { 接住块 }`。
+// tryStmt 降 `try { 体 } catch (code, msg, at, trace) { 接住块 }`。
 //
 // 进来先挂一层处理器，接住块的开头当参数交给运行期；体正常走完就把这一层摘掉，
 // 中间任何一处抛（手写的 throw，或 31／32／33／92／11／21／22／91 那些内建错）
 // 都由运行期把栈摆回这一层的样子，直接跳进接住块。
 // 码与话躺在 rax／rdx 里，接住块开头那一步把它们落进两个局部量的槽。
+// 第四个名字 `trace` 可以省；写了才在接住块开头叫一次 @trace_text，
+// 把抛出那一刻捕获下来的那一串项排成一份文本。
 //
-// en: tryStmt lowers `try { body } catch (code, msg) { handler }`. It first
+// en: tryStmt lowers `try { body } catch (code, msg, at, trace) { handler }`. It first
 // installs one handler layer, giving the runtime the start of the catch block as the parameter;
 // when the body completes normally that layer is removed, and a throw anywhere inside - a
 // hand-written throw or the built-in errors 31/32/33/92/11/21/22/91 - has the runtime rewind
 // the stack to this layer and jump straight into the catch block. The code and message lie in
-// rax/rdx, and the catch block's first step lands them in the two locals' slots.
+// rax/rdx, and the catch block's first step lands them in the two locals' slots. The fourth
+// name `trace` may be left out; when it is written, the catch block starts with one call of
+// @trace_text, which lays the rows captured at the throw out as one text.
 func (c *fc) tryStmt(x *ast.Try) error {
 	catch := c.f.Fresh()
 	after := c.f.Fresh()
+	rethrow := c.f.Fresh()
+
+	// 这一层 try 记在 c.tryRegs 上：`finally` 那一段要等四条出口各自发一遍，早退那三条路
+	// 靠这张表找到该发的那一段。
+	region := len(c.tryRegs)
+	c.tryRegs = append(c.tryRegs, tryRegion{stmts: x.Finally, finally: x.HasFinally})
+	defer func() { c.tryRegs = c.tryRegs[:len(c.tryRegs)-1] }()
+
 	c.f.Emit(&ir.PushHandler{Catch: catch})
 	// 本帧在这层 try 体里登记的每一笔都从下标 from 起记在 c.held 上。抛出从被叫的那一帧里
 	// 走出来时没人释放它们——那一趟不经过本帧的任何退出清理代码，接住块直接就开始跑了。
 	from := len(c.held)
 	c.open()
 	// 记下这一层：抛出去最多还到这里为止——try 体外面的那些名字，接住块接着还要读。
-	c.tries = append(c.tries, len(c.marks)-1)
+	mark := len(c.marks) - 1
+	c.tries = append(c.tries, mark)
+	c.tryRegs[region].mark = mark
+	c.hands = append(c.hands, handSite{mark: mark, region: region})
 	for _, s := range x.Body {
 		if err := c.stmt(s); err != nil {
 			return err
@@ -4870,27 +5143,87 @@ func (c *fc) tryStmt(x *ast.Try) error {
 	c.tries = c.tries[:len(c.tries)-1]
 	inBody := c.held[from:]
 	c.close()
-	c.f.Emit(&ir.PopHandler{})
-	c.f.Emit(&ir.Jump{To: after})
-
-	c.f.Emit(&ir.Lbl{At: catch})
-	c.open()
-	code := c.f.Temp()
-	msg := c.f.Temp()
-	// 码与话要先落进两个局部量：下面那段垫子还是要 call 出去的，rax／rdx 里那两个一过 call 就没了。
-	c.f.Emit(&ir.Catch{D: code, E: msg})
-	// 接住块开头补还本帧这一层 try 体里登记的那些。同一帧抛出去那一路已经由
-	// leaveToHandler 还过，抹了零的位置第二次走到就是空操作，所以这一段重复不花钱也不出错。
-	c.destroyAll(inBody)
-	top := c.scopes[len(c.scopes)-1]
-	top[x.CodeName] = code
-	top[x.MsgName] = msg
-	for _, s := range x.Catch {
-		if err := c.stmt(s); err != nil {
+	// 走完这一条：先把这一层的处理器摘掉，再跑收尾——收尾里再抛出去的那一条不该由本层接住。
+	c.popHandOf(region)
+	if x.HasFinally {
+		if err := c.runFinally(x.Finally); err != nil {
 			return err
 		}
 	}
+	c.f.Emit(&ir.Jump{To: after})
+
+	c.f.Emit(&ir.Lbl{At: catch})
+	// 抛出走到这一层时，运行期走路那一步已经把处理器摘了，账跟着对上。
+	c.dropHandOf(region)
+	c.open()
+	code := c.f.Temp()
+	msg := c.f.Temp()
+	at := c.f.Temp()
+	// 码、话与位置要先落进三个局部量：下面那段垫子还是要 call 出去的，rax／rdx／r9 里那三个
+	// 一过 call 就没了。
+	c.f.Emit(&ir.Catch{D: code, E: msg, A: at})
+	// 接住块开头补还本帧这一层 try 体里登记的那些。同一帧抛出去那一路已经由
+	// leaveToHandler 还过，抹了零的位置第二次走到就是空操作，所以这一段重复不花钱也不出错。
+	c.destroyAll(inBody)
+	// 第四个名字写了才排那一份文本：@trace_text 把抛出那一刻捕获下来的那一串项抄成一份文本。
+	// 没写就连这一次 call 都不发——一条反复抛出又接住的循环不写那一个名字就不会一圈要一块。
+	// 写了的那一份是新要到的一块，所以跟着登记一笔：这一段走到尽头、以及从这里再抛出去都还掉。
+	var chain ir.Val
+	if x.TraceName != "" {
+		tr := c.f.Temp()
+		c.f.Emit(&ir.Call{D: tr, HasD: true, Fn: "@trace_text", FT: []ir.T{}})
+		chain = tr
+		if d, err := c.l.descOf(check.Type{Kind: check.Str, Name: "string"}); err == nil {
+			o := own{slot: tr, desc: d, direct: true}
+			c.owns = append(c.owns, o)
+			c.held = append(c.held, o)
+		}
+	}
+	if x.HasCatch {
+		top := c.scopes[len(c.scopes)-1]
+		top[x.CodeName] = code
+		top[x.MsgName] = msg
+		top[x.AtName] = at
+		if x.TraceName != "" {
+			top[x.TraceName] = chain
+		}
+		if x.HasFinally {
+			// 接住块里再抛出也要先跑收尾：再挂一层处理器，落点是下面那一段"跑完收尾接着往外传"。
+			c.pushHand(mark, region, rethrow)
+		}
+		for _, s := range x.Catch {
+			if err := c.stmt(s); err != nil {
+				return err
+			}
+		}
+		if x.HasFinally {
+			c.popHandOf(region)
+		}
+	}
 	c.close()
+	if x.HasFinally {
+		if err := c.runFinally(x.Finally); err != nil {
+			return err
+		}
+		if x.HasCatch {
+			c.f.Emit(&ir.Jump{To: after})
+			// 接住块里又抛出一条：这一条接管，原来那一条丢掉（第二段裁定），
+			// 但收尾要先跑完——落在这里的就是那一条新的抛出。
+			c.f.Emit(&ir.Lbl{At: rethrow})
+			c.dropHandOf(region)
+			rc := c.f.Temp()
+			rm := c.f.Temp()
+			ra := c.f.Temp()
+			c.f.Emit(&ir.Catch{D: rc, E: rm, A: ra})
+			if err := c.runFinally(x.Finally); err != nil {
+				return err
+			}
+			c.f.Emit(&ir.Call{Fn: "@rethrow", Args: []ir.Val{rc, rm, ra}, FT: []ir.T{ir.TInt, ir.TInt, ir.TInt}})
+		} else {
+			// `try / finally` 没有接住块：收尾跑完，原来那一条接着往外走。
+			c.f.Emit(&ir.Call{Fn: "@rethrow", Args: []ir.Val{code, msg, at}, FT: []ir.T{ir.TInt, ir.TInt, ir.TInt}})
+		}
+	}
 	c.f.Emit(&ir.Lbl{At: after})
 	return nil
 }
@@ -5095,6 +5428,7 @@ func (c *fc) storeToPath(target ast.Expr, v ir.Val, vt check.Type) ([]ir.Val, er
 		if err != nil {
 			return nil, err
 		}
+		c.markPos(t.Where()) // 往一个位置里写：越界、没有这个键、遍历途中改了容器都从这一处报
 		c.guardNotNull(base)
 		if bt.Kind == check.Dict {
 			// `d[k] = v` 与 `d.add(k, v)` 是同一条语言规则：没有这个键就是添一条，
@@ -5264,7 +5598,7 @@ func (c *fc) forStmt(x *ast.For) error {
 	c.brk = c.brk[:len(c.brk)-1]
 	c.cont = c.cont[:len(c.cont)-1]
 	c.f.Emit(&ir.Lbl{At: next})
-	c.close() // 圈里登记的局部量每圈还一次：`next` 先发，continue 跳过来也走得到
+	c.close() // 圈里登记的局部量每轮还一次：`next` 先发，continue 跳过来也走得到
 	c.f.Emit(&ir.Bin{Op: "+", D: i, A: i, B: ir.K(1), T: ir.TInt})
 	c.f.Emit(&ir.Jump{To: top})
 	c.f.Emit(&ir.Lbl{At: end})

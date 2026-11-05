@@ -10,13 +10,28 @@
       "include": "#comments"
     },
     {
+      "include": "#declarations"
+    },
+    {
       "include": "#literals"
+    },
+    {
+      "include": "#members"
     },
     {
       "include": "#names"
     },
     {
+      "include": "#calls"
+    },
+    {
+      "include": "#parameters"
+    },
+    {
       "include": "#operators"
+    },
+    {
+      "include": "#punctuation"
     }
   ],
   "repository": {
@@ -39,7 +54,46 @@
         },
         {
           "name": "comment.line.double-slash.nf",
-          "match": "//.*$"
+          "match": "//.*$",
+          "captures": {
+            "0": {
+              "name": "punctuation.definition.comment.nf"
+            }
+          }
+        }
+      ]
+    },
+    "declarations": {
+      "patterns": [
+        {
+          "comment": "类型定义的名字：class、struct、interface、enum、type 后面那一个",
+          "name": "entity.name.type.nf",
+          "match": "(?<=\\b(?:class|struct|interface|enum|type)\\s)([A-Z_$]?[A-Za-z0-9_$]*)(?![\\w$])"
+        },
+        {
+          "comment": "方法名：method 后面那一个",
+          "name": "entity.name.function.nf",
+          "match": "(?<=\\bmethod\\s)([A-Za-z_$][A-Za-z0-9_$]*)(?![\\w$])"
+        },
+        {
+          "comment": "名字声明：let 与 const 后面那一个",
+          "name": "variable.other.readwrite.nf",
+          "match": "(?<=\\b(?:let|const)\\s)([A-Za-z_$][A-Za-z0-9_$]*)(?![\\w$])"
+        },
+        {
+          "comment": "new 后面跟的是类型名",
+          "name": "entity.name.type.nf",
+          "match": "(?<=\\bnew\\s)([A-Z_$]?[A-Za-z0-9_$]*)(?![\\w$])"
+        },
+        {
+          "comment": "继承与接口：base 与 implements 后面跟的是类型名",
+          "name": "entity.name.type.nf",
+          "match": "(?<=\\b(?:base)\\s)([A-Z_$]?[A-Za-z0-9_$]*)(?![\\w$])"
+        },
+        {
+          "comment": "标注与转换的目标类型：冒号、as、is、尖括号后面大写开头的名字",
+          "name": "entity.name.type.nf",
+          "match": "(?<=\\b(?:as|is)\\s)([A-Z_$]?[A-Za-z0-9_$]*)(?![\\w$])"
         }
       ]
     },
@@ -97,6 +151,20 @@
         }
       ]
     },
+    "members": {
+      "patterns": [
+        {
+          "comment": "点号后面接着调用括号的：方法与组函数",
+          "name": "entity.name.function.nf",
+          "match": "(?<=\\.)([A-Za-z_$][A-Za-z0-9_$]*)(?=\\s*\\()"
+        },
+        {
+          "comment": "点号后面不接括号的：字段、枚举成员与静态名字",
+          "name": "variable.other.property.nf",
+          "match": "(?<=\\.)([A-Za-z_$][A-Za-z0-9_$]*)(?![\\w$])"
+        }
+      ]
+    },
     "names": {
       "patterns": [
         {
@@ -105,27 +173,97 @@
         },
         {
           "name": "keyword.control.nf",
-          "match": "(?<![\\w$])(let|const|method|struct|class|interface|enum|type|import|export|shared|ref|base|this|new|return|as|is|throw|try|catch|if|else|while|for|in|until|switch|default|break|continue)(?![\\w$])"
+          "match": "(?<![\\w$])(let|const|method|struct|class|interface|enum|type|fn|import|export|shared|ref|base|this|new|return|as|is|throw|try|catch|finally|if|else|while|for|in|until|switch|default|break|continue)(?![\\w$])"
         },
         {
-          "name": "support.type.nf",
+          "name": "storage.type.primitive.nf",
           "match": "(?<![\\w$])(boolean|int|float|byte|unicode|string|object|list|dict|hashset|Calendar|Json|bytes|Socket|Listener|Process|Response)(?![\\w$])"
         },
         {
+          "comment": "标准库的组名（console、text、math 这些）",
           "name": "support.class.nf",
           "match": "(?<![\\w$])(console|text|number|math|time|file|path|environment|regular_expression|json|bytes|net|http|process)(?![\\w$])"
         },
         {
+          "comment": "没有点号也能调的那三个",
           "name": "support.function.nf",
           "match": "(?<![\\w$])(length|exit|args)(?![\\w$])"
+        },
+        {
+          "comment": "自定义类型名一律大写开头，落在标注与转换的位置上",
+          "name": "entity.name.type.nf",
+          "match": "(?<![\\w$.])([A-Z][A-Za-z0-9_$]*)(?![\\w$])"
+        }
+      ]
+    },
+    "calls": {
+      "patterns": [
+        {
+          "comment": "自己写的函数与方法的调用点：名字后面紧跟左括号",
+          "name": "entity.name.function.nf",
+          "match": "(?<![\\w$.])([a-z_$][A-Za-z0-9_$]*)(?=\\s*\\()"
+        }
+      ]
+    },
+    "parameters": {
+      "patterns": [
+        {
+          "comment": "参数表与字段表里的名字：后面是冒号与类型",
+          "name": "variable.parameter.nf",
+          "match": "(?<![\\w$.])([A-Za-z_$][A-Za-z0-9_$]*)(?=\\s*:(?!:))"
         }
       ]
     },
     "operators": {
       "patterns": [
         {
+          "comment": "长的分支必须排在前面：TextMate 取先命中的那一个，短的排前面会把 <= 切成 < 再加 =",
           "name": "keyword.operator.nf",
-          "match": "(\\+\\+|--|==|!=|<=|>=|&&|\\|\\||<<|>>|\\+|-|\\*|/|%|!|=|<|>|&|\\||\\^|~|\\(|\\)|\\{|\\}|\\[|\\]|:|,|;|\\.)"
+          "match": "(\\+\\+|--|==|!=|<=|>=|&&|\\|\\||<<|>>|\\+|-|\\*|/|%|!|=|<|>|&|\\||\\^|~)"
+        }
+      ]
+    },
+    "punctuation": {
+      "patterns": [
+        {
+          "name": "punctuation.section.block.begin.nf",
+          "match": "\\{"
+        },
+        {
+          "name": "punctuation.section.block.end.nf",
+          "match": "\\}"
+        },
+        {
+          "name": "punctuation.section.parens.begin.nf",
+          "match": "\\("
+        },
+        {
+          "name": "punctuation.section.parens.end.nf",
+          "match": "\\)"
+        },
+        {
+          "name": "punctuation.section.brackets.begin.nf",
+          "match": "\\["
+        },
+        {
+          "name": "punctuation.section.brackets.end.nf",
+          "match": "\\]"
+        },
+        {
+          "name": "punctuation.accessor.nf",
+          "match": "\\."
+        },
+        {
+          "name": "punctuation.separator.type.nf",
+          "match": ":"
+        },
+        {
+          "name": "punctuation.separator.comma.nf",
+          "match": ","
+        },
+        {
+          "name": "punctuation.terminator.statement.nf",
+          "match": ";"
         }
       ]
     }

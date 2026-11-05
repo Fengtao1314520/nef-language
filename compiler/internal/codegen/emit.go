@@ -55,6 +55,12 @@ var signBitMask int64 = -1 << 63
 // inside the code section.
 func Emit(p *ir.Prog, l *Linker, d *DataLayout) (int, error) {
 	e := &em{l: l, a: l.Asm(), d: d, fn: map[string]x64.Label{}, lab: map[key]x64.Label{}}
+	// 用户代码从偏移 0 起排，标号打在第一个字节上：调用链表里那些返回地址都按这一个原点算差值。
+	e.anchor = l.Label()
+	l.Asm().Mark(e.anchor)
+	// 运行期那一大块接在用户代码之后（assemble 里 base 就是这一个位置），所以"用户代码之后的
+	// 第一个字节"就在这儿打一个标号：抛出那一步分清帧链上哪一层还在用户代码里要用它。
+	e.codeEnd = l.Label()
 	for _, f := range p.Funcs {
 		if strings.HasPrefix(f.Name, "@") {
 			return 0, fmt.Errorf("函数名 %q 以 @ 开头，那是运行期例程的命名空间", f.Name)
@@ -66,6 +72,8 @@ func Emit(p *ir.Prog, l *Linker, d *DataLayout) (int, error) {
 			return 0, fmt.Errorf("%s：%w", f.Name, err)
 		}
 	}
+	// 用户代码到这一个位置就排完了：运行期那一整块从这儿往后接（assemble 里 base 就是它）。
+	l.Asm().Mark(e.codeEnd)
 	entry, ok := e.fn[p.Entry]
 	if !ok {
 		return 0, fmt.Errorf("入口 %q 不存在", p.Entry)
@@ -97,6 +105,58 @@ type em struct {
 	// maxOut 是当前函数所有调用里"第五个及以后"实参的最大个数：帧底按它留槽位，
 	// 出参才不会从下面盖进自己的槽区；早先只留一格，会盖进去。
 	maxOut int
+	// anchor 是用户代码第一个字节上打的那个标号：调用链表里存的返回地址是"从这里往后数第几格"，
+	// 开局那一步把它的绝对地址写进运行期的 `codeBase`，抛出时拿栈上的返回地址减掉它才查表。
+	anchor x64.Label
+	// codeEnd 是用户代码之后的第一个字节上那个标号：运行期那一大块从它开始，抛出那一步沿帧链
+	// 往外走时拿它分清"这一个返回地址在不在用户代码里"（只在开了调试信息那一趟写进运行期）。
+	codeEnd x64.Label
+	// trace 是已经填进调用链表的项数：与 BuildData 那一路的计数同一个顺序。
+	trace int
+}
+
+// traceInit 在开局那一步写三个位置：用户代码的起点地址、调用链表的位置、表里的项数。
+// 一条程序一次，函数开场一条指令也不多——表放在数据段里，抛出时现查，才不必在每一帧留一条指令。
+// 表是空的（整个程序没有一次用户函数调用）就三个位置都不写，运行期读出 0，链那一栏自然一行也不打。
+//
+// en: traceInit fills three slots at start-up: the address of the first byte of user code, where
+// the call-trace table sits, and how many rows it has. Once per program - no function grows an
+// extra instruction at its top, because the table lives in the data section and is looked up when
+// something throws. With an empty table (a program without a single call of a user function)
+// nothing is written, the runtime reads zeros and prints no chain.
+func (e *em) traceInit() {
+	if e.d.TraceN == 0 {
+		return
+	}
+	e.a.LeaLabel(x64.RAX, e.anchor)
+	e.l.StoreRtData("codeBase", x64.RAX)
+	e.l.LeaGlobal(x64.RAX, e.d.TraceBase)
+	e.l.StoreRtData("traceBase", x64.RAX)
+	e.a.MovImm(x64.RCX, int64(e.d.TraceN))
+	e.l.StoreRtData("traceCount", x64.RCX)
+}
+
+// dbgInit 在开局那一步再摆两处位置，只在开了调试信息那一趟写：
+// 用户代码之后的第一个字节（抛出那一步沿帧链往外走，拿它分清哪一层还在用户代码里），
+// 以及"宿主回调地址那一个位置的位置"（那一个位置在用户数据段里，宿主只认它，
+// 运行期隔着半截数据段拿不到它的偏移，所以开局把它的地址抄一份给自己，回调地址仍旧写在那一处）。
+// 不开调试那一趟两个都不写：抛出那一步读出来是 0，陷阱整段跳过。
+//
+// en: dbgInit places two more positions at start-up, and only when the build carries debug
+// information: the first byte after user code (the throw walks the frame chain outward and uses
+// it to tell which layer is still user code), and the position OF the host-callback slot. That
+// slot lives in the user's half of the data section and the host only knows that one, while the
+// runtime cannot reach an offset across the other half - so start-up copies its address over, and
+// the callback itself still gets written into that slot. A build without debug information writes
+// neither: the throw reads zero and skips the whole stretch.
+func (e *em) dbgInit() {
+	if e.d.DbgHost < 0 {
+		return
+	}
+	e.a.LeaLabel(x64.RAX, e.codeEnd)
+	e.l.StoreRtData("codeEnd", x64.RAX)
+	e.l.LeaData(x64.RAX, e.d.DbgHost)
+	e.l.StoreRtData("dbgHost", x64.RAX)
 }
 
 // maxOutOf 扫一遍函数体里的调用，数出第五个及以后的实参最多要几格。
@@ -106,7 +166,12 @@ type em struct {
 func maxOutOf(f *ir.Func) int {
 	m := 0
 	for _, in := range f.Body {
-		if c, ok := in.(*ir.Call); ok {
+		switch c := in.(type) {
+		case *ir.Call:
+			if n := len(c.Args) - 4; n > m {
+				m = n
+			}
+		case *ir.CallValue:
 			if n := len(c.Args) - 4; n > m {
 				m = n
 			}
@@ -124,6 +189,8 @@ func (e *em) function(f *ir.Func, id int32, entry bool) error {
 	if entry {
 		// 栈底要在第一帧之前就算好：往后每一帧开场都比它一次。
 		e.l.StackFloorSet(e.d.StackFloor)
+		e.traceInit()
+		e.dbgInit()
 	}
 	e.l.StackGuard(e.d.StackFloor)
 	// 实参还在 rcx／rdx／r8／r9 与 xmm0～3 里，第一步就搬进本帧的槽。
@@ -260,8 +327,16 @@ func (e *em) inst(f *ir.Func, in ir.Inst) error {
 	case *ir.Call:
 		return e.call(x)
 
+	case *ir.CallValue:
+		return e.callValue(x)
+
 	case *ir.PushHandler:
 		e.a.LeaLabel(x64.RCX, e.label(f, x.Catch))
+		if x.Default {
+			// 顶上那一条默认处理的落点也抄一份给运行期：抛出那一步问"有没有人接住"要把它排除掉。
+			// rcx 里的值一条指令也不动，下面照样是 @push_handler 的那一个入参。
+			e.l.StoreRtData("defaultHandler", x64.RCX)
+		}
 		e.a.Call(e.l.RtLabel("@push_handler"))
 
 	case *ir.PushAbandon:
@@ -274,9 +349,24 @@ func (e *em) inst(f *ir.Func, in ir.Inst) error {
 	case *ir.PopHandler:
 		e.a.Call(e.l.RtLabel("@pop_handler"))
 
+	case *ir.SetPos:
+		// 摆位置就两句：把那条位置文本的地址取进 rcx，再直接写进运行期那一个静态格。
+		// 原来是发一次 @set_pos 调用，那个调用在循环里每轮都要跑，实测把下标读写与函数调用
+		// 两条负载各拖慢一倍上下。
+		if err := e.into(x64.RCX, x.S); err != nil {
+			return err
+		}
+		e.l.StoreRtData("throwAt", x64.RCX)
+
 	case *ir.Catch:
-		// @throw 把码留在 rax、话留在 rdx，这里把它们摆进接住块的两个局部量
-		return e.store2(x.D, x64.RAX, x.E, x64.RDX)
+		// @throw 把码留在 rax、话留在 rdx、位置留在 r9，这里把它们摆进接住块的局部量
+		if err := e.store2(x.D, x64.RAX, x.E, x64.RDX); err != nil {
+			return err
+		}
+		if x.A == nil {
+			return nil
+		}
+		return e.store(x.A, x64.R9)
 
 	case *ir.Ret:
 		if x.Has {
@@ -630,10 +720,60 @@ func (e *em) call(x *ir.Call) error {
 		e.a.MovStore(x64.RBP, outArgOff(e.slots, e.maxOut, i+1), x64.RAX)
 	}
 	e.a.Call(target)
+	if x.Site != nil {
+		// 表里这一项的第 0 格填的是那条 call 之后的第一个字节——正是被调函数返回时要落回的那个
+		// 返回地址。`e.trace` 与 BuildData 那一路的 countTrace 同一个走法（函数在 `Prog.Funcs`
+		// 里的先后、一个函数体内指令的先后），两边数出来的第几条就是表里的第几项。
+		e.d.pokeTraceCode(e.trace, int64(e.a.PC()))
+		e.trace++
+	}
 	if !x.HasD {
 		return nil
 	}
 	if x.D == nil {
+		return nil
+	}
+	if x.RT == ir.TFlt {
+		return e.storeX(x.D, 0)
+	}
+	return e.store(x.D, x64.RAX)
+}
+
+// callValue 是按一个函数值调用：地址先取进 r11，再按与 call 同一套摆法放实参，最后 call r11。
+// 先取地址是因为摆第五个及以后的实参要用 rax，而 r11 在本机的调用约定里是调用方自己用的临时寄存器。
+//
+// en: callValue is a call through a function value: the address goes into r11 first, the
+// arguments follow the same placement call uses, and the last word is call r11. The address is
+// taken first because a fifth and later argument travels through rax, while r11 is a scratch
+// register the caller owns under this machine's calling convention.
+func (e *em) callValue(x *ir.CallValue) error {
+	if err := e.into(x64.R11, x.Target); err != nil {
+		return err
+	}
+	for i, a := range x.Args {
+		t := ir.TInt
+		if i < len(x.FT) {
+			t = x.FT[i]
+		}
+		if i < 4 {
+			if t == ir.TFlt {
+				if err := e.intoX(i, a); err != nil {
+					return err
+				}
+				continue
+			}
+			if err := e.into(intArgs[i], a); err != nil {
+				return err
+			}
+			continue
+		}
+		if err := e.into(x64.RAX, a); err != nil {
+			return err
+		}
+		e.a.MovStore(x64.RBP, outArgOff(e.slots, e.maxOut, i+1), x64.RAX)
+	}
+	e.a.CallReg(x64.R11)
+	if !x.HasD || x.D == nil {
 		return nil
 	}
 	if x.RT == ir.TFlt {
@@ -669,6 +809,12 @@ func (e *em) into(reg int, v ir.Val) error {
 		e.l.LoadGlobal(reg, e.d.Global[x])
 	case ir.S:
 		e.l.LeaData(reg, e.d.String[x])
+	case ir.Fn: // 函数名按值读出来的那一次：交给那个位置的是它自己的入口地址
+		l, err := e.callee(string(x))
+		if err != nil {
+			return err
+		}
+		e.a.LeaLabel(reg, l)
 	case ir.D: // 形状描述：交给运行期的是这条描述自己的地址
 		e.l.LeaData(reg, e.d.Desc[x])
 	case ir.KF:

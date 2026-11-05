@@ -90,7 +90,8 @@ func TestSampleLineCount(t *testing.T) {
 	if err := os.WriteFile(p, []byte("甲\n乙丙\n\n丁\n"), 0o644); err != nil {
 		t.Fatalf("备料失败：%v", err)
 	}
-	r := exetest.Run(t, buildAt(t, path, src), "linecount.exe", filepath.ToSlash(p))
+	exe := buildAt(t, path, src)
+	r := exetest.Run(t, exe, "linecount.exe", filepath.ToSlash(p))
 	lines := map[string]bool{}
 	for _, l := range strings.Split(strings.TrimSuffix(r.Stdout, "\n"), "\n") {
 		lines[l] = true
@@ -106,9 +107,15 @@ func TestSampleLineCount(t *testing.T) {
 	}
 
 	// 一个参数都不给：走 exit (100, …) 那条路径
-	none := exetest.Run(t, buildAt(t, path, src), "linecount.exe")
+	none := exetest.Run(t, exe, "linecount.exe")
 	if !strings.Contains(none.Stdout, "要给我一个文件路径") || none.Code != 100 {
 		t.Fatalf("不给参数时得到 %q 码 %d，要含那句提醒、码 100", none.Stdout, none.Code)
+	}
+
+	// 路径给了但读不到：接住之后仍然要报失败，不能印一句就退出 0
+	bad := exetest.Run(t, exe, "linecount.exe", filepath.ToSlash(filepath.Join(dir, "没有这个文件.txt")))
+	if !strings.Contains(bad.Stdout, "读不了: 10041") || bad.Code != 1 {
+		t.Fatalf("读不到那个文件时得到 %q 码 %d，要含「读不了: 10041」、码 1", bad.Stdout, bad.Code)
 	}
 }
 

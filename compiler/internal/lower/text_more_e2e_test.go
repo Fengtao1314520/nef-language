@@ -211,7 +211,7 @@ let big:float = 1000.0
 let tiny:float = 0.0 - 1000.0
 console.print(math.exponential(big) > 1.0, math.exponential(tiny) == 0.0)
 console.print(math.exponential(math.natural_log(5.0)) > 4.9999999, math.exponential(math.natural_log(5.0)) < 5.0000001)
-// 连续调用二十次：fscale 压在寄存器栈上的 k 值必须当场取走，否则 x87 栈八次就满，后续全部算成 NaN
+// 连续调用二十次：fscale 压在寄存器栈上的 k 值必须当场取回，否则 x87 栈八次就满，后续全部算成 NaN
 let acc:float = 0.0
 for (i:int in 0 until 20) {
     acc = acc + math.exponential(0.1)

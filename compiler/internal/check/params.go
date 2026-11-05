@@ -139,10 +139,12 @@ var stdParamNames = map[string][]string{
 
 	// JSON
 	"json.at":         {"doc", "key"},
+	"json.take":       {"doc", "key"},
 	"json.count":      {"doc"},
 	"json.explain":    {"text"},
 	"json.has":        {"doc", "key"},
 	"json.item":       {"doc", "index"},
+	"json.take_item":  {"doc", "index"},
 	"json.keys":       {"doc"},
 	"json.kind":       {"doc"},
 	"json.parse":      {"text"},
@@ -280,44 +282,68 @@ func SigText(head, key string, params []Param, ret Type, vararg bool) string {
 	var b strings.Builder
 	b.WriteString(head)
 	b.WriteByte('(')
-	switch {
-	case vararg:
-		b.WriteString("...")
-		if len(params) > 0 && params[0].Name != "" {
-			b.WriteString(params[0].Name)
-		} else {
-			b.WriteString(stdParamName(key, 0))
-		}
-	default:
-		parts := make([]string, 0, len(params))
-		for i, p := range params {
-			name := p.Name
-			if name == "" {
-				name = stdParamName(key, i)
-			}
-			text := ""
-			if p.Typ.Kind != ErrT {
-				text = p.Typ.String()
-			}
-			// 只读借用在签名里照写：编辑器显示的那一行要与源码一致。
-			head := ""
-			if p.takesRef() {
-				head = "ref "
-			}
-			switch {
-			case name != "" && text != "":
-				parts = append(parts, head+name+": "+text)
-			case name != "":
-				parts = append(parts, head+name)
-			default:
-				parts = append(parts, head+text)
-			}
-		}
-		b.WriteString(strings.Join(parts, ", "))
-	}
+	b.WriteString(strings.Join(ParamLabels(key, params, vararg), ", "))
 	b.WriteByte(')')
 	if ret.Kind != NoRet && ret.Kind != ErrT {
 		b.WriteString(": " + ret.String())
 	}
 	return b.String()
+}
+
+// ParamLabels 是签名里每一个参数那一段文字，按位置排。编辑器做参数提示时按这一张表指出
+// 光标正落在第几个参数上；变长的那一种只有一格（`...values`），实参写多少个都只给一条。
+//
+// en: ParamLabels returns the text of each parameter in a signature, in order. The editor uses it
+// for parameter hints - which slot the cursor sits in. A variadic form has one slot (`...values`),
+// so exactly one label comes back however many arguments are written.
+func ParamLabels(key string, params []Param, vararg bool) []string {
+	if vararg {
+		name := ""
+		if len(params) > 0 {
+			name = params[0].Name
+		}
+		if name == "" {
+			name = stdParamName(key, 0)
+		}
+		if name == "" {
+			name = "values"
+		}
+		return []string{"..." + name}
+	}
+	out := make([]string, 0, len(params))
+	for i, p := range params {
+		out = append(out, paramLabel(key, i, p))
+	}
+	return out
+}
+
+// paramLabel 写一个参数在签名里的那一段：`ref 名字: 类型`。名字与类型都可能说不了，
+// 说不了的那一样就少写（`length` 收三种容器、`math.minimum` 的第二个跟着第一个走，
+// 那一个位置没有语言里能写的类型）。
+//
+// en: paramLabel writes one parameter as it appears in a signature: `ref name: type`. Either half
+// may be unstatable - `length` takes three container kinds and `math.minimum`'s second parameter
+// follows the first - and whichever cannot be said is simply left out.
+func paramLabel(key string, i int, p Param) string {
+	name := p.Name
+	if name == "" {
+		name = stdParamName(key, i)
+	}
+	text := ""
+	if p.Typ.Kind != ErrT {
+		text = p.Typ.String()
+	}
+	// 只读借用在签名里照写：编辑器显示的那一行要与源码一致。
+	head := ""
+	if p.takesRef() {
+		head = "ref "
+	}
+	switch {
+	case name != "" && text != "":
+		return head + name + ": " + text
+	case name != "":
+		return head + name
+	default:
+		return head + text
+	}
 }

@@ -10,7 +10,7 @@ import (
 // TestOverwrittenNameFreesTheOldBlock 验证"覆盖一个名字就析构它换下的旧值"（容器位置的规则应用到名字一侧）。
 //
 // 度量的是每多一圈多要几个字节（不用绝对值的原因见 heapSlope 处的说明）。这四行都应是 0；
-// 修复前在同一台机器上的实测：struct 每圈 48、class 16、list 88（两万圈分别 960,160／320,152／1,760,232），
+// 修复前在同一台机器上的实测：struct 每轮 48、class 16、list 88（两万圈分别 960,160／320,152／1,760,232），
 // dict 那条没有单独量过，与 list 遵循同一条规则。
 func TestOverwrittenNameFreesTheOldBlock(t *testing.T) {
 	cases := []struct {
@@ -64,7 +64,7 @@ console.print(d["甲"])
 // `@free` 能识别它不在堆上，释放它是空操作，所以登记它不会误析构别人持有的内存。
 //
 // 三段各检查一件事：读出的值仍是最新一份；覆盖只发生在 `if` 里的那条路径也不报错（编译器无法
-// 静态确定该位置此刻装的是哪一份）；每圈赋新文本不再留块（此前每圈 32，两万圈 640,136）。
+// 静态确定该位置此刻装的是哪一份）；每轮赋新文本不再留块（此前每轮 32，两万圈 640,136）。
 // 量堆的两步放在实际运行之后：heapAt 会设 NEF_HEAP，之后的 run() 输出会多一行 `heap …`。
 func TestStaticLiteralNameIsAHolder(t *testing.T) {
 	const tmpl = `let s:string = "甲"

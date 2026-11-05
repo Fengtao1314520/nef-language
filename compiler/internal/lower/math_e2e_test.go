@@ -126,7 +126,7 @@ console.print(ok, spread, around)
 }
 
 // TestRandomEmptyRangeThrows 验证空范围规则：上界取不到，所以 `起 == 止` 也是空范围；
-// 范围反写、跨过零往回写，三种都报数值组的兜底 10020 号。
+// 范围反写、跨过零往回写，三种都报数值组的默认错误码 10020 号。
 func TestRandomEmptyRangeThrows(t *testing.T) {
 	for _, src := range []string{
 		"console.print(math.random(5, 5))\n",
@@ -145,7 +145,7 @@ func TestRandomCatchSees20(t *testing.T) {
 	got, code := run(t, `let lo:int = 3
 try {
     console.print(math.random(lo, lo))
-} catch (c, msg) {
+} catch (c, msg, at) {
     console.print(c, length(msg) > 0)
 }
 `)

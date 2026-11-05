@@ -5,14 +5,14 @@
 //
 //	./nf.exe webtest/examples/form_login.nf "C:/Program Files/Google/Chrome/Application/chrome.exe" /临时/profile <仓库目录>/webtest/fixtures
 //
-// 这一份用的写法是"定位交回一个元素，动作都在那个元素上做"；Page 上那一份同名快捷
+// 这一份用的写法是"定位返回一个元素，动作都在那个元素上做"；Page 上那一份同名快捷
 // （read_text_css、click_css 那一族）在最后也用了一次，两种是同一件事的两种写法。
 
 import wt from "libs/web_test"
 
-let exe:string = args[0]
-let profile:string = args[1]
-let fixdir:string = args[2]
+let exe:string = args[0] + ""
+let profile:string = args[1] + ""
+let fixdir:string = args[2] + ""
 let shot:string = profile + "/login.png"
 
 // 启动一个 headless 浏览器、连上、开一页。等到那一页真正开始加载并报告 complete 才返回。

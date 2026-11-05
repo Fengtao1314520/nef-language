@@ -126,15 +126,15 @@ func TestUnterminatedString(t *testing.T) {
 }
 
 func TestKeywordsAndReservedAreListed(t *testing.T) {
-	for _, w := range []string{"let", "const", "method", "struct", "class", "interface", "enum", "type", "import", "export",
-		"shared", "ref", "base", "this", "new", "return", "as", "is", "throw", "try", "catch", "if", "else", "while", "for",
+	for _, w := range []string{"let", "const", "method", "struct", "class", "interface", "enum", "type", "fn", "import", "export",
+		"shared", "ref", "base", "this", "new", "return", "as", "is", "throw", "try", "catch", "finally", "if", "else", "while", "for",
 		"in", "until", "switch", "default", "break", "continue", "true", "false", "null"} {
 		if !Keywords[w] {
 			t.Errorf("关键字表漏了 %s", w)
 		}
 	}
-	if len(Keywords) != 34 {
-		t.Errorf("关键字一共该是 34 个，实际 %d", len(Keywords))
+	if len(Keywords) != 36 {
+		t.Errorf("关键字一共该是 36 个，实际 %d", len(Keywords))
 	}
 	for _, w := range []string{"boolean", "int", "float", "byte", "unicode", "string", "object",
 		"list", "dict", "hashset", "Calendar", "length", "exit", "console", "text", "number", "math", "time",

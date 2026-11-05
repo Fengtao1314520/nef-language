@@ -187,13 +187,13 @@ UTF-8 的续字节都大于 `0x80`，不会与 ASCII 字母的字节值相同，
 ```nf
 try {
     console.print(text.to_int("30"))
-} catch (code, msg) {
+} catch (code, msg, at) {
     console.print("这不是数字:", code)
 }
 
 try {
     console.print(text.to_int("三十"))
-} catch (code, msg) {
+} catch (code, msg, at) {
     console.print("这不是数字:", code)
 }
 ```

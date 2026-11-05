@@ -175,7 +175,7 @@ func TestRegexCatchSees71(t *testing.T) {
 	got, code := run(t, `let pat:string = "a{2}"
 try {
     console.print(regular_expression.match("aa", pat))
-} catch (code, msg) {
+} catch (code, msg, at) {
     console.print(code, "|", length(msg) > 0)
 }
 `)

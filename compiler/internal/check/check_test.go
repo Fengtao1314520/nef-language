@@ -25,7 +25,7 @@ func mustFile(t *testing.T, path, src string) *ast.File {
 }
 
 // expectErr 跑一遍检查，要求其中一句报错与 want 一字不差。比的是 Error.Msg 那一句本体——
-// "t.nf 第 3 行第 1 列：" 那个前缀不在 Msg 里。半句过不了，改一个字就红。
+// "t.nf 第 3 行第 1 列：" 那个前缀不在 Msg 里。半句过不了，改一个字就失败。
 func expectErr(t *testing.T, src, want string) {
 	t.Helper()
 	errs := Run(&Program{Files: []*ast.File{mustFile(t, "t.nf", src)}, Entry: "t.nf"})
@@ -169,12 +169,14 @@ func TestConsumedLedger(t *testing.T) {
 }
 
 // TestReceiverIsReadOnlyBorrow 覆盖：方法接收者是只读借用。
-// 能读、能就地改这个对象、能连着调；把它交出去——`return this`、当参数、装箱——三条路都在编译期拒绝。
+// 能读、能就地改这个对象、能连着调、能顺着装箱拆箱读；把它交出去——`return this`、当参数、
+// 装进盒子再收进一个名字——都在编译期拒绝（顺着读不改动盒子，接手才拒）。
 func TestReceiverIsReadOnlyBorrow(t *testing.T) {
 	expectOK(t, "class Bag {\n    n:int\n\n    method bump():int {\n        n = n + 1\n        return n\n    }\n}\nlet b:Bag = new Bag(n: 1)\nconsole.print(b.bump(), b.n)\n")
+	expectOK(t, "class Bag {\n    n:int\n\n    method peek():boolean {\n        return (this as object) is Bag\n    }\n}\nlet b:Bag = new Bag(n: 1)\nconsole.print(b.peek())\n")
 	expectErr(t, "class Bag {\n    n:int\n\n    method out():Bag {\n        return this\n    }\n}\n", "this 是方法接收者的只读借用，不能交出去")
 	expectErr(t, "class Bag {\n    n:int\n\n    method handOff() {\n        eat(this)\n    }\n}\nmethod eat(b:Bag) {\n}\n", "this 是方法接收者的只读借用，不能交给参数")
-	expectErr(t, "class Bag {\n    n:int\n\n    method boxed():object {\n        return this as object\n    }\n}\n", "只读借用不能拆盒")
+	expectErr(t, "class Bag {\n    n:int\n\n    method boxed():object {\n        return this as object\n    }\n}\n", "读出来的那一份是只读借用，不能收到名字里、写进字段或者交给调用方：文本拷一份，能摘出来的位置用 remove_at 或 json.take 摘出来")
 }
 
 // TestContainerLiteralTransfers 覆盖：容器字面量里的引用类型元素
@@ -190,6 +192,50 @@ func TestContainerLiteralTransfers(t *testing.T) {
 	expectOK(t, "struct Point {\n    x:int\n}\nlet p:Point = Point { x: 1 }\nlet ps:list<Point> = [p, p]\nconsole.print(p.x, length(ps))\n")
 	// 遍历交出的那个位置本来就是借用，装进字面量时按借用的规则报错
 	expectErr(t, "class Bag {\n    n:int\n}\nlet cs:list<Bag> = [new Bag(n: 1)]\nfor (c:Bag in cs) {\n    let keep:list<Bag> = [c]\n}\n", "遍历交出的 c 是只读借用，不能交出去")
+}
+
+// TestDictIndexStoreTransfers 覆盖 `d[键] = 值`：键与值都交进桶里那一个位置，两个名字当场作废，
+// 与 `d.add(键, 值)` 是同一条记录。值类型那一侧的键（`int`）是拷贝，名字照旧能用。
+//
+// en: TestDictIndexStoreTransfers covers `d[key] = value`: both the key and the value move into
+// one bucket position and both names are voided, the same ledger as `d.add(key, value)`. A
+// value-typed key such as `int` is copied, so its name stays usable.
+func TestDictIndexStoreTransfers(t *testing.T) {
+	expectErr(t, "let d:dict<string, int> = {}\nlet k:string = \"甲\" + \"乙\"\nd[k] = 1\nconsole.print(k)\n", "k 已经交出去了，这个名字不能再写")
+	expectErr(t, "let src:dict<string, int> = {\"甲\": 1}\nlet dst:dict<string, int> = {}\nfor (k:string in src) {\n    dst[k] = 1\n}\n", "遍历交出的 k 是只读借用，不能交出去")
+	expectOK(t, "let d:dict<string, int> = {}\nlet k:string = \"甲\" + \"乙\"\nd[k] = 1\nconsole.print(length(d))\n")
+	expectOK(t, "let d:dict<int, string> = {}\nlet i:int = 1\nlet v:string = \"甲\" + \"乙\"\nd[i] = v\nconsole.print(i, length(d))\n")
+}
+
+// TestFnValueRules 钉住函数当值这一档的四条拒绝：方法不能按值交出去、
+// 签名对不上就是类型不符、不参与归还的那一类参数与返回值才算数、
+// 函数值进不了容器也装不进盒子、也打印不出来。
+//
+// en: TestFnValueRules pins the four refusals around functions used as values: a method is not
+// handed over, a signature that does not match is a type mismatch, only parameters and return
+// types that take no part in dismantling count, and a function value enters no container, fits in
+// no box and prints nothing.
+func TestFnValueRules(t *testing.T) {
+	two := "method twice(v:int):int {\n    return v * 2\n}\n"
+	expectOK(t, two+"let f:fn(int):int = twice\nconsole.print(f(3))\n")
+	// 方法身上带着接收者，交出去那一份地址说不清接收者归谁：这一版只接顶层函数
+	expectErr(t, "class C {\n    method m(v:int):int {\n        return v\n    }\n}\nlet f:fn(int):int = C.m\n", "C 是类型名，不是值（引用类型）")
+	// 签名对不上：参数个数与借用那一层都算签名
+	expectErr(t, two+"let f:fn(int, int):int = twice\n", "这里要的是 fn(int,int):int，给的是 fn(int):int：签名要对得上，参数怎么收也要一样")
+	expectErr(t, "method by(ref a:string, ref b:string):int {\n    return length(a) - length(b)\n}\nlet f:fn(string, string):int = by\n", "这里要的是 fn(string,string):int，给的是 fn(ref string,ref string):int：签名要对得上，参数怎么收也要一样")
+	// 参数是要归还的那一类又没写 ref
+	expectErr(t, "method shout(s:string):int {\n    return length(s)\n}\nlet f:fn(string):int = shout\n", "把 shout 当值交出去不行：它的第 1 个参数是 string，这样的参数要么不参与归还，要么写成 ref")
+	// 返回的是要归还的那一类
+	expectErr(t, "method make(v:int):string {\n    return \"甲\"\n}\nlet f:fn(int):string = make\n", "把 make 当值交出去不行：它返回 string，这一版只接不参与归还的返回类型")
+	// 容器、盒子、打印这三处
+	expectErr(t, two+"let box:list<fn(int):int> = []\n", "fn(int):int 进不了 list：函数值只待在名字、实参、返回值与字段里")
+	expectErr(t, two+"let f:fn(int):int = twice\nlet o:object = f as object\n", "fn(int):int 装不进盒子：盒子里那一个位置要靠类型字认回来，函数值没有")
+	expectErr(t, two+"let f:fn(int):int = twice\nconsole.print(f)\n", "函数值打印不出来：它是机器代码里的一个入口，不是一个可展示的数")
+	// fn 是关键字，不能拿去做名字
+	expectErr(t, "let fn:int = 1\n", "fn 是关键字，不能拿去做名字")
+	// 通过值调用的实参个数按那一份函数类型算
+	expectErr(t, two+"let f:fn(int):int = twice\nconsole.print(f(1, 2))\n", "f 只收 1 个参数，这里给了 2 个")
+	expectErr(t, two+"let f:fn(int):int = twice\nconsole.print(f())\n", "f 需要 1 个参数，这里只给了 0 个")
 }
 
 // TestNewFieldTransfers 覆盖 `new C(f: a)`：字段初值与容器字面量那个位置是同一份记录——
@@ -217,7 +263,7 @@ func TestNewFieldTransfers(t *testing.T) {
 //
 // 语言早就定了这一读是过户（交完那个位置空着，后端把那一处写空），但检查阶段不记名字的账，
 // 于是"下一次读它是运行期 10092"这一种只有跑起来才看得见——同一条用在容器那个位置上时，
-// "被读走的那个位置交回 null"是写明的，字段这一侧以前没有定死。
+// "被读走的那个位置返回 null"是写明的，字段这一侧以前没有定死。
 func TestFieldAsArgumentIsRefused(t *testing.T) {
 	const bag = "class Bag {\n    n:int\n}\nclass Hold {\n    item:Bag\n    label:string\n    count:int\n}\n"
 	const refuse = " 是字段，直接交出去之后那个位置就空了：先接给一个名字，再拿那个名字交出去"
@@ -442,7 +488,7 @@ func TestImportExport(t *testing.T) {
 	errs = twoFiles(t,
 		"import { helper } from \"./b.nf\"\nconsole.print(helper(1))\n",
 		"method helper(n:int):int { return n }\n")
-	if !strings.Contains(strings.Join(msgs(errs), "|"), "没有对外交出") {
+	if !strings.Contains(strings.Join(msgs(errs), "|"), "没有导出") {
 		t.Fatalf("没 export 的名字不该拿得到：%v", msgs(errs))
 	}
 }
@@ -709,7 +755,7 @@ method name(d:D):string {
 `, "name 标了返回类型 string，但有一条路没 return")
 }
 
-// "return 交回引用类的值同样是交出"这一条：检查器原先只做类型检查，
+// "return 返回引用类的值同样是交出"这一条：检查器原先只做类型检查，
 // 交出去之后原名还能写，是实现漏掉的一处。
 // 两条一起看才算覆盖完整：引用类型算交出，值类型只是整份拷贝、原名照旧能用。
 func TestReturnTransfersReferenceOnly(t *testing.T) {
@@ -779,7 +825,7 @@ func TestJsonCannotBeBoxed(t *testing.T) {
 // TestBoxTwiceRefused 覆盖：已经在盒子里的值不必再装箱。
 // 先前 `o as object`（`o` 已经写着 `object`）检查放行、发码那一步才报
 // "盒子转盒子这一版不发码"——那是一种没有意义的写法，被说成了这一版还没做。
-// 装一次照旧过，拆盒那一侧（`object` 拆成具名类型）也照旧过，运行结果对不对由另一条覆盖（10011 号）。
+// 装一次照旧过，拆箱那一侧（`object` 拆成具名类型）也照旧过，运行结果对不对由另一条覆盖（10011 号）。
 func TestBoxTwiceRefused(t *testing.T) {
 	const pre = "class Bag {\n    n:int\n}\nlet o:object = new Bag(n: 1) as object\n"
 	expectErr(t, pre+"let p:object = o as object\nconsole.print(p)\n", "object 不必再装箱：它已经在盒子里，直接用它就行")

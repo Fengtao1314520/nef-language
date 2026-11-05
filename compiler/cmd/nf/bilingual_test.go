@@ -6,9 +6,9 @@
 //
 //	compiler/ 里贴在顶层声明与文件头上的那一段中文注释，同一下面要有一段以 `// en: ` 起头的英文；
 //	webtest/libs 那两个包里 export 出去的声明，注释里要有 en:，两份门面上的还要有 例：那一段；
-//	samples/ 那七份示例程序的文件头要有 en:（这一份文件本身就是用法示例，不再另要示例）。
+//	samples/ 那八份示例程序的文件头要有 en:（这一份文件本身就是用法示例，不再另要示例）。
 //
-// Go 那一条按目录开：一个目录全做完了才进 bilingualDone，进去之后漏一处就红。
+// Go 那一条按目录开：一个目录全做完了才进 bilingualDone，进去之后漏一处就失败。
 // 表里还没进去的目录只统计、不判，为的是让进度看得见而不是把没做完的事藏起来。
 package main
 
@@ -192,7 +192,7 @@ func allGoDirs(t *testing.T, root string) []string {
 
 // TestGoFilesCarryLicenseHeaders 查 compiler/ 里每一份 .go 文件的头一行。
 // compiler/ 里全部 .go 文件已按 `nef-licensing/templates/FILE_HEADER.txt` 的模板加上许可头，
-// 这条检查管的是往后的新文件：漏一处就红，不用等合规扫描工具在仓库外面报。
+// 这条检查管的是往后的新文件：漏一处就失败，不用等合规扫描工具在仓库外面报。
 // `testdata/` 里的东西是编译器的输入样本，不进这一条。
 func TestGoFilesCarryLicenseHeaders(t *testing.T) {
 	root := filepath.Join(repoRoot(t), "compiler")
@@ -289,7 +289,7 @@ func TestWebTestExportsAreBilingual(t *testing.T) {
 	t.Logf("webtest 两个包里 %d 条对外声明都配了英文，两份门面上的还配了示例", total)
 }
 
-// TestSampleHeadersAreBilingual 查七份示例程序的文件头。
+// TestSampleHeadersAreBilingual 查八份示例程序的文件头。
 func TestSampleHeadersAreBilingual(t *testing.T) {
 	dir := filepath.Join(repoRoot(t), "samples")
 	fs, err := filepath.Glob(filepath.Join(dir, "*.nf"))

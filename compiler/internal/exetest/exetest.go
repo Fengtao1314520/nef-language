@@ -14,7 +14,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-// Package exetest 把"把产物写到临时目录、真跑一遍、核对输出"这段共用出去。
+// Package exetest 把"把产物写到临时目录、实际运行一遍、核对输出"这段共用出去。
 //
 // 后端每一层都要靠它验收：pe 要验封装、运行期要验例程、codegen 要验整条链。
 // 这段逻辑原先在 pe 与 runtime 的测试里各有一份，一份比另一份少核退出码。

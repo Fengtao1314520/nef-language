@@ -420,7 +420,7 @@ func (a *Asm) MovLoadRIP(dst int) int { return a.ripOp([]byte{0x8B}, true, dst) 
 // numbers here).
 func (a *Asm) MovFromTeb(dst int, off int32) {
 	a.w(0x65)
-	a.rex(true, dst, 4, 4) // 4 = "这一格没有"，所以 REX 里只有 W 与 dst 那一位
+	a.rex(true, dst, 4, 4) // 4 = "那个位置没有"，所以 REX 里只有 W 与 dst 那一位
 	a.w(0x8B)
 	a.w(byte(dst&7)<<3 | 4) // modrm：mod=00、rm=100 → 后面跟 SIB
 	a.w(0x25)               // SIB：index=100（没有）、base=101（没有）→ 位移是绝对地址
@@ -728,7 +728,7 @@ func (a *Asm) MovsdFromGPR(dst, src int) {
 	a.modrmReg(dst, src)
 }
 
-// MovsdToGPR 是反方向（拆盒）：r/m64 接 xmm 那 64 位。
+// MovsdToGPR 是反方向（拆箱）：r/m64 接 xmm 那 64 位。
 // 这一条的位置极易记反——66 前缀是"r/m64 ← xmm"（reg 字段是来源 xmm），
 // F3 前缀才是"xmm ← r/m64"（reg 字段是要写的 xmm），前缀与 reg／rm 两处任一抄反，
 // 指令就变成把 rax 写进 xmm，而且没有任何报错。

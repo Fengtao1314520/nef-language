@@ -24,7 +24,7 @@ func TestSampleStock(t *testing.T) {
 		t.Fatalf("读样例失败：%v", err)
 	}
 	r := exetest.Run(t, buildAt(t, path, string(raw)), "stock.exe")
-	want := "几种 3 一共 18 最多的一格 12\n"
+	want := "几种 3 一共 18 最多的一项 12\n"
 	if r.Stdout != want || r.Code != 0 {
 		t.Fatalf("stock.nf跑出来是 %q 码 %d，要 %q 码 0", r.Stdout, r.Code, want)
 	}

@@ -207,7 +207,7 @@ func TestPackageMembers(t *testing.T) {
 		Ret: Type{Kind: Bool, Name: "boolean"}, Method: true, Owner: root + "/Run"}
 	facts.Declared[root+"/Run"] = Declared{Kind: "class", Export: true}
 	facts.Declared[root+"/Inside"] = Declared{Kind: "class"}
-	// 包交出来的数：挂 export 的 const 列出来，没挂的与 shared 都不列。
+	// 包导出的数：写 export 的 const 列出来，没挂的与 shared 都不列。
 	facts.TopValues[root+"/LIMIT"] = TopValue{Typ: Type{Kind: Int, Name: "int"}, Export: true,
 		Decl: &nfast.Decl{NameText: "LIMIT", IsConst: true, Export: true}}
 	facts.TopValues[root+"/priv"] = TopValue{Typ: Type{Kind: Int, Name: "int"},

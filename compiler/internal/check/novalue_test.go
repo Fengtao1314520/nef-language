@@ -4,7 +4,7 @@ package check
 
 import "testing"
 
-// TestRefuseNoValueArg 覆盖"不交回值的动作不能放在要值的位置上"这一条。
+// TestRefuseNoValueArg 覆盖"不返回值的动作不能放在要值的位置上"这一条。
 //
 // 带类型的参数位置早就拒绝了（"这里要的是 int，给的是 无返回值"）；这几处走的是
 // 没有写着类型的落点——`console.print` 的变长参数与 `length` 那种跟着实参走的类型——

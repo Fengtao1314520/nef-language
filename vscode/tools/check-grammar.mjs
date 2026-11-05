@@ -45,26 +45,36 @@ function namesFromGrammar(grammar) {
   return out
 }
 
+// 运算符与标点两张表都要拆出来：nf 的词法层把括号、冒号、逗号这些也归到 op 记号，
+// 语法文件把它们单独着成 punctuation.*，这里仍要逐个送进 nf tokens 验一遍写法。
 // 运算符字段的分支逐个拆出来：`\|` 是运算符本身的竖线，只有没转义的竖线才是分隔符。
 function opsFromGrammar(grammar) {
-  const body = grammar.repository.operators.patterns[0].match.replace(/^\(/, '').replace(/\)$/, '')
-  const parts = []
-  let cur = ''
-  for (let i = 0; i < body.length; i++) {
-    if (body[i] === '\\') {
-      cur += body[i] + body[i + 1]
-      i++
-      continue
+  // 一张 alternation 拆成一条条写法：`\|` 是运算符自己的竖线，没转义的竖线才是分隔符。
+  const splitAlternation = (raw) => {
+    const body = raw.replace(/^\(/, '').replace(/\)$/, '')
+    const parts = []
+    let cur = ''
+    for (let i = 0; i < body.length; i++) {
+      if (body[i] === '\\') {
+        cur += body[i] + body[i + 1]
+        i++
+        continue
+      }
+      if (body[i] === '|') {
+        parts.push(cur)
+        cur = ''
+        continue
+      }
+      cur += body[i]
     }
-    if (body[i] === '|') {
-      parts.push(cur)
-      cur = ''
-      continue
-    }
-    cur += body[i]
+    parts.push(cur)
+    return parts.map((p) => p.replace(/\\(.)/g, '$1'))
   }
-  parts.push(cur)
-  return parts.map((p) => p.replace(/\\(.)/g, '$1'))
+  const out = []
+  // 运算符那一条是一整张 alternation；标点那十条每条只有一个记号。
+  for (const rule of grammar.repository.operators.patterns) out.push(...splitAlternation(rule.match))
+  for (const rule of grammar.repository.punctuation.patterns) out.push(rule.match.replace(/\\(.)/g, '$1'))
+  return out
 }
 
 // 站上 `site/reference/034_syntax.md` 的"保留名字"一节是这张表面向用户的出处。

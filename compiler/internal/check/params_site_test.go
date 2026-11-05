@@ -107,7 +107,7 @@ func TestSiteSignaturesUseTheParamNames(t *testing.T) {
 			if !strings.HasPrefix(line, "|") {
 				continue
 			}
-			// 只比第一个单元格：那一格写的是"要这样写"，说明那一格里举例用的写法不算签名
+			// 只比第一个单元格：那一个单元格写的是"要这样写"，说明单元格举例用的写法不算签名
 			cells := splitRow(line)
 			if len(cells) == 0 {
 				continue

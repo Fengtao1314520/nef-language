@@ -6,14 +6,14 @@
 //
 // 这一份要说明的是元素列表那件事：
 // ① 遍历走 for，元素是只读借用，走完列表还是满的；
-// ② 按位置取那一个是过户——取出来之后那一个位置就空了，所以要接着用的那一个
-//    先接在一个名字上，后面都用这个名字。
+// ② 按位置读那一个交出的是只读借用：`rows[1].read_text()` 顺着读可以，读完那一个位置还在；
+//    要把那一份留下来就得拷一份（文本写 `+ ""`）或者用 `remove_at` 摘出来。
 
 import wt from "libs/web_test"
 
-let exe:string = args[0]
-let profile:string = args[1]
-let fixdir:string = args[2]
+let exe:string = args[0] + ""
+let profile:string = args[1] + ""
+let fixdir:string = args[2] + ""
 
 let browser:wt.Browser = wt.start(exe, profile, 8000, 5000)
 let page:wt.Page = browser.open_page("file:///" + fixdir + "/list.html")
@@ -31,9 +31,8 @@ for (row:wt.Element in rows) {
 }
 console.print("走完，列表里还是 ", length(rows), " 个元素")
 
-// ② 要留着后面单独使用的那一个：按位置取出，那一个位置就此交给这个名字
-let middle:wt.Element = rows[1]
-console.print("握着的那一行读出来是「", middle.read_text(), "」")
+// ② 只要读一下那一个元素：读一个位置不拿走它，列表仍是满的
+console.print("读第二行读出来是「", rows[1].read_text(), "」")
 
 // 三种定位方式各调用一次
 console.print("按可见文字找那一行：", page.find_element_by_text("第三行").read_text())

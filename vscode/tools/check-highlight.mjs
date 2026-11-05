@@ -56,10 +56,14 @@ function expectScope(text, scope) {
 }
 
 const probe = [
+  'struct Bag {',
+  '    v:int',
+  '}',
   'method half(n: int): int {',
   '    let xs: list<int> = [1, 2_000, 0x1F]',
   '    const s: string = "甲\\n乙"',
   '    let c: unicode = 97',
+  '    let one: Bag = new Bag { v: 3 }',
   '    if n == 0 || !true { return 0 }',
   '    while n <= 3 { n++ }',
   '    let h: dict<string, int> = { "键": 1 }',
@@ -68,7 +72,7 @@ const probe = [
   '    let sock: Socket = net.connect("127.0.0.1", 9000, 100)',
   '    let door: Listener = net.listen(9000)',
   '    let page: Response = http.get("http://example.com/", 1000)',
-  '    console.print(s + s, length(xs))',
+  '    console.print(s + s, length(xs), one.v)',
   '    /*块注释',
   '跨两行*/',
   '    return n /*尾巴*/ + half(n)',
@@ -78,26 +82,43 @@ const probe = [
 
 const flat = tokenize(probe).flat()
 
+expectScope('struct', 'keyword.control.nf')
 expectScope('method', 'keyword.control.nf')
 expectScope('let', 'keyword.control.nf')
 expectScope('const', 'keyword.control.nf')
+expectScope('new', 'keyword.control.nf')
 expectScope('if', 'keyword.control.nf')
 expectScope('while', 'keyword.control.nf')
 expectScope('return', 'keyword.control.nf')
 expectScope('true', 'constant.language.nf')
-expectScope('int', 'support.type.nf')
-expectScope('string', 'support.type.nf')
-expectScope('list', 'support.type.nf')
-expectScope('dict', 'support.type.nf')
-expectScope('Json', 'support.type.nf')
-// `bytes` 同时是类型名与组名，语法文件里类型名的规则先出现，所以它着色成 support.type.nf。
+// 自己写的类型名与内建类型分两档：内建是 storage.type.primitive，自定义是 entity.name.type
+expectScope('int', 'storage.type.primitive.nf')
+expectScope('string', 'storage.type.primitive.nf')
+expectScope('list', 'storage.type.primitive.nf')
+expectScope('dict', 'storage.type.primitive.nf')
+expectScope('Json', 'storage.type.primitive.nf')
+// `bytes` 同时是类型名与组名，语法文件里类型名的规则先出现，所以它着色成内建类型那一档。
 // 写 `bytes.new(4)` 时两个名字落在同一档，这是这个名字的形状，不是漏了一条组名。
-expectScope('bytes', 'support.type.nf')
+expectScope('bytes', 'storage.type.primitive.nf')
 // 三类名字同一档：两类句柄与内建 `struct`。`Socket`／`Listener` 不是容器里的一种值，
 // 但它们是类型标注上的名字，着色与 `Json`、`bytes` 同一档。
-expectScope('Socket', 'support.type.nf')
-expectScope('Listener', 'support.type.nf')
-expectScope('Response', 'support.type.nf')
+expectScope('Socket', 'storage.type.primitive.nf')
+expectScope('Listener', 'storage.type.primitive.nf')
+expectScope('Response', 'storage.type.primitive.nf')
+// 自定义类型：声明那一个名字、标注那一个、`new` 后面那一个，三处都是 entity.name.type
+expectScope('Bag', 'entity.name.type.nf')
+// 声明的名字与方法名分档：`half` 的定义与调用都是 entity.name.function
+expectScope('half', 'entity.name.function.nf')
+expectScope('xs', 'variable.other.readwrite.nf')
+expectScope('one', 'variable.other.readwrite.nf')
+// 参数表与字段表里的名字是 variable.parameter，点号后面取的是 variable.other.property
+expectScope('n', 'variable.parameter.nf')
+expectScope('v', 'variable.parameter.nf')
+expectScope('v', 'variable.other.property.nf')
+// 点号后面的调用（组函数与自己写的方法）都进 entity.name.function
+expectScope('print', 'entity.name.function.nf')
+expectScope('parse', 'entity.name.function.nf')
+expectScope('connect', 'entity.name.function.nf')
 expectScope('json', 'support.class.nf')
 expectScope('console', 'support.class.nf')
 expectScope('length', 'support.function.nf')
@@ -108,7 +129,17 @@ expectScope('==', 'keyword.operator.nf')
 expectScope('||', 'keyword.operator.nf')
 expectScope('<=', 'keyword.operator.nf')
 expectScope('++', 'keyword.operator.nf')
-expectScope('}', 'keyword.operator.nf')
+expectScope('=', 'keyword.operator.nf')
+// 括号、花括号、方括号、冒号、逗号、分号与点号不再是操作符那一档：
+// 它们着成 punctuation.*，主题一般按正文前景处理，满屏同色就是从这里来的。
+expectScope('}', 'punctuation.section.block.end.nf')
+expectScope('{', 'punctuation.section.block.begin.nf')
+expectScope('(', 'punctuation.section.parens.begin.nf')
+expectScope(')', 'punctuation.section.parens.end.nf')
+expectScope('[', 'punctuation.section.brackets.begin.nf')
+expectScope(':', 'punctuation.separator.type.nf')
+expectScope(',', 'punctuation.separator.comma.nf')
+expectScope('.', 'punctuation.accessor.nf')
 expectScope('甲', 'string.quoted.double.nf')
 expectScope('\\n', 'constant.character.escape.nf')
 expectScope('块注释', 'comment.block.nf')

@@ -111,6 +111,21 @@ func (p *parser) isName(w string) bool {
 	return t.Kind == lexer.Name && t.Text == w
 }
 
+// nameAhead 跳过行尾看下一个记号是不是那一个名字：`}` 之后换行再写 `finally { … }`，
+// 那一段仍然属于上面这一句 try。
+//
+// en: nameAhead looks past line ends at the next token: a `finally { … }` written on the following
+// line still belongs to the try above.
+func (p *parser) nameAhead(w string) bool {
+	for k := 0; ; k++ {
+		t := p.peek(k)
+		if t.Kind == lexer.NL {
+			continue
+		}
+		return t.Kind == lexer.Name && t.Text == w
+	}
+}
+
 func (p *parser) opIs(op string) bool {
 	t := p.cur()
 	return t.Kind == lexer.Op && t.Text == op
@@ -172,6 +187,20 @@ func (p *parser) isTerminator() bool {
 
 func (p *parser) skipTerminators() {
 	for !p.atEOF() && (p.cur().Kind == lexer.NL || p.opIs(";")) {
+		p.advance()
+	}
+}
+
+// skipLines 在一对还没闭合的括号里把行尾当空白跳过：容器字面量、struct 字面量、`new` 的字段初值
+// 与实参表都可以跨行写。只跳行尾，不跳分号——分号是一条语句的结束，跨行写不改变这件事。
+// 括号闭合之后，行尾照旧是一条语句的结束（一条语句到行尾结束这一条规则）。
+//
+// en: skipLines treats a line feed as whitespace inside an unclosed bracket, so a container
+// literal, a struct literal, the field values of `new` and an argument list can each span lines.
+// Only line feeds are skipped, never a semicolon - that still ends a statement. Once the bracket
+// closes, a line feed ends a statement as before.
+func (p *parser) skipLines() {
+	for p.cur().Kind == lexer.NL {
 		p.advance()
 	}
 }
@@ -619,6 +648,11 @@ func (p *parser) parseDecl(export bool) (*ast.Decl, error) {
 // ---- 类型 ----
 
 func (p *parser) parseType() (ast.Type, error) {
+	// `fn(参数类型, …):返回类型` 是函数值的类型；不写返回类型就是没有返回值，与声明那一侧同一条。
+	// `fn` 后面不接 `(` 不算函数类型，留给下面那一支按名字处理，检查层会说 `fn` 是关键字。
+	if p.isName("fn") && p.peek(1).Kind == lexer.Op && p.peek(1).Text == "(" {
+		return p.parseFuncType()
+	}
 	tok, err := p.expectName()
 	if err != nil {
 		return nil, err
@@ -649,6 +683,49 @@ func (p *parser) parseType() (ast.Type, error) {
 		}
 	}
 	return t, nil
+}
+
+// parseFuncType 读 `fn(参数类型, …):返回类型`。`ref` 写在参数类型前面，与声明那一侧同一个记号。
+// 冒号与返回类型都没有时就是没有返回值，与 `method f(x:int)` 同一条。
+//
+// en: parseFuncType reads `fn(param types…):return type`. `ref` sits in front of a parameter type
+// and is the same mark as on a declaration. With neither a colon nor a return type the function
+// returns nothing, the same as `method f(x:int)`.
+func (p *parser) parseFuncType() (ast.Type, error) {
+	t := p.advance() // fn
+	p.advance()      // (
+	ft := &ast.FuncType{Pos: posOf(t)}
+	p.skipLines()
+	for !p.opIs(")") {
+		ref := false
+		if p.isName("ref") {
+			p.advance()
+			ref = true
+		}
+		pt, err := p.parseType()
+		if err != nil {
+			return nil, err
+		}
+		ft.Params = append(ft.Params, ast.FuncParam{Typ: pt, Ref: ref})
+		p.skipLines()
+		if !p.eatOp(",") {
+			break
+		}
+		p.skipLines()
+	}
+	if err := p.expectOp(")"); err != nil {
+		return nil, err
+	}
+	if !p.eatOp(":") {
+		return ft, nil
+	}
+	p.skipLines()
+	rt, err := p.parseType()
+	if err != nil {
+		return nil, err
+	}
+	ft.Ret = rt
+	return ft, nil
 }
 
 // expectCloseAngle 消费一个 `>`。词法层把 `list<dict<string, int>>` 末尾的 `>>` 读成一个右移运算符，
@@ -943,35 +1020,77 @@ func (p *parser) parseTry() (ast.Stmt, error) {
 	}
 	tr.Body = body
 	p.skipTerminators()
-	if !p.isName("catch") {
-		return nil, p.err("try 后面要跟 catch")
+	if p.isName("catch") {
+		if err := p.parseCatchInto(tr); err != nil {
+			return nil, err
+		}
 	}
-	ct := p.advance()
+	// `}` 之后换行再写 `finally { … }` 也算这一句；没有这个关键字就把行尾留给上一条语句收尾，
+	// 不然下一个 `try` 会被当成"这一行还没完"。
+	if p.nameAhead("finally") {
+		p.skipTerminators()
+		p.advance()
+		tr.HasFinally = true
+		if tr.Finally, err = p.parseBraceStmts(); err != nil {
+			return nil, err
+		}
+		return tr, nil
+	}
+	if !tr.HasCatch {
+		return nil, p.err("try 后面要跟 catch 或 finally：两句都不写，这一句就等于没有 try")
+	}
+	return tr, nil
+}
+
+// parseCatchInto 读完 `catch (code, msg, at, trace) { … }` 那一段，填进已经建好的 try 节点。
+// 前三个名字都要写；第四个（整条调用链的那一份文本）可以省，右括号接着就来也算收完。
+//
+// en: parseCatchInto reads the `catch (code, msg, at, trace) { … }` stretch into the try node
+// built so far. The first three names are required; the fourth (the call chain as one text) may
+// be left out - a closing right paren right after the third is a complete list.
+func (p *parser) parseCatchInto(tr *ast.Try) error {
+	p.advance() // catch
 	tr.HasCatch = true
 	if err := p.expectOp("("); err != nil {
-		return nil, err
+		return err
 	}
 	codeTok, err := p.expectName()
 	if err != nil {
-		return nil, err
+		return err
 	}
 	if err := p.expectOp(","); err != nil {
-		return nil, err
+		return err
 	}
 	msgTok, err := p.expectName()
 	if err != nil {
-		return nil, err
+		return err
 	}
-	if err := p.expectOp(")"); err != nil {
-		return nil, err
+	if err := p.expectOp(","); err != nil {
+		return err
+	}
+	atTok, err := p.expectName()
+	if err != nil {
+		return err
 	}
 	tr.CodeName = codeTok.Text
 	tr.MsgName = msgTok.Text
-	_ = ct
-	if tr.Catch, err = p.parseBraceStmts(); err != nil {
-		return nil, err
+	tr.AtName = atTok.Text
+	if p.opIs(",") {
+		p.advance()
+		traceTok, err := p.expectName()
+		if err != nil {
+			return err
+		}
+		tr.TraceName = traceTok.Text
 	}
-	return tr, nil
+	if err := p.expectOp(")"); err != nil {
+		return err
+	}
+	var bodyErr error
+	if tr.Catch, bodyErr = p.parseBraceStmts(); bodyErr != nil {
+		return bodyErr
+	}
+	return nil
 }
 
 // ---- 表达式：运算符按优先级分层解析，`is` 与 ==、!= 同档 ----
@@ -1195,6 +1314,7 @@ func (p *parser) parseArgs() ([]ast.Expr, error) {
 	if err := p.expectOp("("); err != nil {
 		return nil, err
 	}
+	p.skipLines()
 	var args []ast.Expr
 	for !p.opIs(")") {
 		a, err := p.parseExpr()
@@ -1202,9 +1322,11 @@ func (p *parser) parseArgs() ([]ast.Expr, error) {
 			return nil, err
 		}
 		args = append(args, a)
+		p.skipLines()
 		if !p.eatOp(",") {
 			break
 		}
+		p.skipLines()
 	}
 	if err := p.expectOp(")"); err != nil {
 		return nil, err
@@ -1247,6 +1369,7 @@ func (p *parser) parsePrimary() (ast.Expr, error) {
 		case "{":
 			// 空的 `{}` 靠类型标注区分 dict／hashset；`{"a": 1}` 是 dict；`{1, 2}` 是 hashset
 			p.advance()
+			p.skipLines()
 			if p.eatOp("}") {
 				return &ast.MapLit{Pos: posOf(t)}, nil
 			}
@@ -1254,12 +1377,16 @@ func (p *parser) parsePrimary() (ast.Expr, error) {
 			if err != nil {
 				return nil, err
 			}
+			p.skipLines()
 			if p.eatOp(":") {
+				p.skipLines()
 				m := &ast.MapLit{Pos: posOf(t), Pairs: []ast.MapPair{{Pos: first.Where(), Key: first}}}
 				if m.Pairs[0].Value, err = p.parseExpr(); err != nil {
 					return nil, err
 				}
+				p.skipLines()
 				for p.eatOp(",") {
+					p.skipLines()
 					if p.opIs("}") {
 						break
 					}
@@ -1267,14 +1394,17 @@ func (p *parser) parsePrimary() (ast.Expr, error) {
 					if err != nil {
 						return nil, err
 					}
+					p.skipLines()
 					pair := ast.MapPair{Pos: k.Where(), Key: k}
 					if err := p.expectOp(":"); err != nil {
 						return nil, err
 					}
+					p.skipLines()
 					if pair.Value, err = p.parseExpr(); err != nil {
 						return nil, err
 					}
 					m.Pairs = append(m.Pairs, pair)
+					p.skipLines()
 				}
 				if err := p.expectOp("}"); err != nil {
 					return nil, err
@@ -1283,6 +1413,7 @@ func (p *parser) parsePrimary() (ast.Expr, error) {
 			}
 			set := &ast.SetLit{Pos: posOf(t), Items: []ast.Expr{first}}
 			for p.eatOp(",") {
+				p.skipLines()
 				if p.opIs("}") {
 					break
 				}
@@ -1291,6 +1422,7 @@ func (p *parser) parsePrimary() (ast.Expr, error) {
 					return nil, err
 				}
 				set.Items = append(set.Items, item)
+				p.skipLines()
 			}
 			if err := p.expectOp("}"); err != nil {
 				return nil, err
@@ -1299,6 +1431,7 @@ func (p *parser) parsePrimary() (ast.Expr, error) {
 		case "[":
 			// `[1, 2]` 是 list，`[]` 是空 list
 			p.advance()
+			p.skipLines()
 			lit := &ast.ListLit{Pos: posOf(t)}
 			for !p.opIs("]") {
 				item, err := p.parseExpr()
@@ -1306,9 +1439,11 @@ func (p *parser) parsePrimary() (ast.Expr, error) {
 					return nil, err
 				}
 				lit.Items = append(lit.Items, item)
+				p.skipLines()
 				if !p.eatOp(",") {
 					break
 				}
+				p.skipLines()
 			}
 			if err := p.expectOp("]"); err != nil {
 				return nil, err
@@ -1347,15 +1482,18 @@ func (p *parser) parseNameStart() (ast.Expr, error) {
 		if err := p.expectOp("("); err != nil {
 			return nil, err
 		}
+		p.skipLines()
 		for !p.opIs(")") {
 			f, err := p.parseNamedValue()
 			if err != nil {
 				return nil, err
 			}
 			n.Fields = append(n.Fields, f)
+			p.skipLines()
 			if !p.eatOp(",") {
 				break
 			}
+			p.skipLines()
 		}
 		if err := p.expectOp(")"); err != nil {
 			return nil, err
@@ -1378,6 +1516,7 @@ func (p *parser) parseNameStart() (ast.Expr, error) {
 				return nil, err
 			}
 			lit.Fields = append(lit.Fields, f)
+			p.skipLines()
 			if !p.eatOp(",") {
 				break
 			}
@@ -1393,18 +1532,39 @@ func (p *parser) parseNameStart() (ast.Expr, error) {
 
 // structLitAhead 检查花括号里是否为 `}` 或 `名字 : 值`——是才算 struct 字面量，
 // 否则那个 `{` 是一个语句块的开头（switch 的分支按此区分）。
+// 跨过行尾去看：`Point {` 换行再写字段也算 struct 字面量，判据不变，只是中间的行尾不算内容。
 //
 // en: structLitAhead checks whether the braces hold `}` or `name: value` - only then is it a
 // struct literal, otherwise that `{` opens a statement block. This is what tells the branches
-// of switch apart.
+// of switch apart. Line feeds are stepped over while looking: a `Point {` whose fields start on
+// the next line is still a struct literal, the test itself does not change.
 func (p *parser) structLitAhead() bool {
-	if p.peek(1).Kind == lexer.Op && p.peek(1).Text == "}" {
+	t := p.peekPastLines(1)
+	if t.Kind == lexer.Op && t.Text == "}" {
 		return true
 	}
-	if p.peek(1).Kind != lexer.Name {
+	if t.Kind != lexer.Name {
 		return false
 	}
-	return p.peek(2).Kind == lexer.Op && p.peek(2).Text == ":"
+	return p.peekPastLines(2).Kind == lexer.Op && p.peekPastLines(2).Text == ":"
+}
+
+// peekPastLines 从第 off 个"不是行尾"的记号往前看，off=1 就是花括号里第一个真正的内容。
+//
+// en: peekPastLines looks at the off-th token that is not a line feed; off=1 is the first real
+// content inside the brace.
+func (p *parser) peekPastLines(off int) lexer.Tok {
+	seen := 0
+	for i := p.i + 1; i < len(p.toks); i++ {
+		if p.toks[i].Kind == lexer.NL {
+			continue
+		}
+		seen++
+		if seen == off {
+			return p.toks[i]
+		}
+	}
+	return p.toks[len(p.toks)-1]
 }
 
 func (p *parser) parseNamedValue() (*ast.StructLitField, error) {
@@ -1416,6 +1576,7 @@ func (p *parser) parseNamedValue() (*ast.StructLitField, error) {
 	if err := p.expectOp(":"); err != nil {
 		return nil, err
 	}
+	p.skipLines()
 	if f.Value, err = p.parseExpr(); err != nil {
 		return nil, err
 	}

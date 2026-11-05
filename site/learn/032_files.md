@@ -76,7 +76,7 @@ nf main.nf
 | 以谁为基准 | 以 `./` 或 `../` 开头时，按**书写该语句的文件**所在目录解析，与执行命令时所在的目录无关 |
 | 大小写 | 编译器不核对：当前 Windows 上写 `./UTIL.nf` 也能引入 `util.nf`，换到大小写敏感的系统上就是另一个文件。解析的规则见[多个文件](/reference/042_modules) |
 | 改名 | `import { helper as h } from "./util.nf"`，之后本文件内只使用 `h` |
-| 未 export 的名称 | 无法引入：`./util.nf 里没有对外交出 hidden` |
+| 未 export 的名称 | 无法引入：`./util.nf 里没有导出 hidden` |
 | 引入但未使用 | 花括号里列出的名称在本文件中一个都没有使用，这个名称的引入就是编译错误 |
 | 文件不存在 | 编译报错，指出是哪条路径无法读取 |
 
@@ -91,7 +91,7 @@ export method helper(i:int):int { return i }
 
 ```nf-bad
 // main.nf
-import { hidden } from "./util.nf"      // 报：./util.nf 里没有对外交出 hidden
+import { hidden } from "./util.nf"      // 报：./util.nf 里没有导出 hidden
 
 console.print(hidden(1))
 ```

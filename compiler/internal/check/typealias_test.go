@@ -21,9 +21,9 @@ func threeFiles(t *testing.T, a, b, c string) []Error {
 // TestTypeAliasInTypePositions 覆盖别名"能用的地方"这一半：别名写在哪一处，解出来的
 // 都是右边那一个，参数、返回、字段、尖括号、默认值那几处都算。
 func TestTypeAliasInTypePositions(t *testing.T) {
-	expectOK(t, `type Names = list<string>
-method first(xs:Names):string { return xs[0] }
-let a:Names = ["甲", "乙"]
+	expectOK(t, `type Numbers = list<int>
+method first(xs:Numbers):int { return xs[0] }
+let a:Numbers = [3, 4]
 console.print(first(a))
 `)
 	// 尖括号里套别名，别名再套别名

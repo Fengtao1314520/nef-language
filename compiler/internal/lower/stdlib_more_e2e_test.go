@@ -103,28 +103,27 @@ console.print(length(w))
 	}
 }
 
-// TestDictGetWithListValue 值类型是容器时同样适用：命中时读走那一只，未命中时接住返回的默认值。
+// TestDictGetWithListValue 值类型是容器时同样适用：命中读回来的是表里那一只，没命中是默认那一只，
+// 两种都是借来看一眼，字典与默认值都不动。
 func TestDictGetWithListValue(t *testing.T) {
 	got, code := run(t, `
 let d:dict<string, list<int>> = {}
 d.add("有", [1, 2])
-let back:list<int> = d.get("有", [7, 8, 9])
-console.print(length(back), back[0])
+console.print(length(d.get("有", [7, 8, 9])), d.get("有", [7, 8, 9])[0])
 console.print(d.contains("有"))
-let miss:list<int> = d.get("无", [4])
-console.print(length(miss), miss[0])
+console.print(length(d.get("无", [4])), d.get("无", [4])[0])
 `)
 	want := "2 1\ntrue\n1 4\n"
 	if got != want || code != 0 {
 		t.Fatalf("dict.get 取值那一头不对：\n got %q 码 %d\nwant %q", got, code, want)
 	}
-	// 一个 list 由容器对象 40 字节加数据块 40 字节构成：每圈漏掉无人接住的默认值，峰值就是 1.6 MB。
+	// 一个 list 由容器对象 40 字节加数据块 40 字节构成：每轮漏掉无人接住的默认值，峰值就是 1.6 MB。
 	// 度量的是峰值；析构之后可以复用，所以这一条核对"没有涨上去"。
 	if used := heapAt(t, `
 let d:dict<string, list<int>> = {}
 d.add("有", [1, 2])
 for (i:int in 0 until 20000) {
-    let back:list<int> = d.get("有", [3, 4, 5])
+    d.get("有", [3, 4, 5]);
 }
 `); used > 2000 {
 		t.Fatalf("两万圈每次撞着，峰值 %d 字节：那份没人接的默认值大概没拆", used)
@@ -173,7 +172,7 @@ for (v:int in xs) {
 }
 
 // TestListClearFreesStrings 验证 clear 析构每个位置里的文本、没有残留：两万圈各放入一份当场创建的文本再清空，
-// 峰值与"一个容器＋一份文本"同一档；每圈漏析构一个位置就会涨到几兆。
+// 峰值与"一个容器＋一份文本"同一档；每轮漏析构一个位置就会涨到几兆。
 func TestListClearFreesStrings(t *testing.T) {
 	if used := heapAt(t, `
 for (i:int in 0 until 20000) {
@@ -218,7 +217,7 @@ console.print(length(a.union(a)))
 }
 
 // TestHashSetTextElements 覆盖文本元素：新 set 里每个位置都是独立拷贝，两侧析构后那个元素仍可查。
-// 两万圈自己并自己峰值不增长，才能说明"拷进新 set 的那一份"与"旧 set 里那一格"都没有漏。
+// 两万圈自己并自己峰值不增长，才能说明"拷进新 set 的那一份"与"旧 set 里那个位置"都没有漏。
 func TestHashSetTextElements(t *testing.T) {
 	got, code := run(t, `
 let s:hashset<string> = {}

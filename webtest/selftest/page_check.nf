@@ -9,34 +9,34 @@ import wt from "libs/web_test"
 
 method check_text(name:string, got:string, want:string):boolean {
     if (got != want) {
-        console.print("不对  " + name, "给", got, "要", want)
+        console.print("失败  " + name, "给", got, "要", want)
         return false
     }
-    console.print("过  " + name)
+    console.print("通过  " + name)
     return true
 }
 
 method check_int(name:string, got:int, want:int):boolean {
     if (got != want) {
-        console.print("不对  " + name, "给", got, "要", want)
+        console.print("失败  " + name, "给", got, "要", want)
         return false
     }
-    console.print("过  " + name)
+    console.print("通过  " + name)
     return true
 }
 
 method check_true(name:string, got:boolean):boolean {
     if (!got) {
-        console.print("不对  " + name, "要真，给的是假")
+        console.print("失败  " + name, "要真，给的是假")
         return false
     }
-    console.print("过  " + name)
+    console.print("通过  " + name)
     return true
 }
 
 let bad:int = 0
-let dir:string = args[0]
-let shot:string = args[1]
+let dir:string = args[0] + ""
+let shot:string = args[1] + ""
 
 // 一、二、三：那三条命令的答复里，要的那个位置都在 result 下面
 let created:string = file.read(dir + "/create_target.txt")
@@ -62,8 +62,8 @@ if (!ok3) {
 
 // 四：没有的那个位置返回空句柄，不抛新错误。
 // 那一份 navigate.txt 在这里再读一遍：nav 那个名字上一条已经交出去了，位置当场空了。
-let none:string = wt.reply_field(file.read(dir + "/navigate.txt"), "没有这一格")
-let ok4:boolean = check_true("四、取不到的那一格是空句柄", none == null)
+let none:string = wt.reply_field(file.read(dir + "/navigate.txt"), "没有这个字段")
+let ok4:boolean = check_true("四、取不到的那个字段是空句柄", none == null)
 if (!ok4) {
     bad = bad + 1
 }
@@ -99,7 +99,7 @@ let code:int = -1
 try {
     let junk:bytes = wt.png_from_reply("{\"id\":9,\"result\":{}}")
     console.print("不该走到这一句", length(junk))
-} catch (c, m) {
+} catch (c, m, at) {
     code = c
 }
 let ok10:boolean = check_int("七、答复里没 data 那一段是 204", code, 204)
@@ -108,8 +108,8 @@ if (!ok10) {
 }
 
 file.remove(shot)
-console.print("—— 自测跑完，不对", bad, "处")
+console.print("—— 自测跑完，失败", bad, "处")
 if (bad > 0) {
     exit (1, "取字段与截图那一段有 " + number.to_string(bad) + " 处不对")
 }
-console.print("全对")
+console.print("全部通过")

@@ -54,19 +54,20 @@ nf hello.nf
 - **[错误信息索引](/tools/060_errors)** — 查询编译器报错信息的含义
 - **[标准库](/stdlib/044_index)** — 内置类型和函数的说明
 
-## 七份完整程序
+## 八份完整程序
 
-`samples/` 目录里有七份能直接运行的程序。每一份只用这门语言本身和标准库，学完一课就能挑一份跑。
+`samples/` 目录里有八份能直接运行的程序。每一份只用这门语言本身和标准库，学完一课就能挑一份跑。
 
 | 程序 | 讲什么 | 怎么跑 |
 | --- | --- | --- |
 | `shopping.nf` | 一份购物列表，把每一项的字数加起来：顶层就是一层作用域、参数前的 `ref`、遍历交出的只读借用 | `nf samples/shopping.nf` |
 | `linecount.nf` | 读一个文件，统计每个长度上有几行：命令行参数、`file.read`、`dict`、`try` 与 `catch` | `nf samples/linecount.nf 文件名` |
-| `shapes.nf` | 形状与周长：`interface`、装箱与拆盒、`is` 判类型 | `nf samples/shapes.nf` |
+| `shapes.nf` | 形状与周长：`interface`、装箱与拆箱、`is` 判类型 | `nf samples/shapes.nf` |
 | `rpn.nf` | 逆波兰式子求值：`class` 的字段与方法、`switch` 的分支不贯穿、除 0 抛出的错误被 `catch` 接住 | `nf samples/rpn.nf` |
 | `wordfreq.nf` | 一段文本数词频，按第一次出现的顺序报出来：`split`、`slice`、`dict` 的按键读写 | `nf samples/wordfreq.nf` |
 | `stock.nf` | 一张库存表，每一项存一个 `struct`：字面量要把字段列全，读出来是整份拷贝 | `nf samples/stock.nf` |
 | `echo.nf` | 回显服务器：`net.listen`、`accept`、`recv_into`、`send`。没有线程，所以一次只服务一个连接 | `nf samples/echo.nf 9000`，再从另一个窗口连过去 |
+| `trace.nf` | 三层调用里抛出，把整条调用链打出来：`throw`、`catch` 的第四个名字 `trace`、没人接住时跟在"出错了…"那一行下面的那一段链 | `nf samples/trace.nf`，最后那一次抛出没人接住，所以它按 `1` 结束 |
 
 最短的一份是 `shopping.nf`，去掉注释之后是这样：
 

@@ -91,12 +91,12 @@ const (
 	crByte             = 13         // 头部区的行分隔符是 CR 紧跟 LF
 
 	queryStatusCode     = 0x13       // WINHTTP_QUERY_STATUS_CODE
-	queryFlagNumber     = 0x20000000 // 交回的是数值，不是 "200" 三个字符
+	queryFlagNumber     = 0x20000000 // 返回的是数值，不是 "200" 三个字符
 	queryRawHeadersCRLF = 0x16       // 整块原始头，行与行之间是 CRLF
 
 	// winhttp 的错误号码（winhttp.h 里 ERROR_WINHTTP_*）。前面三个本组代码自己会产生；
 	// 后面几个只出现在 `net.go` 的折算表里——它们是系统可能返回的号码。
-	// 未折算的那些落 10100 兜底：不新增号码，但系统原号码一律带在消息里。
+	// 未折算的那些落到默认码 10100 上：不新增号码，但系统原号码一律带在消息里。
 	errHttpTimeout       = 12002 // 等待响应超时
 	errHttpInternal      = 12004 // winhttp 内部错误
 	errHttpInvalidU      = 12005 // 网址无法解析（拆不出主机、端口非法、超出缓冲都归这一条）
@@ -135,7 +135,7 @@ func httpData(put func(name string, bs []byte)) {
 	put("httpDw", make([]byte, 8))
 	put("httpGot", make([]byte, 8))
 	put("httpStatus", make([]byte, 8))
-	put("httpErr", make([]byte, 8))                        // 失败路径的号码：关句柄会踩 rax，先写入这一格
+	put("httpErr", make([]byte, 8))                        // 失败路径的号码：关句柄会踩 rax，先写入这个位置
 	put("httpAgent", []byte{'n', 0, 'e', 0, 'f', 0, 0, 0}) // 随请求发送的 User-Agent
 	put("httpGet", []byte{'G', 0, 'E', 0, 'T', 0, 0, 0})
 	put("httpPost", []byte{'P', 0, 'O', 0, 'S', 0, 'T', 0, 0, 0})

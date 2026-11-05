@@ -2,7 +2,7 @@
 // 一大块字节送出去、对面收回来一模一样；一条消息被切成两段送过来时能拼接回来；
 // 对面发 ping（操作码 9）时回一条 pong（操作码 10）。
 //
-// 遮码的四个字节由 math.set_seed 固定，所以同一份程序跑两次，送出去的字节完全一致。
+// 掩码的四个字节由 math.set_seed 固定，所以同一份程序跑两次，送出去的字节完全一致。
 //
 // 跑法（在仓库根）：./nf.exe webtest/selftest/socket_check.nf
 
@@ -56,7 +56,7 @@ method open_door():Door {
         try {
             out.listener = net.listen(p)
             done = true
-        } catch (code, msg) {
+        } catch (code, msg, at) {
             if (code != 10104) {
                 throw (code, msg)
             }
@@ -80,19 +80,19 @@ method from_numbers(xs:list<int>):bytes {
 
 method check_int(title:string, got:int, want:int):boolean {
     if (got != want) {
-        console.print("不对  " + title, "给", got, "要", want)
+        console.print("失败  " + title, "给", got, "要", want)
         return false
     }
-    console.print("过  " + title)
+    console.print("通过  " + title)
     return true
 }
 
 method check_true(title:string, got:boolean):boolean {
     if (!got) {
-        console.print("不对  " + title, "要真，给的是假")
+        console.print("失败  " + title, "要真，给的是假")
         return false
     }
-    console.print("过  " + title)
+    console.print("通过  " + title)
     return true
 }
 
@@ -152,7 +152,7 @@ let ok6:boolean = check_int("三、pong 的第一个字节是 0x8A", pong[0] as 
 if (!ok6) {
     bad = bad + 1
 }
-let ok7:boolean = check_int("三、pong 的长度那一格是 0x80（遮码位加上零个字节）", pong[1] as int, 0x80)
+let ok7:boolean = check_int("三、pong 的长度那个位置是 0x80（掩码位加上零个字节）", pong[1] as int, 0x80)
 if (!ok7) {
     bad = bad + 1
 }
@@ -171,8 +171,8 @@ if (!ok8) {
 }
 
 b.close()
-console.print("—— 自测跑完，不对", bad, "处")
+console.print("—— 自测跑完，失败", bad, "处")
 if (bad > 0) {
     exit (1, "收发那一段有 " + number.to_string(bad) + " 处不对")
 }
-console.print("全对")
+console.print("全部通过")

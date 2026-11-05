@@ -6,9 +6,13 @@
 //
 // 这一项与 `element_check.nf` 的分别是：那一项开的是 `webtest/fixtures` 里那两份本地页面，
 // 页面形状由我们自己定；这一项开的是第三方站点，形状不由我们定。所以这里只验四件稳定的：
-// 网址打开了、标题与整页文字读得出来、页面里有链接、点那个链接能跳到另一家。
+// 网址打开了、标题与整页文字读得出来、页面里有链接、点那条链接能换一页。
 // 不验具体文字——example.com 给不同机器回不同语言的页面（实测：有的机器回的是西班牙文
 // 版本，页面里没有 `<h1>`，按 `h1` 找就返回空句柄）。
+// 链接那三步（四～六）不在 example.com 上做：2026-11-01 实测它给出的 HTML 里一个 `<a>` 都没有，
+// 原先指向 iana.org 那一条也不在页面上。改成在同一条连接上导航到 www.iana.org 的那一帮助页
+// （`/domains/example` 现在会跳到 `/help/example-domains`，就直接写跳之后的那一个网址），
+// 在那一页数链接、读 href、点下去看网址换没换。
 //
 // 连不上网、或者那一家不开门：这一项**算失败**，并说明"没网或那一家没开门，这一项没验到"。
 // 不静默跳过——跳过的检查等于没检查。
@@ -17,25 +21,25 @@ import wt from "libs/web_test"
 
 method check_true(name:string, got:boolean):boolean {
     if (!got) {
-        console.print("不对  " + name, "要真，给的是假")
+        console.print("失败  " + name, "要真，给的是假")
         return false
     }
-    console.print("过  " + name)
+    console.print("通过  " + name)
     return true
 }
 
 method check_int(name:string, got:int, want:int):boolean {
     if (got != want) {
-        console.print("不对  " + name, "给", got, "要", want)
+        console.print("失败  " + name, "给", got, "要", want)
         return false
     }
-    console.print("过  " + name)
+    console.print("通过  " + name)
     return true
 }
 
 let bad:int = 0
-let exe:string = args[0]
-let profile:string = args[1]
+let exe:string = args[0] + ""
+let profile:string = args[1] + ""
 let shot:string = profile + "/site.png"
 
 let browser:wt.Browser = wt.start(exe, profile, 8000, 15000)
@@ -45,7 +49,7 @@ console.print("这一趟连的是:", browser.product())
 let page:wt.Page = null
 try {
     page = browser.open_page("https://example.com/", 15000)
-} catch (code, msg) {
+} catch (code, msg, at) {
     console.print("没网或那一家没开门，这一条没验到：", msg)
     browser.close()
     exit (1, "开 https://example.com/ 没成：" + msg)
@@ -75,32 +79,38 @@ if (!ok3) {
     bad = bad + 1
 }
 
-// 四～五：页面里有链接，那一个链接的 href 读得出来
+// 四～五：这一家今天没有链接可点（2026-11-01 实测它给出的 HTML 里一个 `<a>` 都没有，
+// 原来指向 iana.org 那一条也不在页面上），所以链接那三步换到 iana 那一页去做：
+// 先在同一条连接上导航过去，再数得出链接、读得出那一条的 href。
+page.navigate("https://www.iana.org/help/example-domains")
+page.expect_url_contains("iana.org/help/example-domains", 15000)
+page.wait_until_ready(15000)
 let ok4:boolean = check_true("四、按 CSS 数得出页面里的链接", page.count_css("a") >= 1)
 if (!ok4) {
     bad = bad + 1
 }
-let link:wt.Element = page.find_element_by_css("a")
+let link:wt.Element = page.find_element_by_css("a[href='/domains/reserved']")
 let href:string = ""
 if (link != null) {
     href = link.read_attribute("href")
 }
-let ok5:boolean = check_true("五、那个链接的 href 读得出来", href.contains("iana.org"))
+let ok5:boolean = check_true("五、那个链接的 href 读得出来", href == "/domains/reserved")
 if (!ok5) {
     bad = bad + 1
 }
 
-// 六、点它一下，跳到另一家去（这一步验的是真跳转：换了一家站，还在同一条连接上）。
+// 六、点它一下，跳到另一页去（这一步验的是真跳转：换了页面，还在同一条连接上）。
 // 用的是库里带等待的断言：点下去之后旧文档的 readyState 还是 complete，
-// 不等就直接读网址，读到的仍是原来那一家。
+// 不等就直接读网址，读到的仍是原来那一页。
 let jumped:boolean = true
 if (link == null) {
     jumped = false
+    console.print("    这一页上没找到那条链接")
 } else {
     link.click()
     try {
-        page.expect_url_contains("iana.org", 15000)
-    } catch (c1, m1) {
+        page.expect_url_contains("/domains/reserved", 15000)
+    } catch (c1, m1, at1) {
         jumped = false
         console.print("    停在：", page.read_url())
     }
@@ -113,10 +123,10 @@ console.print("    到了：", page.read_url())
 
 // 六乙、等这一页自己报成 complete。第三方脚本多的站可能迟迟不到（那是站点侧的行为）；
 // 等不到只记录一句，不把它当成截图那一步的失败。
-if (page.read_url().contains("iana.org")) {
+if (page.read_url().contains("/domains/reserved")) {
     try {
         page.wait_until_ready(8000)
-    } catch (c2, m2) {
+    } catch (c2, m2, at2) {
         console.print("    那一家没报成 complete，只说一句：", m2)
     }
 }
@@ -136,8 +146,8 @@ if (!ok8) {
 }
 
 browser.close()
-console.print("—— 自测跑完，不对", bad, "处")
+console.print("—— 自测跑完，失败", bad, "处")
 if (bad > 0) {
     exit (1, "真网站那一条有 " + number.to_string(bad) + " 处不对")
 }
-console.print("全对")
+console.print("全部通过")

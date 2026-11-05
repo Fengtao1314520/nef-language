@@ -125,7 +125,7 @@ func fMul(b *rt) {
 	b.prologue()
 	a.Mov(x64.RSI, x64.RCX) // 游标
 	a.Mov(x64.R10, x64.RDX) // 剩余格数
-	a.Mov(x64.R9, x64.RDX)  // 总格数，返回时要交回
+	a.Mov(x64.R9, x64.RDX)  // 总格数，返回时要用
 	a.Mov(x64.RDI, x64.R8)  // 乘数
 	a.MovImm(x64.R8, limbBase)
 	a.Xor(x64.R11, x64.R11) // 进位
@@ -413,7 +413,7 @@ func fExpand(b *rt) {
 	b.put(xIn, x64.RAX)
 	a.Jmp(iTop)
 	a.Mark(iDone)
-	// 从最高格往下找第一个非零格，位数就是「完整格数×9＋这一格有几位」
+	// 从最高格往下找第一个非零格，位数就是「完整格数×9＋那个位置有几位」
 	b.get(x64.RSI, xPtr)
 	b.get(x64.RAX, xNL)
 	a.AddImm(x64.RAX, -1)
@@ -434,7 +434,7 @@ func fExpand(b *rt) {
 	a.AddImm(x64.RCX, -1)
 	a.Jmp(ts)
 	a.Mark(fnd)
-	a.MovImm(x64.R9, 1) // 这一格的位数
+	a.MovImm(x64.R9, 1) // 那个位置的位数
 	a.MovImm(x64.R10, 10)
 	a.MovImm(x64.RDI, 10)
 	dg := b.label()

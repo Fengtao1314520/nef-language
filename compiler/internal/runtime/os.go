@@ -67,9 +67,9 @@ const (
 	sepA       = '\\'               // 补的时候补它
 	sepB       = '/'                // 读的时候两个都认
 	dotByte    = '.'
-	attrMiss   = int64(0xFFFFFFFF) // GetFileAttributesW 交回这个就是"不在"
+	attrMiss   = int64(0xFFFFFFFF) // GetFileAttributesW 返回这个就是"不在"
 	codeNoEnv  = 10061             // 没有这个环境变量
-	codeEnvAsk = 10060             // 环境那一组的兜底号
+	codeEnvAsk = 10060             // 环境那一组的默认错误码
 	// wideToText 与 env／current_directory 那几条预留的位置：调用方的槽一律排在 0～9，
 	// 这两个槽固定给它们用，不与调用方的槽重叠
 	wBytes = 22
@@ -364,7 +364,7 @@ func timeElapsed(b *rt) {
 
 // ---- 公共的小函数 ----
 
-// zeroExtend32 把"系统调用刚交回的那个 DWORD"洗成干净的 64 位，并摆进第 slot 格。
+// zeroExtend32 把"系统调用刚返回的那个 DWORD"洗成干净的 64 位，并摆进第 slot 格。
 //
 // 先按四个字节落帧、再零扩展读回来——寄存器之间没有现成的"三十二位往六十四位清零"这一条，
 // 而上面那半截是未定义的数据，不洗就不能拿去比大小、当长度。
@@ -845,7 +845,7 @@ func pathExists(b *rt) {
 
 // @env_get(rcx=名字)：返回 rax=那个环境变量的值。
 //
-// 没有这个变量抛 10061 号——规则写明"不交回空串也不交回空句柄"，所以这条路一定有答复。
+// 没有这个变量抛 10061 号——规则写明"不返回空串也不返回空句柄"，所以这条路一定有答复。
 // 两次 GetEnvironmentVariableW：第一次传空缓冲问要几个宽字符（返回的数含结尾那个 0），
 // 按那个数 @alloc 一块，第二次真读；第二次的返回值不含那个 0，就是翻成 UTF-8 的格数。
 // 名字翻不成（太长）是 10060 号：那不是"没有这个变量"。
@@ -911,7 +911,7 @@ func envGet(b *rt) {
 //
 // 名字与值分别翻进 aWide 与 wPath 两块静态缓冲。值本身是空句柄，不在这一层检查——
 // 降级在取用之前先按 10092 号拒绝，这一条只管操作系统那一侧。
-// 不成就是 10060 号：环境这一组的兜底，没有为"设不进"另开一号。
+// 不成就是 10060 号：环境这一组的默认错误码，没有为"设不进"另开一号。
 // SetEnvironmentVariableW 返回的是 BOOL（DWORD），不洗高位就没法判成败。
 //
 // en: @env_set (rcx = name, rdx = value): set an environment variable, valid for this program
@@ -957,7 +957,7 @@ func envSet(b *rt) {
 
 // @env_unset(rcx=名字)：删掉一个环境变量，只对本程序有效。
 //
-// 名字翻不进宽字符就是 10060 号，与 @env_set 同一条兜底。值那一侧给的是空句柄：
+// 名字翻不进宽字符就是 10060 号，与 @env_set 是同一个默认错误码。值那一侧给的是空句柄：
 // Windows 那一句把"值为空句柄"就当成"把这个变量删掉"。
 //
 // 系统调用说没成时再问一次 GetLastError：203（ERROR_ENVVAR_NOT_FOUND）就是那个变量本来
@@ -1177,7 +1177,7 @@ func tzOffset(b *rt) {
 
 	b.get(x64.RCX, tBuf)
 	b.impCall("GetTimeZoneInformation")
-	zeroExtend32(b, tKind) // 交回的是 DWORD：洗成无符号才好认 FAILED 那一档
+	zeroExtend32(b, tKind) // 返回的是 DWORD：洗成无符号才好认 FAILED 那一档
 
 	// Bias 在结构体第 0 格，是有符号 32 位：取出后把符号扩到 64 位（左移 32、算术右移 32）
 	b.get(x64.RAX, tBuf)
@@ -1198,7 +1198,7 @@ func tzOffset(b *rt) {
 	a.Mark(notDay)
 
 	b.get(x64.RCX, tBuf)
-	b.call("@free") // 问完了，这一格里没有要留的东西
+	b.call("@free") // 问完了，这个位置里没有要留的东西
 
 	// FAILED（0xFFFFFFFF）那一档：没有时区信息就当没有偏移，返回 0，不抛
 	b.get(x64.RAX, tKind)
@@ -1207,7 +1207,7 @@ func tzOffset(b *rt) {
 	failed := b.label()
 	a.Jcc(x64.E, failed)
 	a.Mov(x64.RAX, x64.RDX)
-	a.Neg(x64.RAX) // 本地＝UTC 减 Bias 分钟，取负交回去就是"本地快几分钟"
+	a.Neg(x64.RAX) // 本地＝UTC 减 Bias 分钟，取负返回的就是"本地快几分钟"
 	b.epilogue()
 
 	a.Mark(failed)

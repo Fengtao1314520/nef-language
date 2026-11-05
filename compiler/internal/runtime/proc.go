@@ -66,7 +66,7 @@ package runtime
 
 import "neflang.org/nf/internal/x64"
 
-// 三个号（新开的一段）：10110 是这一段的兜底，10111 是"起不来"，10112 是"表用完了"。
+// 三个号（新开的一段）：10110 是这一段的默认错误码，10111 是"起不来"，10112 是"表用完了"。
 // win32 有上千个号码，一个个折算会把这张表撑爆——与网络那一段同一处置：
 // 号只占三个，系统给的原号码一律带在消息里。
 //
@@ -75,7 +75,7 @@ import "neflang.org/nf/internal/x64"
 // each one would burst this table - the same treatment as the network band: three codes only,
 // and the system's original number is always carried in the message.
 const (
-	codeProcAsk   = 10110 // 兜底：等不到那个程序、问不到退出码
+	codeProcAsk   = 10110 // 默认错误码：等不到那个程序、问不到退出码
 	codeProcStart = 10111 // 起不来那个程序
 	codeProcFull  = 10112 // 同时跑着的子进程用完了这一张表
 )
@@ -292,7 +292,7 @@ func procStart(b *rt) {
 	a.Mark(free)
 	b.leaRIP(x64.RAX, "procPI")
 	a.MovLoad(x64.RDX, x64.RAX, 0)
-	a.MovStore(x64.RSI, 0, x64.RDX) // 进程那一把把手摆进这一格
+	a.MovStore(x64.RSI, 0, x64.RDX) // 进程那个句柄摆进这个位置
 	a.MovLoad(x64.RCX, x64.RAX, 8)  // 线程那一把：这一版不等它，当场关掉
 	b.impCall("CloseHandle")
 	b.get(x64.RAX, zI)
@@ -336,7 +336,7 @@ func procStart(b *rt) {
 // 10110 sentence "that program cannot be waited for", with no system number attached.
 func procWait(b *rt) {
 	const (
-		wHp  = 1 // 进程那一把把手
+		wHp  = 1 // 进程那个句柄
 		wErr = 2 // 系统号码的落点
 	)
 	a := b.a
@@ -344,7 +344,7 @@ func procWait(b *rt) {
 	b.put(0, x64.RCX)
 
 	bad := b.label()  // 句柄不是我给的那一个数
-	gone := b.label() // 表里那一格已经收过了
+	gone := b.label() // 表里那个位置已经收过了
 	a.Test(x64.RCX, x64.RCX)
 	a.Jcc(x64.LE, bad)
 	procIndex(b, bad)
@@ -408,7 +408,7 @@ func procWait(b *rt) {
 // closed. Every system call is followed by recomputing the slot address: rsi is caller-saved,
 // so reload the handle and recompute.
 func procClose(b *rt) {
-	const zHp = 1 // 进程那一把把手
+	const zHp = 1 // 进程那个句柄
 	a := b.a
 	b.prologue()
 	b.put(0, x64.RCX)
@@ -420,7 +420,7 @@ func procClose(b *rt) {
 	procIndex(b, bad)
 	a.MovLoad(x64.RDX, x64.RSI, 0)
 	a.Test(x64.RDX, x64.RDX)
-	a.Jcc(x64.E, done) // 这一格早收过了
+	a.Jcc(x64.E, done) // 那个位置早收过了
 	b.put(zHp, x64.RDX)
 
 	b.get(x64.RCX, zHp)

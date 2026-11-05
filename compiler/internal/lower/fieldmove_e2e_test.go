@@ -89,7 +89,7 @@ console.print(x, y, t.name)
 
 // TestFieldMoveIntoReturn 覆盖这条规则带来的归属结果：方法 `return leaf` 交出去之后，
 // 字段已写空，源头不再持有它，所以接住返回值的那一端是唯一持有者——
-// 此前为"字段里的句柄要留着源头"保留的 104 字节／圈从此归零（每圈分配量表里那一行跟着变）。
+// 此前为"字段里的句柄要留着源头"保留的 104 字节／圈从此归零（每轮分配量表里那一行跟着变）。
 func TestFieldMoveIntoReturn(t *testing.T) {
 	got, code := run(t, `
 class Leaf {

@@ -1,4 +1,5 @@
-// 站上 markdown 的中文排版检查：调 zhlint，文件列表由这份脚本自己展开。
+// 中文 markdown 的排版检查：站上每一页，加上 `docs/`、两份 README、`CHANGELOG.md`；调 zhlint，
+// 文件列表由这份脚本自己展开。
 // npm 脚本在 Windows 上走 cmd，通配与 sed 都不可靠，所以列表不能交给 shell。
 //
 // 跑法：node tools-site/typography.mjs          只报
@@ -11,7 +12,7 @@
 // 不塞空格；全角引号 `“……”` 紧贴汉字，外侧不塞空格；加粗小标题以句号收尾时，句号后面那个
 // 空格是 markdown 里的分段（`**说明。** 正文`），不算排版空格。
 import { spawnSync } from 'node:child_process'
-import { readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs'
+import { existsSync, readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs'
 import { dirname, join, resolve, sep } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
@@ -33,7 +34,20 @@ function* walk(dir) {
 }
 
 // site/README.md 是仓库里的目录说明，不是网页：它引用 srcDir 之外的路径，也不在构建范围里
-const files = [...walk(siteRoot)].filter((f) => !f.endsWith('README.md'))
+const siteFiles = [...walk(siteRoot)].filter((f) => !f.endsWith('README.md'))
+
+// 站上之外那批中文 markdown：`docs/`（本地留存的技术文档）、两份 README、更新记录。
+// 它们不在 vitepress 的构建范围里，此前没有任何工具管过排版，实测一次就有两百多处。
+// 仓库里那批按天写的开发记录不进这一列：历史条目保留当天的用词与写法，
+// 而且 zhlint 会把链接文字里那对半角括号判成"括号未匹配"，误报比有用多。
+const extraFiles = []
+for (const rel of ['README.zh-CN.md', 'CHANGELOG.md', 'vscode/README.md', 'webtest/README.md']) {
+  if (existsSync(join(repoRoot, rel))) extraFiles.push(join(repoRoot, rel))
+}
+if (existsSync(join(repoRoot, 'docs'))) {
+  for (const n of readdirSync(join(repoRoot, 'docs'))) if (n.endsWith('.md')) extraFiles.push(join(repoRoot, 'docs', n))
+}
+const files = [...siteFiles, ...extraFiles]
 
 // Windows 上全局装的 zhlint 是一个 .cmd 壳，只能走 shell；走 shell 就要把参数拼成一条命令，
 // 拼的时候每个路径都加双引号，路径里不含引号与空格以外的特殊字符（仓库内成立）。

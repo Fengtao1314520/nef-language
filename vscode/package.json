@@ -1,8 +1,8 @@
 {
   "name": "nef",
   "displayName": "nf",
-  "description": "nf 语言支持：语法高亮、编译期错误提示、代码补全与悬停说明，加上断点、单步、变量与内存视图的调试。",
-  "version": "0.4.1",
+  "description": "nf 语言支持：语法高亮、编译期错误提示、代码补全、悬停说明与转到定义，加上断点、单步、变量与内存视图的调试。",
+  "version": "0.5.5",
   "publisher": "neflang",
   "license": "Apache-2.0",
   "engines": {
@@ -70,6 +70,11 @@
                 },
                 "description": "交给程序的参数，程序里的 args 数组看得见",
                 "default": []
+              },
+              "breakOnThrow": {
+                "type": "boolean",
+                "description": "没人接住的抛出停一下；有人接住的那一次不停",
+                "default": false
               }
             }
           }
@@ -105,7 +110,7 @@
         "nf.path": {
           "type": "string",
           "default": "",
-          "description": "要使用的 nf.exe 完整路径。留空则使用扩展自带的那一份（Windows x64）；填了就用本机那一份，语言服务器与调试器都走这一份。"
+          "description": "本机 nf.exe 的完整路径（Windows x64）。扩展不带编译器：留空时用 PATH 里的 nf，填了就用这一份，语言服务器与调试器都走它。"
         }
       }
     }
@@ -115,12 +120,10 @@
     "watch": "tsc -w -p ./",
     "check": "node tools/check-grammar.mjs && node tools/check-highlight.mjs",
     "icon": "node tools/make-icon.mjs",
-    "server": "node tools/make-server.mjs",
-    "server:clean": "node tools/make-server.mjs --clean",
     "license": "node tools/make-license.mjs",
     "license:clean": "node tools/make-license.mjs --clean",
-    "vscode:prepublish": "npm run compile && npm run icon && npm run server && npm run license",
-    "package": "vsce package && npm run server:clean && npm run license:clean"
+    "vscode:prepublish": "npm run compile && npm run icon && npm run license",
+    "package": "vsce package && npm run license:clean"
   },
   "dependencies": {
     "vscode-languageclient": "^9.0.1"

@@ -4,9 +4,9 @@
 //
 // 抛出要从写 throw 的那一帧往外走到接住块为止：本帧登记的句柄在 @throw 之前释放；
 // 若缺少跨帧处理，中间那几帧登记的句柄无人释放，接住块自身 try 体里登记的同样无人释放。
-// 泄漏以整块为单位，表现为 heap_e2e_test.go 里"跨两帧抛"那一条的每圈堆用量持续增长。
+// 泄漏以整块为单位，表现为 heap_e2e_test.go 里"跨两帧抛"那一条的每轮堆用量持续增长。
 //
-// 机制是把帧内清理记录挂上处理器链：登记过句柄的帧在开场挂一条（@push_abandon），
+// 机制是把帧内清理记录附加到处理器链：登记过句柄的帧在开场附加一条（@push_abandon），
 // @throw_walk 走到时跳进那一帧尾部的清理代码，释放完成后调用 @throw_walk 继续向外走。
 // 两侧都要固定：不漏释放，也**不多释放**——接住块还要读的那些名字必须保持有效。
 
@@ -38,7 +38,7 @@ method top(n:int):int {
         let inner:list<int> = [n]
         let walked:int = middle(n)
         return walked + length(inner) + length(held)
-    } catch (code, msg) {
+    } catch (code, msg, at) {
         console.print(code, msg, length(held))
         return 0 - code
     }
@@ -71,11 +71,11 @@ method outer(n:int):int {
         try {
             let c:list<int> = [3]
             boom(n)
-        } catch (c1, m1) {
+        } catch (c1, m1, at1) {
             console.print(c1, m1, length(b))
             throw (c1, m1)
         }
-    } catch (c2, m2) {
+    } catch (c2, m2, at2) {
         console.print(c2, m2, length(a))
         return length(a)
     }
@@ -104,7 +104,7 @@ method middle(n:int):int {
 method caught():int {
     try {
         return middle(1)
-    } catch (c, m) {
+    } catch (c, m, at) {
         return 0 - c
     }
 }
@@ -112,7 +112,7 @@ let x:int = caught()
 console.print(x)
 throw (132, "这一趟没人接")
 `)
-	if want := "-131\n出错了（132）：这一趟没人接\n"; got != want || code != 1 {
+	if want := "-131\n出错了（132）：这一趟没人接（在 t.nf 19:1）\n"; got != want || code != 1 {
 		t.Fatalf("接住之后再抛不对：\n got %q 码 %d\nwant %q 码 1", got, code, want)
 	}
 }
@@ -134,7 +134,8 @@ method middle(n:int) {
 }
 middle(2)
 `)
-	if want := "出错了（135）：没人接\n"; got != want || code != 1 {
+	if want := "出错了（135）：没人接（在 t.nf 6:5）\n" +
+		"    t.nf 6:5 deep\n    t.nf 10:5 middle\n    t.nf 12:1 t.nf\n"; got != want || code != 1 {
 		t.Fatalf("没人接那一条不对：\n got %q 码 %d\nwant %q 码 1", got, code, want)
 	}
 }
@@ -155,7 +156,7 @@ let total:int = 0
 for (i:int in 0 until 5) {
     try {
         total = total + risky(i)
-    } catch (c, m) {
+    } catch (c, m, at) {
         total = total + c
     }
 }
@@ -304,7 +305,7 @@ method top(n:int):int {
         let inner:dict<string, int> = {"甲": n}
         let walked:int = middle(n)
         return walked + length(inner) + length(held)
-    } catch (code, msg) {
+    } catch (code, msg, at) {
         return 0 - code + length(held)
     }
 }

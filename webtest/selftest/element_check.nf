@@ -10,7 +10,7 @@
 // 消失的提示、有一块 400 毫秒后才出来的东西；列表那一页有三行、两个链接、一个看不见的块、
 // 一个不能用的按钮、一个 120×40 的方框、一块远在两千像素之下的东西。
 //
-// 每一条检查打印一行"过  …"，全过最后印"全对"、退出码 0；有一处不过把对不上的那一处打印出来，
+// 每一条检查打印一行"通过 …"，全部通过时最后打印"全部通过"、退出码 0；有一处失败就把对不上的那一处打印出来，
 // 退出码 1。
 
 import wt from "libs/web_test"
@@ -19,39 +19,39 @@ method check_text(name:string, got:string, want:string):boolean {
     // 库里读出来的那段文本可能是空句柄（没有的那个属性、找不到的那个元素），而文本比较要读内容：
     // 拿空句柄去比就是运行期的 10092。所以先判空句柄。
     if (got == null) {
-        console.print("不对  " + name, "读到的是空句柄，要的是「" + want + "」")
+        console.print("失败  " + name, "读到的是空句柄，要的是「" + want + "」")
         return false
     }
     if (got != want) {
-        console.print("不对  " + name, "给", got, "要", want)
+        console.print("失败  " + name, "给", got, "要", want)
         return false
     }
-    console.print("过  " + name)
+    console.print("通过  " + name)
     return true
 }
 
 method check_int(name:string, got:int, want:int):boolean {
     if (got != want) {
-        console.print("不对  " + name, "给", got, "要", want)
+        console.print("失败  " + name, "给", got, "要", want)
         return false
     }
-    console.print("过  " + name)
+    console.print("通过  " + name)
     return true
 }
 
 method check_true(name:string, got:boolean):boolean {
     if (!got) {
-        console.print("不对  " + name, "要真，给的是假")
+        console.print("失败  " + name, "要真，给的是假")
         return false
     }
-    console.print("过  " + name)
+    console.print("通过  " + name)
     return true
 }
 
 let bad:int = 0
-let exe:string = args[0]
-let profile:string = args[1]
-let fixdir:string = args[2]
+let exe:string = args[0] + ""
+let profile:string = args[1] + ""
+let fixdir:string = args[2] + ""
 
 let browser:wt.Browser = wt.start(exe, profile, 8000, 5000)
 let shot:string = profile + "/element.png"
@@ -74,7 +74,7 @@ if (!ok3) {
 
 // 四～六：定位返回一个元素，元素自己写字、自己读字
 let name_el:wt.Element = form.find_element_by_css("#name")
-let ok4:boolean = check_true("四、find_element_by_css 交回一个元素", name_el != null)
+let ok4:boolean = check_true("四、find_element_by_css 返回一个元素", name_el != null)
 if (!ok4) {
     bad = bad + 1
 }
@@ -89,7 +89,7 @@ if (!ok6) {
 }
 
 // 七：找不着就是空句柄，不报错
-let ok7:boolean = check_true("七、找不到的那一个交回空句柄", form.find_element_by_css("#没有这一个") == null)
+let ok7:boolean = check_true("七、找不到的那一个返回空句柄", form.find_element_by_css("#没有这一个") == null)
 if (!ok7) {
     bad = bad + 1
 }
@@ -128,7 +128,7 @@ if (!ok11) {
 let code_206:int = -1
 try {
     form.expect_text_css("#name", "不是这两个字", 300)
-} catch (c1, m1) {
+} catch (c1, m1, at1) {
     code_206 = c1
 }
 let ok12:boolean = check_int("十二、断言不通过报 206", code_206, 206)
@@ -140,7 +140,7 @@ if (!ok12) {
 let code_205:int = -1
 try {
     form.wait_for_element_by_css("#没有这一个", 400)
-} catch (c2, m2) {
+} catch (c2, m2, at2) {
     code_205 = c2
 }
 let ok13:boolean = check_int("十三、等不到元素报 205", code_205, 205)
@@ -177,8 +177,8 @@ if (!ok18) {
 }
 
 // 十九～二十一：复数定位返回一个元素列表。两条语言规则在这一段里都会走到：
-// 按位置取那一样是过户（容器装 class 时 `let x:C = cs[0]` 之后 `cs[0]` 就是 null），
-// 所以取出的那一个接在名字上继续使用；逐个遍历走 for（遍历是只读借用，走完列表还是满的）。
+// 按位置读交出的是只读借用（`rows[1].read_text()`、`rows[1].click()` 顺着读与用都可以，读完那个位置还在），
+// 要把那一份接在名字上就得拷一份或者摘出来；逐个遍历走 for（遍历同样是只读借用，走完列表还是满的）。
 let rows:list<wt.Element> = rows_page.find_elements_by_css(".row")
 let seen:int = 0
 for (el:wt.Element in rows) {
@@ -186,16 +186,15 @@ for (el:wt.Element in rows) {
         seen = seen + 1
     }
 }
-let ok19:boolean = check_int("十九、find_elements_by_css 交回三个元素，for 走完列表还是满的", seen + length(rows), 6)
+let ok19:boolean = check_int("十九、find_elements_by_css 返回三个元素，for 走完列表还是满的", seen + length(rows), 6)
 if (!ok19) {
     bad = bad + 1
 }
-let second:wt.Element = rows[1]
-let ok20:boolean = check_text("二十、列表里第二个元素读得出自己的字", second.read_text(), "第二行")
+let ok20:boolean = check_text("二十、列表里第二个元素读得出自己的字", rows[1].read_text(), "第二行")
 if (!ok20) {
     bad = bad + 1
 }
-second.click()
+rows[1].click()
 let ok21:boolean = check_text("二十一、点列表里那一个，页面记下的是第二行", rows_page.read_text_css("#tip"), "点到第二行")
 if (!ok21) {
     bad = bad + 1
@@ -284,7 +283,7 @@ if (!ok33) {
     bad = bad + 1
 }
 
-// 三十四：两页都还挂着
+// 三十四：两页都还连着
 let ok34:boolean = check_true("三十四、list_pages 数得出两页以上", length(browser.list_pages()) >= 2)
 if (!ok34) {
     bad = bad + 1
@@ -306,7 +305,7 @@ if (!ok36) {
     bad = bad + 1
 }
 
-// 三十七：等一条浏览器主动发来的通知。挂上一页时库里替这一页开了 Page 域，
+// 三十七：等一条浏览器主动发来的通知。附加到这一页时库里替这一页开了 Page 域，
 // 上面那次 reload 一定发过 Page.loadEventFired——那些不带 id 的帧在认答复那一步被跳过，
 // 存进包内的表里等上层来取。
 let beat:string = rows_page.wait_event("Page.loadEventFired", 3000)
@@ -331,8 +330,8 @@ if (!ok39) {
 }
 
 browser.close()
-console.print("—— 自测跑完，不对", bad, "处")
+console.print("—— 自测跑完，失败", bad, "处")
 if (bad > 0) {
     exit (1, "定位、动作、断言那一面有 " + number.to_string(bad) + " 处不对")
 }
-console.print("全对")
+console.print("全部通过")

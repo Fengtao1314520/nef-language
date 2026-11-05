@@ -1,6 +1,6 @@
 # Nef
 
-![版本](https://img.shields.io/badge/version-v0.4.1-blue)
+![版本](https://img.shields.io/badge/version-v0.5.5-blue)
 [![代码许可](https://img.shields.io/badge/license-Apache--2.0%20%E4%B8%8E%20Nef%20Output%20Exception-green)](LICENSE)
 [![文档许可](https://img.shields.io/badge/docs-CC%20BY%204.0-yellow)](nef-licensing/LICENSE-DOCS.md)
 [![平台](https://img.shields.io/badge/platform-Windows%20x64-lightgrey)](#依赖)
@@ -69,7 +69,7 @@ for (x:int in xs) {
 console.print("hello, " + name + "; sum = " + number.to_string(total))
 ```
 
-存成 `hello.nf`，运行 `./nf.exe hello.nf`。类型标注是声明的一部分；`total = total + x` 只是把一个 `int` 重新赋值，而 `let one:string = xs[0]` 会把列表里那一个位置交出来：读走之后，那个位置就空了。
+存成 `hello.nf`，运行 `./nf.exe hello.nf`。类型标注是声明的一部分；`total = total + x` 只是把一个 `int` 重新赋值。读列表里的那个位置（`xs[0]`）交出的是只读借用：那个位置读完还在，借用不能接给一个名字、写进字段、`return` 给调用方，也进不了容器的一个位置。要自己留一份就写 `xs[0] + ""` 拷一段文本，或者 `xs.remove_at(0)` 把那一个摘出来。
 
 ## 命令行
 
@@ -105,7 +105,7 @@ go test ./...
 | 位置 | 内容 |
 | --- | --- |
 | `compiler/` | 整套工具链的 Go 源码（一个模块，零第三方依赖） |
-| `samples/` | 七份示例程序，每一份同时是一条端到端测试的用例 |
+| `samples/` | 八份示例程序，每一份同时是一条端到端测试的用例 |
 | `webtest/` | 用 Nef 写的浏览器自动化测试库与脚本运行层 |
 | `site/` | 文档网站（VitePress）与它的七项检查 |
 | `vscode/` | VS Code 插件 |
@@ -127,7 +127,7 @@ go test ./...
   [NOTICE](NOTICE)，这三份一起随 VS Code 扩展包分发。
 - 文档、规范与网站文字：[CC BY 4.0](site/LICENSE)。`site/tools-site/` 与 `site/.vitepress/` 里的脚本是代码，跟着上面那一档走。
 - 语言名称 `Nef` 受[商标政策](nef-licensing/TRADEMARK_POLICY.md)约束。
-- `samples/` 那七份示例程序，以及这份 README 和站上正文里出现的代码，不受任何许可证约束：拿去写自己的程序，用什么条款都行，不需要署名。这句话的出处是
+- `samples/` 那八份示例程序，以及这份 README 和网站正文里出现的代码，不受任何许可证约束：拿去写自己的程序，用什么条款都行，不需要署名。这句话的出处是
   [NOTICE](NOTICE) 那份许可摘要的最后一条。
 
 ## 致谢

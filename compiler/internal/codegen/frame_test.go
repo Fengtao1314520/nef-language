@@ -11,8 +11,8 @@ import (
 
 // 帧的形状全靠这几个算式撑着，错了就是内存被写坏那种查不动的 bug。
 // 先做纯算式的不变量检查，再拿实际运行的探针兜一遍——算式对不代表 CPU 认。
-// 出参那一格尤其要按个数核：2026-10-26 修 后二十五 之前，帧底只留一格，
-// 五个及以上实参的调用会把自己的槽区从下面盖穿（包括帧尾的清理记录）。
+// 出参那个位置尤其要按个数核：2026-10-26 修 后二十五 之前，帧底只留一格，
+// 五个及以上实参的调用会把自己帧上的槽位从下面往上写坏（包括帧尾的清理记录）。
 func TestFrameArithmetic(t *testing.T) {
 	for slots := 0; slots <= 64; slots++ {
 		for maxOut := 1; maxOut <= 20; maxOut++ {
@@ -57,7 +57,7 @@ func runExe(t *testing.T, l *Linker, userData []byte) exetest.Result {
 }
 
 // 探针一：40 个槽全填上哨兵，再把 5 当第五个参数交出去。
-// 槽区要是顶到了出参区，印回来的就是哨兵而不是 5。
+// 槽区要是顶到了出参区，打印回来的就是哨兵而不是 5。
 func TestProbeSlotsVsOutgoingArgs(t *testing.T) {
 	const slots = 40
 	l := NewLinker()
@@ -95,7 +95,7 @@ func TestProbeSlotsVsOutgoingArgs(t *testing.T) {
 // 一次带九个实参的调用。第五到第九个参数按新算式全落在帧底空地里；
 // 旧算式只留一格，第九个参数正好砸穿最深那三格槽。
 // 调用之前把最深格填上哨兵、九个参数填 1 到 9，调用回来读哨兵：
-// 印 0xdeadbeef 才算没盖；印出别的数就是被第几个参数盖了，当场看得出来。
+// 打印 0xdeadbeef 才算没盖；打印出别的数就是被第几个参数盖了，当场看得出来。
 func TestProbeNineArgsVsRecordSlots(t *testing.T) {
 	const slots = 29
 	l := NewLinker()

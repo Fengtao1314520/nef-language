@@ -31,7 +31,7 @@ export function escapeHtml(s) {
   return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
 }
 
-// tokenize 交回 {kind, text}：kind 与 nf.exe tokens 打出的类型同名（nl/name/num/str/char/op），
+// tokenize 返回 {kind, text}：kind 与 nf.exe tokens 打出的类型同名（nl/name/num/str/char/op），
 // 只是这里额外把关键字、保留名、注释单列出来，上色要用。
 export function tokenize(src) {
   const out = []

@@ -1,11 +1,11 @@
 // Copyright 2026 Feng Tao (Nate). Apache-2.0. See LICENSE.
 
-// pkgconst_test.go 钉这条行为：包交出来的 `const` 在包外面按点号读得到，读出来的值两条路
+// pkgconst_test.go 钉这条行为：包导出的 `const` 在包外面按点号读得到，读出来的值两条路
 // （内存里直跑与生成产物）跑出来是同一串字。
 //
 // 这一条查的是"检查认下来之后，后端能不能真读到那一个静态槽"：静态槽按声明节点排，
 // 按执行次序，包那一份文件的顶层名字在入口之前排好，所以入口里读它拿的是同一个槽。
-// 检查那一侧的规矩（没挂 export、shared、当函数叫、往里写、自增减）在
+// 检查那一侧的规矩（没写 export、shared、当函数叫、往里写、自增减）在
 // `internal/check/packageconst_test.go` 里逐句钉着，这里不重复。
 package main
 
@@ -40,7 +40,7 @@ console.print(n + 4, greet.twice(greet.LIMIT), greet.ratio, greet.ready)
 
 	jit, code := runNf(t, nf, filepath.Join(root, "main.nf"))
 	if code != 0 {
-		t.Fatalf("读包交出来的数该跑得通（%d）：%s", code, jit)
+		t.Fatalf("读包导出的数该跑得通（%d）：%s", code, jit)
 	}
 	if want := "4100 8192 0.5 true\n"; jit != want {
 		t.Fatalf("内存里直跑得到 %q，要 %q", jit, want)

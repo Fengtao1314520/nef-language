@@ -18,9 +18,9 @@
 //
 // 退出码：0 全过；1 有用例失败；2 无法完成（cases 目录不在、或某一份没有成功执行）。
 
-let browser:string = args[0]
-let cases_dir:string = args[1]
-let out_root:string = args[2]
+let browser:string = args[0] + ""
+let cases_dir:string = args[1] + ""
+let out_root:string = args[2] + ""
 let nf_path:string = "nf.exe"
 let want:string = ""
 let fixdir:string = path.directory_name(cases_dir) + "fixtures"
@@ -35,10 +35,10 @@ let fail_notes:list<string> = []
 let ran:list<string> = []
 
 if (length(args) > 3) {
-    nf_path = args[3]
+    nf_path = args[3] + ""
 }
 if (length(args) > 4) {
-    want = args[4]
+    want = args[4] + ""
 }
 
 method in_want(ref stem_name:string):boolean {
@@ -47,7 +47,7 @@ method in_want(ref stem_name:string):boolean {
     }
     let parts:list<string> = want.split(",")
     for (i:int in 0 until length(parts)) {
-        let one:string = parts[i]
+        let one:string = parts[i] + ""
         if (one == stem_name) {
             return true
         }
@@ -55,7 +55,7 @@ method in_want(ref stem_name:string):boolean {
     return false
 }
 
-method text_of(slot:Json):string {
+method text_of(ref slot:Json):string {
     if (slot == null) {
         return ""
     }
@@ -78,7 +78,7 @@ method collect(ref target_dir:string, ref stem_name:string) {
     }
     let rows:list<string> = file.read(report).split("\n")
     for (i:int in 0 until length(rows)) {
-        let row:string = rows[i]
+        let row:string = rows[i] + ""
         if (length(row) < 2) {
             continue
         }
@@ -123,7 +123,7 @@ file.create_directories(out_root)
 
 let names:list<string> = file.list(cases_dir)
 for (i:int in 0 until length(names)) {
-    let name:string = names[i]
+    let name:string = names[i] + ""
     if (!name.ends_with(".nf")) {
         continue
     }
@@ -145,7 +145,7 @@ for (i:int in 0 until length(names)) {
     collect(one_out, stem)
 }
 
-let tally:string = "→ " + number.to_string(length(ran)) + " 份，" + number.to_string(total) + " 条：过 " + number.to_string(passed) + "，挂 " + number.to_string(failed) + "，跳 " + number.to_string(skipped)
+let tally:string = "→ " + number.to_string(length(ran)) + " 份，" + number.to_string(total) + " 条：通过 " + number.to_string(passed) + "，失败 " + number.to_string(failed) + "，跳过 " + number.to_string(skipped)
 console.print("")
 console.print(tally)
 for (note:string in fail_notes) {

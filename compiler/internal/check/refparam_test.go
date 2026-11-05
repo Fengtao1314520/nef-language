@@ -39,11 +39,13 @@ func TestRefParamRefusesToTakeAway(t *testing.T) {
 	expectErr(t, "class W { t:string }\nmethod q(ref s:string) { let w:W = new W(t: s) }\n", "ref 参数 s 是只读借用，不能交出去")
 	expectErr(t, "method q(ref xs:list<string>, ref one:string) { xs.add(one) }\n", "ref 参数 one 是只读借用，不能交给要拿走的那个参数")
 	expectErr(t, "method q(ref s:string) { let box:object = s }\n", "ref 参数 s 是只读借用，不能交出去")
-	expectErr(t, "class C { }\nmethod q(ref c:C) { let o:object = c as object }\n", "只读借用不能拆盒")
+	// 顺着装箱读一份借来的值是允许的，把它收进一个名字才拒
+	expectErr(t, "class C { }\nmethod q(ref c:C) { let o:object = c as object }\n", "读出来的那一份是只读借用，不能收到名字里、写进字段或者交给调用方：文本拷一份，能摘出来的位置用 remove_at 或 json.take 摘出来")
+	expectOK(t, "class C { n:int }\nmethod q(ref c:C):boolean { return (c as object) is C }\n")
 	expectErr(t, "class C { v:string }\nmethod q(ref c:C) { let out:string = c.v }\n", "ref 参数 c 是只读借用，不能把里面的东西交出去")
-	// 从借来的容器里读走一个位置会把那个位置置空，所以拒绝（与遍历变量是同一条道理）；
-	// 顺着借用的对象读它的容器、再读走一个位置，这一条语言本来就没拒绝（this 那一侧同一形状）。
-	expectErr(t, "method q(ref xs:list<string>) { let out:string = xs[0] }\n", "ref 参数 xs 是只读借用，不能再把里面的东西交给自己")
+	// 从借来的容器里读一个位置不置空那个位置，所以这一句报的是"读出来的那一份不许收进名字"；
+	// 借来的那一个容器本身照旧能读（与遍历变量、this 同一形状）。
+	expectErr(t, "method q(ref xs:list<string>) { let out:string = xs[0] }\n", "读出来的那一份是只读借用，不能收到名字里、写进字段或者交给调用方：文本拷一份，能摘出来的位置用 remove_at 或 json.take 摘出来")
 	// 借来的交不进要拿走的：这一句与上面 `xs.add` 是同一条道理
 	expectErr(t, "method sink(s:string) { }\nmethod q(ref s:string) { sink(s) }\n", "ref 参数 s 是只读借用，不能交给要拿走的那个参数")
 }

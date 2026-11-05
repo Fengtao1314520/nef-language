@@ -22,7 +22,9 @@
 
 存入引用类型时，**写入字面量的那个位置就是它的新持有者**：`let cs:list<C> = [c]` 之后 `c` 不再是持有者，`[c, c]` 是编译错误。字面量写入与 `cs.add(c)` 遵循同一套规则（[值与存放](/reference/038_memory)）。存入值类型本来就是整份拷贝，`[p, p]` 可以照常书写。
 
-连着两级下标写入是另一回事：`xs[0][0] = 7`、`a[0].v = 7` 这样路径中间还要读走一个位置的，检查阶段就会拒绝，需要修改时先把刚读走的位置绑定到一个名称上（见[语句与块](/reference/036_statements)的“声明与赋值”一节）。
+连着两级下标写入是另一回事：`xs[0][0] = 7`、`a[0].v = 7` 这样路径中间还要再经过一个容器位置的，检查阶段就会拒绝。
+
+要改内层那一条，先用 `remove_at` 把它摘出来，改完放回去（见[语句与块](/reference/036_statements)的“声明与赋值”一节）。
 
 ## 动作
 
@@ -64,16 +66,16 @@
 
 ## 元素的进出
 
-| 元素类型 | 进出容器时 |
-| --- | --- |
-| 值类型（`int`、`float`、`boolean`、`byte`、`unicode`、`struct`、`enum`） | 拷贝，容器中的位置始终有值 |
-| 引用类型（`class`、`string`、`object`、其他容器） | 交出，不论是进入还是取出，每个位置只保存一份 |
+| 元素类型 | 放进容器时 | 读一个位置时 |
+| --- | --- | --- |
+| 值类型（`int`、`float`、`boolean`、`byte`、`unicode`、`struct`、`enum`） | 拷贝一份进去 | 读到一份拷贝，容器不动 |
+| 引用类型（`class`、`string`、`object`、其他容器） | 交出，那个位置成为它唯一的持有者 | 读到的是容器那一份，用完不归还；同一位置可以读第二遍 |
 
-被读走的位置此后返回 `null`。
+要把读到的值留下来，由这个名字拿着，有两种明写法。文本复制一份：`let first:string = names[0] + ""`。
 
-`let x:string = args[0]` 之后，`args[0]` 就是 `null`，需要判断就写 `if (args[0] != null)`；遍历读到的借用可能是 `null`，使用之前需要先判断。
+其余类型从容器里摘出来：`let second:string = names.remove_at(1)`，后面的位置依次前移，长度少一。要把一个位置写成空就明写 `xs[0] = null`；遍历读到的借用可能是 `null`，使用之前需要先判断。
 
-一个位置只保存一份值，不会同时存在两份。存入 `class` 对象同理：`let c:C = cs[0]` 之后 `cs[0]` 是 `null`。
+一个位置只保存一份值，不会同时存在两份。存入 `class` 对象同理：那个位置是它唯一的持有者，读出时不复制，交给别处就要先摘出来。
 
 从容器中取出 `object` 再拆箱时，写成两步最容易看清：
 
@@ -86,12 +88,12 @@ struct Size {
 let box:list<object> = []
 box.add(Size { w: 2, h: 3 } as object)
 
-let own:object = box[0]          // 先交出出来，那个位置空出来
-let one:Size = own as Size       // 再拆盒
-console.print(one.w * one.h)     // 6
+let own:object = box.remove_at(0)  // 先把那个位置摘出来，容器少一个元素
+let one:Size = own as Size         // 再拆箱：own 交给 one
+console.print(one.w * one.h)       // 6
 ```
 
-`box[0] as Size` 连写也能通过检查：下标取出这一步本身就会交出值，两步合成一句即可。
+同一句里当场读当场拆也可以：`console.print((box[0] as Size).w)`。想把这个对象接给一个名字留着，就要先摘出来再拆，像上面那样写两步。
 
 ## 遍历
 

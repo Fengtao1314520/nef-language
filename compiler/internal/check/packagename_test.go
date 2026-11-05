@@ -316,7 +316,7 @@ console.print(r.left)
 		PkgRoots: map[string]string{aaFacade: aaRoot},
 	}
 	if errs := Run(prog); len(errs) > 0 {
-		t.Fatalf("包里交出来的别名该当类型用，实际报错：%v", msgs(errs))
+		t.Fatalf("包里导出的别名该当类型用，实际报错：%v", msgs(errs))
 	}
 }
 

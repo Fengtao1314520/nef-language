@@ -1,0 +1,36 @@
+{
+  // nf 语言在 VS Code 里的调试配置示例。把想要的那一段复制进工程的 .vscode/launch.json，按 F5 起调试。
+  // en: Example nf debug configurations for VS Code. Copy a configuration into your project's
+  //     .vscode/launch.json, then press F5.
+  // program 必填：要调试的那份 .nf。写成 ${file} 就是当前编辑器里打开的文件。
+  // en: program is required: the .nf file to debug. ${file} means the file open in the editor.
+  // args 可省：交给程序的参数，程序里的 args 数组读得到，与命令行上直接运行是同一份。
+  // en: args is optional: command-line arguments, visible in the program's args array.
+  // breakOnThrow 可省，默认 false：写成 true 时，没人接住的那一次抛出会停下来，停在抛出那一句上。
+  //     有人接住的抛出不停；那一种现场要在 catch 那一行自己下断点。
+  // en: breakOnThrow is optional and defaults to false. With true, an uncaught throw pauses on the
+  //     throwing statement; a caught throw never pauses - set a breakpoint in the catch block for that.
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "type": "nf",
+      "request": "launch",
+      "name": "调试当前文件",
+      "program": "${file}"
+    },
+    {
+      "type": "nf",
+      "request": "launch",
+      "name": "统计一个文件的行数",
+      "program": "${workspaceFolder}/samples/linecount.nf",
+      "args": ["${workspaceFolder}/samples/shopping.nf"]
+    },
+    {
+      "type": "nf",
+      "request": "launch",
+      "name": "抛出时停下来",
+      "program": "${workspaceFolder}/samples/rpn.nf",
+      "breakOnThrow": true
+    }
+  ]
+}

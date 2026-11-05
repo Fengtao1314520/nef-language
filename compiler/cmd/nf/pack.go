@@ -117,7 +117,7 @@ func cmdPack(args []string) int {
 		fmt.Fprintln(os.Stderr, err)
 		return 1
 	}
-	fmt.Printf("打包完成：%s（%d 份源文件）\n", out, len(files))
+	fmt.Printf("打包完成：%s（%d 份源文件，每一条都记了 SHA-256 校验值）\n", out, len(files))
 	return 0
 }
 

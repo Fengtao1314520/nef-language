@@ -93,7 +93,7 @@ func TestBytesNewAtSlice(t *testing.T) {
 }
 
 // TestBytesNewZeroAndNegative 钉两个边角：0 个字节造得出来（长度那个位置写 0），
-// 负的那一个当场抛容器段的兜底 10030 号——绕回的大数会一路走到"要不到内存"那一句，
+// 负的那一个当场抛容器段的默认错误码 10030 号——绕回的大数会一路走到"要不到内存"那一句，
 // 那句话说的是这台机器给不出这么多，不是"你写错了一个符号"。
 func TestBytesNewZeroAndNegative(t *testing.T) {
 	d := newDrv(t)

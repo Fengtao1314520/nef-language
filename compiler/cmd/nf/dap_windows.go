@@ -80,6 +80,7 @@ func (procReader) Read(addr uintptr, n int) ([]byte, bool) {
 // program's own arguments ...].
 func cmdDebuggee(args []string) int {
 	port := ""
+	throwStop := false
 	var progArgs []string
 	for i := 1; i < len(args); i++ {
 		if args[i] == "--debuggee" {
@@ -89,6 +90,12 @@ func cmdDebuggee(args []string) int {
 			}
 			port = args[i+1]
 			i++
+			continue
+		}
+		if args[i] == "--break-on-throw" {
+			// 编辑器那一头 launch.json 的 breakOnThrow：开了才在没人接住的那一次抛出停。
+			// 这一号是自己的，不能混进程序的参数里（那几段是给 nf 程序读的 args）。
+			throwStop = true
 			continue
 		}
 		progArgs = append(progArgs, args[i])
@@ -172,6 +179,7 @@ func cmdDebuggee(args []string) int {
 	}
 
 	sess := debug.New(l.Sites())
+	sess.SetBreakOnThrow(throwStop)
 	tgt := debug.NewTarget(procReader{}, base, l.Sites(), p)
 	// 每一个静态槽的绝对地址：数据段从 Img.DataAt 起，槽在数据段里的偏移由 BuildData 给出。
 	tgt.Statics = make([]uintptr, p.Globals)
@@ -190,11 +198,20 @@ func cmdDebuggee(args []string) int {
 	resume := make(chan struct{}, 1)
 	startGate := make(chan struct{})
 
-	// 宿主回调：Windows 那套调用约定下头两个整数参数在 rcx 与 rdx 里，
+	// 宿主回调：Windows 那套调用约定下头三个整数参数在 rcx、rdx 与 r8 里，
 	// 也就是 NewCallback 返回的那个指针被 call 时，这一侧收到（检查点号, 这一帧的 rbp）。
-	cb := syscall.NewCallback(func(id, rbp uintptr) uintptr {
+	// 抛出那一次的问话带的是另一个号（debug.ThrowID），那一条路上第二个与第三个参数交的是
+	// "抛出所在那一句之后的第一个字节"和"那一帧的帧基"：前者查现成的检查点表就是位置与函数名，
+	// 后者是栈与局部量要读的那一帧。
+	cb := syscall.NewCallback(func(id, arg2, arg3 uintptr) uintptr {
 		mu.Lock()
-		act := sess.OnHit(int(id), rbp, tgt.Depth(rbp))
+		var act debug.Action
+		if int(id) == debug.ThrowID {
+			top, _ := tgt.SiteAtAddr(arg2)
+			act = sess.OnThrow(top, arg3, tgt.Depth(arg3))
+		} else {
+			act = sess.OnHit(int(id), arg2, tgt.Depth(arg2))
+		}
 		reason := sess.Reason()
 		site, _ := sess.Site()
 		mu.Unlock()

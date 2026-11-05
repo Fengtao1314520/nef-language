@@ -82,7 +82,7 @@ console.print(q.status)
 try {
     let page:Response = http.get("http://127.0.0.1:9/", 1000)
     console.print(page.status)
-} catch (code, msg) {
+} catch (code, msg, at) {
     console.print("没取到:", code)
 }
 ```

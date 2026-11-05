@@ -1,6 +1,6 @@
 # Nef
 
-![Version](https://img.shields.io/badge/version-v0.4.1-blue)
+![Version](https://img.shields.io/badge/version-v0.5.5-blue)
 [![License](https://img.shields.io/badge/license-Apache--2.0%20with%20Nef%20Output%20Exception-green)](LICENSE)
 [![Docs](https://img.shields.io/badge/docs-CC%20BY%204.0-yellow)](nef-licensing/LICENSE-DOCS.md)
 [![Platform](https://img.shields.io/badge/platform-Windows%20x64-lightgrey)](#requirements)
@@ -95,9 +95,11 @@ console.print("hello, " + name + "; sum = " + number.to_string(total))
 ```
 
 Save it as `hello.nf` and run `./nf.exe hello.nf`. Type annotations are part
-of the declaration; `total = total + x` rebinds the owner of an `int`, while
-`let one:string = xs[0]` would move the element out of the list and leave that
-slot empty.
+of the declaration; `total = total + x` rebinds the owner of an `int`.
+Reading a list position (`xs[0]`) borrows the value: the slot keeps its
+content, and a borrow cannot be stored into a name, a field, a return or
+another container. Write `xs[0] + ""` to copy a text, or `xs.remove_at(0)`
+to take the element out and own it.
 
 ## Command line
 
@@ -110,7 +112,7 @@ slot empty.
 | `nf tokens file.nf` | Print the token stream (`kind:text`, one per line) - the site highlighter is checked against it |
 | `nf ir file.nf` | Print the lowered intermediate code, without emitting machine code |
 | `nf lsp` | Language server over stdio; same checking rules as `nf check` |
-| `nf dap` | Debug adapter for VS Code: breakpoints, stepping, call stack, variables |
+| `nf dap` | Debug adapter for VS Code: breakpoints, stepping, call stack, variables, and stopping on a throw nobody catches (`breakOnThrow`) |
 | `nf version` | Print the compiler version; exit code is always 0 |
 
 ## Tests
@@ -142,7 +144,7 @@ example.
 | Path | Contents |
 | --- | --- |
 | `compiler/` | The Go source of the whole toolchain (single module, no third-party dependencies) |
-| `samples/` | Seven example programs; each one doubles as an end-to-end test |
+| `samples/` | Eight example programs; each one doubles as an end-to-end test |
 | `webtest/` | Browser automation library and test runner written in Nef |
 | `site/` | The documentation website (VitePress) and its seven checks |
 | `vscode/` | The VS Code extension |
@@ -175,7 +177,7 @@ contributor license agreement next to it. Two conventions shape changes here:
   The site's own scripts under `site/tools-site/` and `site/.vitepress/` are
   code and follow the line above.
 - The name "Nef" is governed by the [trademark policy](nef-licensing/TRADEMARK_POLICY.md).
-- The seven programs under `samples/` and the code printed in this README or on
+- The eight programs under `samples/` and the code printed in this README or on
   the documentation site are dedicated to be free of restriction: use them in
   your own programs under any terms you like, no attribution needed. The
   dedication is the last entry of the license summary in

@@ -15,7 +15,7 @@ console.print(environment.get("NF_UNSET_DEMO"))
 environment.unset("NF_UNSET_DEMO")
 try {
     console.print(environment.get("NF_UNSET_DEMO"))
-} catch (c, m) {
+} catch (c, m, at) {
     console.print(c)
 }
 environment.unset("NF_UNSET_DEMO")
@@ -28,13 +28,13 @@ console.print("删第二次也没事")
 }
 
 // TestUnsetBadNameThrows 名字坏到系统调用不接受（`=` 是环境变量名的分隔符）时，走的仍是
-// environment 这一组共同的兜底 10060 号——同一组函数对坏名字的处理结果必须一致。
+// environment 这一组共同的默认错误码 10060 号——同一组函数对坏名字的处理结果必须一致。
 func TestUnsetBadNameThrows(t *testing.T) {
 	got, code := run(t, `
 try {
     environment.unset("NF=BAD")
     console.print("没抛")
-} catch (c, m) {
+} catch (c, m, at) {
     console.print(c, m)
 }
 `)
@@ -59,7 +59,7 @@ console.print("跑完了")
 }
 
 // TestUnsetKeepsTheMidExpressionLeak 名字是当场拼出来的那一种（`"NF_UNSET" + number.to_string(...)`），
-// 每圈留 32 字节。这一处泄漏不在 `unset` 的责任范围：同一段式子换成 `console.print(...)` 一字不差也是 32
+// 每轮留 32 字节。这一处泄漏不在 `unset` 的责任范围：同一段式子换成 `console.print(...)` 一字不差也是 32
 // （两万圈各 640,176 字节）。它属于"式子中间那一步读走的值"那一族，要先定下"式子里各步读走的
 // 分别归谁、按什么顺序析构"。这里固定量级：那一族收掉的时候这条测试会失败，届时同步更新。
 func TestUnsetKeepsTheMidExpressionLeak(t *testing.T) {

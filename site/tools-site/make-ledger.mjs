@@ -1,4 +1,4 @@
-// 生成 核对清单.json：站上每一段"代码 + 声称的输出"都真跑一遍。
+// 生成 核对清单.json：站上每一段"代码 + 声称的输出"都实际运行一遍。
 //
 // 代码合不合法由 tools-site/check-site.mjs 管；这一份管另一头——**声称的输出是不是真的**。
 // 跑的是仓库根那一份 nf.exe，走 `nf 文件.nf` 那条路（内存里编译完直接执行），
@@ -42,7 +42,7 @@ function inlineClaims(code) {
     .filter((s) => s.length > 0)
 }
 
-// 真跑一遍（一个工程就是同一个临时目录里的几份 .nf）。除了"对得上／对不上"，
+// 实际运行一遍（一个工程就是同一个临时目录里的几份 .nf）。除了"对得上／对不上"，
 // 还有几类跑不了的都要分开记：编译器还没实现的那种写法、这一段需要外部输入
 // （读某个文件、等键盘输入）、以及真的跑出了别的结果。
 // 混在一起就会把"这一版还没做到"当成"站上写错了"。
@@ -75,7 +75,7 @@ const workDir = join(tmpdir(), `nef-ledger-${process.pid}`)
 rmSync(workDir, { recursive: true, force: true })
 mkdirSync(workDir, { recursive: true })
 
-// verdict 把跑出来的与声称的对一次号，交回台账那一行要写的话；只有对不上才算坏。
+// verdict 把跑出来的与声称的对一次号，返回台账那一行要写的话；只有对不上才算坏。
 function verdict(r, claim) {
   const why = todo.find((w) => r.out.includes(w))
   if (!r.ok && why) return `等后端或等现场（${why}）`

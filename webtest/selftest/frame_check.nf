@@ -1,12 +1,12 @@
 // web_test 这一层里帧的那一段自测：不起浏览器、不联网，只比字节。
 //
 // 跑法（在仓库根）：./nf.exe webtest/selftest/frame_check.nf
-// 全对就印"全对"，退出码 0；有一处不对就把那几处打印出来，退出码 1。
+// 全部通过就打印"全部通过"，退出码 0；有一处失败就把那几处打印出来，退出码 1。
 //
 // 期望值的两样来源：
-// ① RFC 6455 第 5 节的三个长度档与遮码例子。"Hello" 那一帧的十一个字节是照那份规范手算的：
+// ① RFC 6455 第 5 节的三个长度档与掩码例子。"Hello" 那一帧的十一个字节是照那份规范手算的：
 //    'H'=0x48^0x37=0x7F、'e'=0x65^0xFA=0x9F、'l'=0x6C^0x21=0x4D、'l'=0x6C^0x58=0x34、'o'=0x6F^0x37=0x58。
-// ② 从本机 Edge 155 与 Chrome 155 实际收到的答复帧：不遮码、正文是一段 JSON、
+// ② 从本机 Edge 155 与 Chrome 155 实际收到的答复帧：不带掩码、正文是一段 JSON、
 //    长度落在一个字节那一档（第四节那一帧就是它的形状）。
 
 import wt from "libs/web_test"
@@ -21,60 +21,60 @@ method from_numbers(xs:list<int>):bytes {
 
 method check_bytes(name:string, got:bytes, want:bytes):boolean {
     if (length(got) != length(want)) {
-        console.print("不对  " + name, "长度", length(got), "要", length(want))
+        console.print("失败  " + name, "长度", length(got), "要", length(want))
         console.print("  给", got)
         console.print("  要", want)
         return false
     }
     for (i:int in 0 until length(want)) {
         if (got[i] != want[i]) {
-            console.print("不对  " + name, "第", i, "格", got[i], "要", want[i])
+            console.print("失败  " + name, "第", i, "格", got[i], "要", want[i])
             return false
         }
     }
-    console.print("过  " + name)
+    console.print("通过  " + name)
     return true
 }
 
 method check_int(name:string, got:int, want:int):boolean {
     if (got != want) {
-        console.print("不对  " + name, "给", got, "要", want)
+        console.print("失败  " + name, "给", got, "要", want)
         return false
     }
-    console.print("过  " + name)
+    console.print("通过  " + name)
     return true
 }
 
 method check_true(name:string, got:boolean):boolean {
     if (!got) {
-        console.print("不对  " + name, "要真，给的是假")
+        console.print("失败  " + name, "要真，给的是假")
         return false
     }
-    console.print("过  " + name)
+    console.print("通过  " + name)
     return true
 }
 
 method check_text(name:string, got:string, want:string):boolean {
     if (got != want) {
-        console.print("不对  " + name, "给", got, "要", want)
+        console.print("失败  " + name, "给", got, "要", want)
         return false
     }
-    console.print("过  " + name)
+    console.print("通过  " + name)
     return true
 }
 
 let bad:int = 0
 
-// 一、遮码那一帧：长度小的一档，钥匙用 RFC 例子里那四个字节
+// 一、带掩码那一帧：长度小的一档，掩码密钥用 RFC 例子里那四个字节
 let key1:bytes = from_numbers([0x37, 0xFA, 0x21, 0x58])
 let want1:bytes = from_numbers([0x81, 0x85, 0x37, 0xFA, 0x21, 0x58, 0x7F, 0x9F, 0x4D, 0x34, 0x58])
 let got1:bytes = wt.build_frame("Hello", key1)
-let ok1:boolean = check_bytes("一、Hello 遮码一帧", got1, want1)
+let ok1:boolean = check_bytes("一、Hello 掩码一帧", got1, want1)
 if (!ok1) {
     bad = bad + 1
 }
 
-// 二、130 字节要走两个字节那一档的长度；钥匙全 0，遮与不遮一样
+// 二、130 字节要走两个字节那一档的长度；掩码密钥全 0，遮与不遮结果一样
 let zeros:bytes = from_numbers([0, 0, 0, 0])
 let mid:bytes = wt.build_frame("A".repeat(130), zeros)
 let ok2:boolean = check_int("二、总长 2+2+4+130", length(mid), 138)
@@ -121,7 +121,7 @@ if (!ok9) {
     bad = bad + 1
 }
 
-// 四、拆一帧不遮码的（浏览器发给我们的就是这个样子）
+// 四、拆一帧不带掩码的（浏览器发给我们的就是这个样子）
 let buf4:bytes = from_numbers([0x81, 0x05, 72, 105, 33, 63, 33])
 let one:wt.Frame = wt.read_frame(buf4)
 let ok10:boolean = check_true("四、拆开了", one.ready)
@@ -147,7 +147,7 @@ if (!ok14) {
     bad = bad + 1
 }
 
-// 五、拆一帧遮码的：拿第一节那十一个字节反过来读
+// 五、拆一帧带掩码的：拿第一节那十一个字节反过来读
 let buf5:bytes = from_numbers([0x81, 0x85, 0x37, 0xFA, 0x21, 0x58, 0x7F, 0x9F, 0x4D, 0x34, 0x58])
 let two:wt.Frame = wt.read_frame(buf5)
 let ok15:boolean = check_true("五、拆开了", two.ready)
@@ -216,8 +216,8 @@ if (!ok24) {
     bad = bad + 1
 }
 
-console.print("—— 自测跑完，不对", bad, "处")
+console.print("—— 自测跑完，失败", bad, "处")
 if (bad > 0) {
     exit (1, "帧的编码与解码有 " + number.to_string(bad) + " 处不对")
 }
-console.print("全对")
+console.print("全部通过")

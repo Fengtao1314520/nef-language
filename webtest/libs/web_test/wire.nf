@@ -52,11 +52,11 @@ export method reply_field_of(ref answer:string, ref key:string):string {
     if (doc == null) {
         throw (204, "答复不是一段 JSON：" + first_chars_of(answer, 60))
     }
-    let result:Json = json.at(doc, "result")
+    let result:Json = json.take(doc, "result")
     if (result == null) {
         return null
     }
-    let slot:Json = json.at(result, key)
+    let slot:Json = json.take(result, key)
     if (slot == null) {
         return null
     }

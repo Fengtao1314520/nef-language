@@ -1,5 +1,5 @@
 // 示例程序三：形状与周长
-// 用到：new 带初值、装箱与拆盒、从容器取 object 分两步、`is` 只做类型判断不取值、接口名不能当类型用
+// 用到：new 带初值、装箱与拆箱、从容器取 object 分两步、`is` 只做类型判断不取值、接口名不能当类型用
 // en: Shapes and perimeters. Covers new with initial values, boxing and unboxing, taking an object out of a container in two steps, `is` as a type check that takes nothing, and that an interface name is not a type.
 
 interface Shape {
@@ -24,21 +24,19 @@ let box:list<object> = []
 box.add(c as object)                       // 装箱必须明写；c 的值交出后，c 不再是持有者
 box.add(s as object)
 
-let own:object = box[0]                    // 第一步：那个位置过户给 own，此后 box[0] 的值为 null
-let back:Circle = own as Circle            // 第二步：拆盒
+let one_box:list<object> = [new Circle(r: 2.0) as object]
+let own:object = one_box.remove_at(0)      // 第一步：把那个位置从容器里摘出来，此后 one_box[0] 是空句柄
+let back:Circle = own as Circle            // 第二步：拆箱
 console.print("拆回来:", back.perim())
 
 // 接口名不能当类型用，混装时只能逐个判断盒子里的值
 for (i:int in 0 until length(box)) {
-    let one:object = box[i]
-    if (one is Circle) {
-        let round:Circle = one as Circle
-        console.print("是个圆，周长:", round.perim())
-    } else if (one is Square) {
-        let boxy:Square = one as Square
-        console.print("是个方，周长:", boxy.perim())
+    if (box[i] is Circle) {
+        console.print("是个圆，周长:", (box[i] as Circle).perim())
+    } else if (box[i] is Square) {
+        console.print("是个方，周长:", (box[i] as Square).perim())
     } else {
-        // 第 0 个位置已经过户给 own：现在它是空的，`is` 一律返回否
+        // 盒子里那个位置是空句柄时，`is` 两种都返回否，走到这一支
         console.print("第", i, "格是空的")
     }
 }

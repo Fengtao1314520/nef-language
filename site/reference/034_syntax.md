@@ -63,12 +63,33 @@ title: 语法速查
 | `for (name:string in items) { }` | 遍历：`list` 交出元素、`dict` 交出键、`string` 交出码点 |
 | `switch (d) { Day.mon { } Day.tue, Day.wed { } default { } }` | 按值分派，一个分支可以并列书写几个标签 |
 | `break`、`continue` | 只能出现在循环里 |
-| `try { } catch (code, msg) { }` | 接收抛出的错误，没有 `finally` |
+| `try { } catch (code, msg, at) { } finally { }` | 接收抛出的错误；`catch` 的第四个名字 `trace`（整条调用链的一份文本）可以省；`catch` 与 `finally` 各可以省掉，两句都不写不算这一句 |
 | `throw (100, "路径不能是空的")` | 抛出错误，永远是一个错误码加一条消息 |
 | `exit (100, "要给我一个路径")` | 当场结束整个程序 |
 | `return`、`return 值` | 返回结果；声明了返回类型的函数，每条路径都要返回 |
 
 `switch` 的分支不会贯穿到下一个，不需要另外写跳出语句。用 `enum` 判定时成员必须列全，漏掉一个又没写 `default` 是编译错误：给枚举添加了新成员却没有改到的分支，编译器会逐处报出。
+
+一条语句到行尾结束，不要求写分号；同一行写两条语句时用 `;` 分开。**括号没有闭合时行尾按空白处理**：容器字面量、`struct` 字面量的字段、`new` 的字段初值与实参表都可以一行写不下就分几行写。括号一闭合，行尾立即恢复成语句的结束。
+
+```nf
+struct Point {
+    x:int
+    y:int
+}
+
+let names:list<string> = [
+    "甲",
+    "乙"
+]
+let p:Point = Point {
+    x: 1,
+    y: 2
+}
+console.print(
+    length(names), p.x
+)
+```
 
 ## 字面量
 
@@ -104,7 +125,7 @@ title: 语法速查
 | --- | --- |
 | 后缀 | `a(...)`、`a[...]`、`a.b`、`as` |
 | 一元 | `-a`、`!a`、`~a` |
-| 乘除 | `*`、`/`、`%` |
+| 乘除 | `*`、`、`、`%` |
 | 加减 | `+`、`-` |
 | 移位 | `<<`、`>>` |
 | 按位与 | `&` |
@@ -147,11 +168,11 @@ title: 语法速查
 
 ## 保留名字
 
-34 个关键字，加上 33 个内建名称，一共 67 个词不能用作变量名、字段名、函数名和类型名：
+36 个关键字，加上 33 个内建名称，一共 69 个词不能用作变量名、字段名、函数名和类型名：
 
 | 类别 | 名单 |
 | --- | --- |
-| 关键字 | `let` `const` `method` `struct` `class` `interface` `enum` `type` `import` `export` `shared` `ref` `base` `this` `new` `return` `as` `is` `throw` `try` `catch` `if` `else` `while` `for` `in` `until` `switch` `default` `break` `continue` `true` `false` `null` |
+| 关键字 | `let` `const` `method` `struct` `class` `interface` `enum` `type` `fn` `import` `export` `shared` `ref` `base` `this` `new` `return` `as` `is` `throw` `try` `catch` `finally` `if` `else` `while` `for` `in` `until` `switch` `default` `break` `continue` `true` `false` `null` |
 | 内建类型 | `boolean` `int` `float` `byte` `unicode` `string` `object` |
 | 容器 | `list` `dict` `hashset` |
 | 内建 `struct` | `Calendar` `Response` |
@@ -188,8 +209,8 @@ title: 语法速查
 | `x in xs` 查询容器中是否存在某个值 | 写 `xs.contains(x)`；`in` 只出现在计数循环与容器遍历这两种写法里 |
 | `let (a, b) = p` 解构赋值 | 一次绑定一个名称：`let a:int = p.x`、`let b:int = p.y` |
 | `f(param_name = value)` 命名实参 | 实参一律按位置传递，顺序就是声明中书写的顺序 |
-| `xs[0][0] = 7` 这种连着两级下标写入 | 先把内层容器绑定到一个名称上，再修改绑定后的名称：`let row:list<int> = xs[0]` 之后 `row[0] = 7` |
+| `xs[0][0] = 7` 这种连着两级下标写入 | 先把内层那一条摘出来，改完再放回去：`let row:list<int> = xs.remove_at(0)`，`row[0] = 7`，`xs.add(row)` |
 | `struct Pair<T>` | 泛型只用于三个内建容器 |
-| 匿名函数、把函数当值传递 | 没有函数类型。只能按函数名称调用，或者用 `switch` 分派 |
+| 匿名函数、闭包 | 具名的顶层函数可以当值传递（`fn(参数类型):返回类型`，见[函数与调用](/reference/039_functions)）；没有匿名函数，函数值也不带走外面的名称 |
 | 构造函数 `init` | `new C(field: value)` 就是给出初值的写法；`init` 这个名字没有特殊含义，写了也不会在 `new` 之后自动执行 |
 | `->`、`::`、`@`、`#`、`...`、三引号字符串、模式匹配 | 都不是这门语言的记号 |

@@ -96,9 +96,14 @@ func (s *server) handle(m request) (stop bool) {
 	case "initialize":
 		s.conn.Reply(m.ID, initResult{
 			Capabilities: capabilities{
-				TextDocumentSync:   syncOptions{OpenClose: true, Change: syncFull},
-				CompletionProvider: &completionOptions{TriggerCharacters: []string{"."}},
-				HoverProvider:      true,
+				TextDocumentSync:       syncOptions{OpenClose: true, Change: syncFull},
+				CompletionProvider:     &completionOptions{TriggerCharacters: []string{"."}},
+				HoverProvider:          true,
+				DefinitionProvider:     true,
+				DocumentSymbolProvider: true,
+				FoldingRangeProvider:   true,
+				SemanticTokensProvider: &semanticTokensOptions{Legend: semanticLegend(), Full: true},
+				SignatureHelpProvider:  &signatureHelpOptions{TriggerCharacters: []string{"(", ","}},
 			},
 			ServerInfo: serverInfo{Name: "nf"},
 		})
@@ -175,6 +180,69 @@ func (s *server) handle(m request) (stop bool) {
 			return false
 		}
 		s.conn.Reply(m.ID, Hover(pathFromURI(p.TextDocument.URI), text, p.Position))
+	case "textDocument/definition":
+		var p positionParams
+		if json.Unmarshal(m.Params, &p) != nil {
+			s.badParams(m)
+			return false
+		}
+		text, ok := s.docs[p.TextDocument.URI]
+		if !ok {
+			s.conn.Reply(m.ID, nil)
+			return false
+		}
+		locs := Definition(pathFromURI(p.TextDocument.URI), text, p.Position)
+		if len(locs) == 0 {
+			// 认不出来就返回 null：返回一个空数组，编辑器会显示"没有找到定义"而不是安静下来
+			s.conn.Reply(m.ID, nil)
+			return false
+		}
+		s.conn.Reply(m.ID, locs)
+	case "textDocument/documentSymbol":
+		path, text, _, ok := s.docOf(m)
+		if !ok {
+			s.conn.Reply(m.ID, []DocumentSymbol{})
+			return false
+		}
+		syms := Outline(path, text)
+		if syms == nil {
+			syms = []DocumentSymbol{}
+		}
+		s.conn.Reply(m.ID, syms)
+	case "textDocument/foldingRange":
+		path, text, _, ok := s.docOf(m)
+		if !ok {
+			s.conn.Reply(m.ID, []FoldingRange{})
+			return false
+		}
+		ranges := FoldingRanges(path, text)
+		if ranges == nil {
+			ranges = []FoldingRange{}
+		}
+		s.conn.Reply(m.ID, ranges)
+	case "textDocument/semanticTokens/full":
+		path, text, _, ok := s.docOf(m)
+		if !ok {
+			s.conn.Reply(m.ID, SemanticTokensResult{Data: []int{}})
+			return false
+		}
+		data := SemanticTokens(path, text)
+		if data == nil {
+			data = []int{}
+		}
+		s.conn.Reply(m.ID, SemanticTokensResult{Data: data})
+	case "textDocument/signatureHelp":
+		var p positionParams
+		if json.Unmarshal(m.Params, &p) != nil {
+			s.badParams(m)
+			return false
+		}
+		text, ok := s.docs[p.TextDocument.URI]
+		if !ok {
+			s.conn.Reply(m.ID, nil)
+			return false
+		}
+		s.conn.Reply(m.ID, SignatureHelpInfo(pathFromURI(p.TextDocument.URI), text, p.Position))
 	default:
 		if m.ID != nil {
 			s.conn.ReplyError(m.ID, ErrMethodNotFound, "nf 的服务器没有这个方法："+m.Method)
@@ -187,6 +255,27 @@ func (s *server) badParams(m request) {
 	if m.ID != nil {
 		s.conn.ReplyError(m.ID, ErrInvalidParams, "这一条报文的参数读不出来："+m.Method)
 	}
+}
+
+// docOf 取出这一条报文问的是哪一份文件、以及编辑器里当前那一份文本。
+// 页签没有打开过就没有当前文本：这一条与补全、悬停同样处理，答"没有内容"，不去读盘上那一份
+// （盘上那份可能是上一次保存的旧内容）。
+//
+// en: docOf returns which file a request is about and the current text the editor holds for it. A
+// tab that was never opened has no current text: like completion and hover, answer "nothing"
+// rather than reading the file from disk, which may be the version from the last save.
+func (s *server) docOf(m request) (string, string, string, bool) {
+	var p positionParams
+	if json.Unmarshal(m.Params, &p) != nil {
+		s.badParams(m)
+		return "", "", "", false
+	}
+	uri := p.TextDocument.URI
+	text, ok := s.docs[uri]
+	if !ok {
+		return "", "", uri, false
+	}
+	return pathFromURI(uri), text, uri, true
 }
 
 // publish 走完前端，把每一参与的文件各自的波浪线推到各自的 URI 上。

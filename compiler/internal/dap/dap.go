@@ -47,17 +47,20 @@ import (
 	"sync"
 
 	"neflang.org/nf/internal/debug"
+	"neflang.org/nf/internal/ls"
 )
 
 // Start 由命令行那一侧交进来：起一个被调试的子进程。port 是这一侧等它连回来的端口，
+// throwStop 是 launch.json 里 breakOnThrow 开没开（开了才在没人接住的那一次抛出停），
 // onOutput 收程序写到标准输出与标准错误上的文本，category 是 "stdout" 或 "stderr"。
 // 返回的 wait 等那个进程结束，给出它的退出码。
 //
 // en: Start is handed in by the command-line side and starts one debugged child process. port
-// is the port this side waits for it to connect back to, onOutput receives the text the program
-// writes to the screen and to standard error, and category is "stdout" or "stderr". The
-// returned wait waits for that process to end and gives its exit code.
-type Start func(program string, args []string, port string, onOutput func(category, text string)) (wait func() int, err error)
+// is the port this side waits for it to connect back to, throwStop carries launch.json's
+// breakOnThrow (stop on the throw nobody catches), onOutput receives the text the program writes
+// to the screen and to standard error, and category is "stdout" or "stderr". The returned wait
+// waits for that process to end and gives its exit code.
+type Start func(program string, args []string, port string, throwStop bool, onOutput func(category, text string)) (wait func() int, err error)
 
 // 与编辑器约定的那一个线程号：这一版程序只有一条跑 nf 代码的线程。
 //
@@ -73,13 +76,17 @@ type server struct {
 	wait  func() int
 	seq   int
 	seqMu sync.Mutex
+	// frameFiles 记最近一次调用栈里每一帧属于哪一份文件（键是发回编辑器的帧号，从 1 起）。
+	// 悬停取值时要读的就是"这一帧所在的那一份文件里，这个名字上面写了什么"，没有这张表就找不到文件。
+	// 请求都在这一个循环里处理，这一张表不需要锁。
+	frameFiles map[int]string
 }
 
 // Serve 跑这一趟对话：读到标准输入关掉、或者收到 disconnect 为止。
 //
 // en: Serve runs one conversation: until standard input closes or a disconnect arrives.
 func Serve(in io.Reader, w io.Writer, start Start) error {
-	s := &server{out: &writer{w: w}, start: start}
+	s := &server{out: &writer{w: w}, start: start, frameFiles: map[int]string{}}
 	requests := make(chan map[string]any)
 	go func() {
 		defer close(requests)
@@ -215,6 +222,8 @@ func (s *server) launch(args map[string]any, events chan<- debug.Message) error 
 			progArgs = append(progArgs, fmt.Sprint(v))
 		}
 	}
+	// breakOnThrow 是 launch.json 里那一个开关：只接受 true，别的写法一律按关着办。
+	throwStop, _ := args["breakOnThrow"].(bool)
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		return fmt.Errorf("开不出本机那条调试用的线：%w", err)
@@ -223,7 +232,7 @@ func (s *server) launch(args map[string]any, events chan<- debug.Message) error 
 	onOutput := func(category, text string) {
 		s.event("output", map[string]any{"category": category, "output": text})
 	}
-	wait, err := s.start(program, progArgs, port, onOutput)
+	wait, err := s.start(program, progArgs, port, throwStop, onOutput)
 	if err != nil {
 		ln.Close()
 		return err
@@ -297,8 +306,10 @@ func (s *server) setBreakpoints(args map[string]any) []map[string]any {
 
 func (s *server) stackTrace(seq int, args map[string]any) {
 	frames := []map[string]any{}
+	s.frameFiles = map[int]string{}
 	if reply, ok := s.askChild(debug.Message{Cmd: "stack"}); ok {
 		for _, f := range reply.Frames {
+			s.frameFiles[f.ID+1] = f.File
 			frames = append(frames, map[string]any{
 				// 帧号从 1 起：协议里 0 说的是"没有可取的内容"，
 				// 用它当第一帧的号，编辑器就不会发起变量请求。
@@ -332,10 +343,17 @@ func (s *server) variables(seq int, args map[string]any) {
 // evaluate 是悬停那一条：只接受已有名字的位置——这一帧上的局部量与顶层那些静态槽里的名字。
 // 查不到时回失败而不是回空串，编辑器才会把这一行灰掉，而不是显示一个假值。
 //
-// en: evaluate is the hover request: it only accepts positions of names that already exist -
-// locals in this frame and names in the top-level static slots. When a name is not found, it
-// answers failure rather than an empty string, so the editor greys the row out instead of
-// showing a phantom value.
+// 答复里除了当前那个值，还带上这个名字写下的地方上面那一段注释（中文、英文、示例三段）：
+// 停下来看一个变量的时候，作者写在它上面的那句话常常正是要看的东西。注释从这一帧所在的那一份
+// 文件里读，找声明用的是编辑器悬停同一套规矩（`internal/ls` 的 `DocForName`），两处不会说两种话。
+//
+// en: evaluate is the hover request: it only accepts positions of names that already exist - locals
+// in this frame and names in the top-level static slots. When a name is not found it answers failure
+// rather than an empty string, so the editor greys the row out instead of showing a phantom value.
+// Alongside the current value the reply carries the comment written above where that name was
+// declared (Chinese, English, example): stopped on a variable, that comment is often the thing the
+// reader wants. It comes from the file this frame belongs to, found by the same rules the editor's
+// hover uses (internal/ls's DocForName), so the two cannot disagree.
 func (s *server) evaluate(seq int, args map[string]any) {
 	name, _ := args["expression"].(string)
 	frame := intOf(args["frameId"]) - 1 // 编辑器那边的帧号从 1 起，子进程里从 0 起
@@ -346,7 +364,11 @@ func (s *server) evaluate(seq int, args map[string]any) {
 		})
 		return
 	}
-	s.reply(seq, "evaluate", true, map[string]any{"result": reply.Value, "variablesReference": 0})
+	result := reply.Value
+	if doc := ls.DocForName(s.frameFiles[frame+1], name); doc != "" {
+		result += "\n\n" + doc
+	}
+	s.reply(seq, "evaluate", true, map[string]any{"result": result, "variablesReference": 0})
 }
 
 // readMemory 给内存视图抄一段字节。地址是编辑器存回去的那一串十六进制，加上它给的偏移。

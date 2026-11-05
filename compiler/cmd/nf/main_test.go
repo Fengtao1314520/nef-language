@@ -22,7 +22,7 @@ import (
 	"neflang.org/nf/internal/pkgload"
 )
 
-// stackLine 是遇到那条栈线时该看见的一行。那句话由运行期印；
+// stackLine 是遇到那条栈线时该看见的一行。那句话由运行期打印；
 // internal/lower 的栈测试钉的是同一句，两处各写一遍，改运行期那句话时两条测试都会失败。
 const stackLine = "出错了（10093）：调用套得太深，栈用完了\n"
 
@@ -75,6 +75,46 @@ func runNf(t *testing.T, exe string, args ...string) (string, int) {
 		t.Logf("nf 的标准错误：%q", errOut.String())
 	}
 	return out.String(), code
+}
+
+// TestBuildAddsExeSuffix 钉住 `-o` 的那一个名字按基本名处理：没带本机后缀就补上，
+// 已经带了就不叠第二次。补出来的那一份要能直接跑：没有后缀的产物既双击打不开，
+// 别的程序按 "名字.exe" 去找也只会得到"文件不存在"。
+//
+// en: TestBuildAddsExeSuffix pins `-o` as a base name: the local suffix is appended when missing
+// and never doubled. A product without one cannot be started by double-clicking, and another
+// program looking for "name.exe" only gets "file not found".
+func TestBuildAddsExeSuffix(t *testing.T) {
+	nf := nfExe(t)
+	dir := t.TempDir()
+	src := filepath.Join(dir, "tiny.nf")
+	if err := os.WriteFile(src, []byte("console.print(1 + 2)\n"), 0o644); err != nil {
+		t.Fatalf("备料失败：%v", err)
+	}
+	base := filepath.Join(dir, "app")
+	if _, code := runNf(t, nf, "build", src, "-o", base); code != 0 {
+		t.Fatalf("nf build -o 不带后缀的退出码是 %d", code)
+	}
+	if _, err := os.Stat(base + ".exe"); err != nil {
+		t.Fatalf("没带后缀的名字没有补出 .exe：%v", err)
+	}
+	if _, err := os.Stat(base); err == nil {
+		t.Fatal("补后缀的同时又留下了一份没有后缀的产物")
+	}
+	one := filepath.Join(dir, "one.exe")
+	if _, code := runNf(t, nf, "build", src, "-o", one); code != 0 {
+		t.Fatalf("nf build -o 带后缀的退出码是 %d", code)
+	}
+	if _, err := os.Stat(one + ".exe"); err == nil {
+		t.Fatal("名字已经带后缀，还叠了第二次")
+	}
+	out, err := exec.Command(one).Output()
+	if err != nil {
+		t.Fatalf("跑产物失败：%v", err)
+	}
+	if string(out) != "3\n" {
+		t.Fatalf("产物给 %q，要 \"3\\n\"", string(out))
+	}
 }
 
 // TestRunInMemoryMatchesExe 同一个程序两条路：内存里直跑与产物自己跑，输出要一样。
@@ -181,7 +221,7 @@ func TestVersionRunsQuietly(t *testing.T) {
 	}
 }
 
-// TestIRSubcommandPrintsDump 钉 `nf ir` 这条命令行入口：`nf ir 文件.nf` 印降级出来的中间码，
+// TestIRSubcommandPrintsDump 钉 `nf ir` 这条命令行入口：`nf ir 文件.nf` 打印降级出来的中间码，
 // 与单测里 `ir.Dump` 那一份一字不差，不落任何文件；前端不过就是退出码 1，不给文件是 2。
 func TestIRSubcommandPrintsDump(t *testing.T) {
 	nf := nfExe(t)
@@ -221,7 +261,7 @@ func TestIRSubcommandPrintsDump(t *testing.T) {
 }
 
 // dumpInProcess 在测试进程里走同一条链（装载 → 检查 → 降级），返回 `ir.Dump` 那一份文本，
-// 用来核对命令行印的是同一台机器算出来的东西，不是另写的一份打印实现。
+// 用来核对命令行打印的是同一台机器算出来的东西，不是另写的一份打印实现。
 func dumpInProcess(t *testing.T, path string) string {
 	t.Helper()
 	entry := filepath.ToSlash(path)
@@ -239,7 +279,7 @@ func dumpInProcess(t *testing.T, path string) string {
 
 // TestTokensSubcommandPrintsStream 钉 `nf tokens 文件.nf` 这条命令行：站点的语法高亮检查
 // （site/tools-site/check-site.mjs）把它的输出当唯一参照。
-// 一行一个 `类型:文字`；行尾记号打印为 `nl:\n`；eof 不印；不给文件是码 2；词法失败（字符串没闭合）
+// 一行一个 `类型:文字`；行尾记号打印为 `nl:\n`；eof 不打印；不给文件是码 2；词法失败（字符串没闭合）
 // 是码 1，并且标准错误里要说清第几行第几列。
 //
 // en: TestTokensSubcommandPrintsStream pins `nf tokens file.nf` — the reference the site's
@@ -304,7 +344,7 @@ func TestDeepRecursionSameInBothModes(t *testing.T) {
 	}
 }
 
-// TestLSPSubcommandSpeaksProtocol 钉 `nf lsp` 那条链路：标准输出的第一个字节就是分帧头。
+// TestLSPSubcommandSpeaksProtocol 钉 `nf lsp` 这条路径：标准输出的第一个字节就是分帧头。
 // 启动时多打印任何一行（版本号、提示）都会让这一轮协议会话失效，而这种情况只有真起
 // 一个进程才看得见。exit 之后进程码要为 0，编辑器一侧才不报"服务器意外退出"。
 func TestLSPSubcommandSpeaksProtocol(t *testing.T) {

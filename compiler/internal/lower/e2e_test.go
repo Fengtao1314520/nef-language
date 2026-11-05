@@ -261,7 +261,7 @@ console.print(b.wide(), b.w)
 	}
 }
 
-// TestBoxAndUnbox 装箱与拆盒：class 的句柄本来就指向一块带类型字的堆对象，
+// TestBoxAndUnbox 装箱与拆箱：class 的句柄本来就指向一块带类型字的堆对象，
 // 盒子就是那个句柄；拆回来还是同一个对象，字段读得到。
 func TestBoxAndUnbox(t *testing.T) {
 	got, _ := run(t, `
@@ -316,7 +316,7 @@ console.print(box is A, box is B)
 	}
 }
 
-// 拆盒拆不开抛 10011 号：形状与其他运行期错误一致，打印一行、退出码 1。
+// 拆箱拆不开抛 10011 号：形状与其他运行期错误一致，打印一行、退出码 1。
 func TestUnboxWrongThrows(t *testing.T) {
 	got, code := run(t, `
 class A {
@@ -332,21 +332,26 @@ let box:object = a as object
 let b:B = box as B
 console.print(b.v)
 `)
-	if got != "出错了（10011）：拆开的类型对不上\n" || code != 1 {
+	if got != "出错了（10011）：拆开的类型对不上（在 t.nf 12:15）\n" || code != 1 {
 		t.Fatalf("得到 %q 码 %d", got, code)
 	}
 }
 
 // 未判空就访问成员抛 10092 号：读字段与调方法两条路都有这项检查。
+// 两条路的位置不一样（读字段落在 `.v` 那一点上，调方法落在 `.get()` 那一点上），各按各的钉。
 func TestNullDerefThrows(t *testing.T) {
-	for i, src := range []string{
-		"class A {\n    v:int\n}\n\nlet a:A = null\nconsole.print(a.v)\n",
-		"class A {\n    v:int\n    method get():int { return v }\n}\n\nlet a:A = null\nconsole.print(a.get())\n",
+	for i, one := range []struct {
+		src  string
+		want string
+	}{
+		{"class A {\n    v:int\n}\n\nlet a:A = null\nconsole.print(a.v)\n",
+			"出错了（10092）：对着空句柄取成员或调用方法（在 t.nf 6:17）\n"},
+		{"class A {\n    v:int\n    method get():int { return v }\n}\n\nlet a:A = null\nconsole.print(a.get())\n",
+			"出错了（10092）：对着空句柄取成员或调用方法（在 t.nf 7:17）\n"},
 	} {
-		got, code := run(t, src)
-		want := "出错了（10092）：对着空句柄取成员或调用方法\n"
-		if got != want || code != 1 {
-			t.Fatalf("第 %d 条得到 %q 码 %d，要 %q 码 1", i, got, code, want)
+		got, code := run(t, one.src)
+		if got != one.want || code != 1 {
+			t.Fatalf("第 %d 条得到 %q 码 %d，要 %q 码 1", i, got, code, one.want)
 		}
 	}
 }
@@ -404,16 +409,17 @@ func buildAt(t *testing.T, path, src string) []byte {
 	return exe
 }
 
-// TestListMoveOut 验证"读走就是交出"：读完 a[0]，那个位置之后再读返回 null。
-// 再打印它就是打印一个空句柄——打印 `null`、程序不崩溃（该行为已覆盖所有类型）。
+// TestListMoveOut 钉"读一个位置不拿走"：连着读两遍拿到的是同一份；要把那一个值从容器里拿走，
+// 写 `remove_at`——摘出来之后长度少一，原来第二个位置顶上来。
 func TestListMoveOut(t *testing.T) {
 	got, code := run(t, `
 let a:list<string> = ["甲", "乙"]
-let s:string = a[0]
-console.print(s)
 console.print(a[0])
+console.print(a[0])
+let s:string = a.remove_at(0)
+console.print(s, length(a), a[0])
 `)
-	if got != "甲\nnull\n" || code != 0 {
+	if got != "甲\n甲\n甲 1 乙\n" || code != 0 {
 		t.Fatalf("得到 %q 码 %d", got, code)
 	}
 }
@@ -424,7 +430,7 @@ func TestListBounds(t *testing.T) {
 let a:list<int> = [1, 2]
 console.print(a[2])
 `)
-	if got != "出错了（10031）：下标越界\n" || code != 1 {
+	if got != "出错了（10031）：下标越界（在 t.nf 3:16）\n" || code != 1 {
 		t.Fatalf("得到 %q 码 %d", got, code)
 	}
 }
@@ -438,7 +444,7 @@ for (v:int in a) {
 }
 console.print(length(a))
 `)
-	if got != "出错了（10033）：遍历途中改了容器\n" || code != 1 {
+	if got != "出错了（10033）：遍历途中改了容器（在 t.nf 4:7）\n" || code != 1 {
 		t.Fatalf("得到 %q 码 %d", got, code)
 	}
 }
@@ -491,7 +497,7 @@ func TestSampleShopping(t *testing.T) {
 	}
 }
 
-// TestSampleShapes 运行 shapes.nf：接口、装箱、拆盒、`is`、小数打印都在这份样例里。
+// TestSampleShapes 运行 shapes.nf：接口、装箱、拆箱、`is`、小数打印都在这份样例里。
 // 小数打印是最后实现的一项——@put_float 实现之前它连编译都通不过。
 func TestSampleShapes(t *testing.T) {
 	const path = "../../../samples/shapes.nf"
@@ -501,7 +507,7 @@ func TestSampleShapes(t *testing.T) {
 	}
 	src := string(raw)
 	r := exetest.Run(t, buildAt(t, path, src), "shapes.exe")
-	want := "圆: 12.56636 方: 12.0\n拆回来: 12.56636\n第 0 格是空的\n是个方，周长: 12.0\n"
+	want := "圆: 12.56636 方: 12.0\n拆回来: 12.56636\n是个圆，周长: 12.56636\n是个方，周长: 12.0\n"
 	if r.Stdout != want || r.Code != 0 {
 		t.Fatalf("shapes.nf跑出来是 %q 码 %d，要 %q 码 0", r.Stdout, r.Code, want)
 	}
@@ -559,8 +565,8 @@ func TestStrToIntThrows(t *testing.T) {
 func TestStrCompareContent(t *testing.T) {
 	got, code := run(t, `
 let parts:list<string> = "alpha,beta".split(",")
-let a:string = parts[0]
-let b:string = parts[1]
+let a:string = parts[0] + ""
+let b:string = parts[1] + ""
 console.print(a == "alpha", b == "beta", a != b, a < b)
 console.print("" < "a", "ab" < "b", "abc" < "abd", "abd" < "ab")
 console.print(a == "beta", a == null, b == "beta")
@@ -591,30 +597,30 @@ try {
     console.print("体里先印一句")
     let v:int = pick([1, 2], 9)
     console.print("这一行跑不到", v)
-} catch (c, m) {
+} catch (c, m, at) {
     console.print("接住:", c, m)
 }
 
 try {
     risky(1)
-} catch (c1, m1) {
+} catch (c1, m1, at1) {
     console.print("手写的那一个:", c1, m1)
 }
 
 try {
     risky(0)
-} catch (c2, m2) {
+} catch (c2, m2, at2) {
     console.print("空引用:", c2, m2)
 }
 
 try {
     try {
         throw (102, "里面的")
-    } catch (ci, mi) {
+    } catch (ci, mi, ai) {
         console.print("里层接住，再往外抛:", ci, mi)
         throw (ci, "外面这层也处理不了")
     }
-} catch (co, mo) {
+} catch (co, mo, ao) {
     console.print("外层接住:", co, mo)
 }
 
@@ -632,7 +638,7 @@ func TestTryNotThrowing(t *testing.T) {
 	got, code := run(t, `
 try {
     console.print("平平稳稳")
-} catch (c, m) {
+} catch (c, m, at) {
     console.print("不该走到这里", c, m)
 }
 console.print("后面照旧")
@@ -703,7 +709,7 @@ func TestDictMissingKey(t *testing.T) {
 let d:dict<string, int> = {"a": 1}
 console.print(d["zz"])
 `)
-	if got != "出错了（10032）：没有这个键\n" || code != 1 {
+	if got != "出错了（10032）：没有这个键（在 t.nf 3:16）\n" || code != 1 {
 		t.Fatalf("得到 %q 码 %d", got, code)
 	}
 }
@@ -718,7 +724,7 @@ for (k:string in d) {
 }
 console.print(length(d))
 `)
-	if got != "出错了（10033）：遍历途中改了容器\n" || code != 1 {
+	if got != "出错了（10033）：遍历途中改了容器（在 t.nf 5:7）\n" || code != 1 {
 		t.Fatalf("得到 %q 码 %d", got, code)
 	}
 }
@@ -780,6 +786,47 @@ switch (t) {
 console.print(describe(Door.closed), describe(Door.broken))
 `)
 	want := "乙\n2\n是\n关着 坏了\n"
+	if got != want || code != 0 {
+		t.Fatalf("得到 %q 码 %d，要 %q", got, code, want)
+	}
+}
+
+// TestEnumFieldRead 钉住枚举住在字段里时的读那一条路：struct、class、类型别名、
+// 借用的容器位置、判等、as int、switch 的判定对象、写过再读与同一位置读两次。
+// 检查那一步全放行，降级把"结果类型是枚举"当成取枚举成员，整批停在
+// "枚举成员 s.d 的值没记上"（2026-11-04 查出）。
+func TestEnumFieldRead(t *testing.T) {
+	got, code := run(t, `
+enum D { a, b = 10, c }
+type Choice = D
+
+struct S { d:D }
+class C { e:Choice
+    method ask():string {
+        if (e == Choice.a) { return "裸名读到" }
+        return "裸名读错"
+    }
+}
+
+let s:S = S { d: D.b }
+console.print(s.d)
+s.d = D.c
+console.print(s.d, s.d)
+console.print(s.d == D.c, s.d as int)
+
+let box:C = new C(e: Choice.a)
+console.print(box.e, box.ask())
+
+let rows:list<S> = [S { d: D.a }, S { d: D.c }]
+console.print(rows[0].d, rows[1].d)
+
+switch (box.e) {
+    D.a { console.print("switch 命中 a") }
+    D.b { console.print("不该命中") }
+    D.c { console.print("不该命中") }
+}
+`)
+	want := "10\n11 11\ntrue 11\n0 裸名读到\n0 11\nswitch 命中 a\n"
 	if got != want || code != 0 {
 		t.Fatalf("得到 %q 码 %d，要 %q", got, code, want)
 	}
@@ -919,7 +966,7 @@ let a:string = "书"
 let b:string = null
 console.print(a + b)
 `)
-	if got != "出错了（10092）：对着空句柄取成员或调用方法\n" || code != 1 {
+	if got != "出错了（10092）：对着空句柄取成员或调用方法（在 t.nf 4:17）\n" || code != 1 {
 		t.Fatalf("得到 %q 码 %d", got, code)
 	}
 }

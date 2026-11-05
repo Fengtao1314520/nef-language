@@ -22,6 +22,7 @@ package check
 
 import (
 	"fmt"
+	"strings"
 
 	"neflang.org/nf/internal/ast"
 )
@@ -149,7 +150,7 @@ func (c *Checker) inferRaw(e ast.Expr, want Type) Type {
 	case *ast.Lit:
 		return c.lit(x)
 	case *ast.Name:
-		return c.nameExpr(x)
+		return c.nameExpr(x, want)
 	case *ast.Binary:
 		return c.binary(x)
 	case *ast.Unary:
@@ -209,7 +210,7 @@ func (c *Checker) lit(l *ast.Lit) Type {
 	return errType
 }
 
-func (c *Checker) nameExpr(n *ast.Name) Type {
+func (c *Checker) nameExpr(n *ast.Name, want Type) Type {
 	if n.Text == "args" {
 		if c.file.Path != c.prog.Entry || c.curFunc != nil {
 			c.fail(n.Where(), "args 只在入口文件的顶层写得到")
@@ -229,6 +230,24 @@ func (c *Checker) nameExpr(n *ast.Name) Type {
 	}
 	v, depth, ok := c.lookupAt(n.Text)
 	if !ok {
+		if fi, has := c.funcs[c.key(n.Text)]; has && fi.fn != nil && !fi.method {
+			// 自己写的顶层函数可以按值交出去：那一个位置收的是它入口的地址。
+			// 要的是 fn 类型、签名对得上才算数；对不上就是类型不符，与其余每一处赋值同一条。
+			if want.Kind == FuncVal {
+				ft := c.funcValueType(fi)
+				if sameType(want, ft) {
+					if c.facts != nil {
+						c.facts.FuncRefs[n] = fi.key
+					}
+					c.markUsed(n.Text)
+					return want
+				}
+				c.fail(n.Where(), "这里要的是 %s，给的是 %s：签名要对得上，参数怎么收也要一样", want, ft)
+				return errType
+			}
+			c.fail(n.Where(), "%s 是函数名，不能当值传来传去", n.Text)
+			return errType
+		}
 		if c.funcs[c.key(n.Text)].fn != nil || c.isKnownFunc(n.Text) {
 			c.fail(n.Where(), "%s 是函数名，不能当值传来传去", n.Text)
 			return errType
@@ -628,6 +647,19 @@ func (c *Checker) memberExpr(m *ast.Member, callPos bool) Type {
 	if !ok {
 		return errType
 	}
+	// 从一个借来的位置往下读字段（`xs[0].name`）：那一份仍然归容器所有，读出来的这一份
+	// 沿着同一条链登记成只读借用。不这样登记的话，读一次就把别人格子里的值抹空——
+	// 用 `v0.5.0` 的产物实测：`console.print(xs[0].name)` 打完"甲"，`xs[0]` 就成了 null。
+	//
+	// en: Reading a field through a borrowed position (`xs[0].name`) yields what still belongs
+	// to the container, so the borrow propagates along the chain. Without it, one read would
+	// empty somebody else's slot - measured with the v0.5.0 product: after
+	// `console.print(xs[0].name)` prints the text, `xs[0]` reads back as null.
+	if t.kind == memberField && c.borrowRead[m.What] {
+		if ft := c.fieldOf[m]; !ft.ByValue() {
+			c.borrowRead[m] = true
+		}
+	}
 	_ = callPos
 	return t.typ
 }
@@ -640,9 +672,9 @@ const (
 	memberEnumValue
 	memberStd
 	// memberPkgFunc 是包里的函数：`a.make(...)`。它与直接叫名字的
-	// 用户函数走同一套参数检查与归属判法，只是名字前面挂着包。
+	// 用户函数走同一套参数检查与归属判法，只是名字前面带着包名。
 	memberPkgFunc
-	// memberPkgConst 是包交出来的数：`greet.LIMIT`。它只能读：值是值类型
+	// memberPkgConst 是包导出的数：`greet.LIMIT`。它只能读：值是值类型
 	// （const 只能配值类型），读出来就是一份数，不参与交出那本账。
 	memberPkgConst
 )
@@ -655,10 +687,71 @@ type member struct {
 	kind     memberKind
 	typ      Type
 	sig      methodSig
-	fi       *funcInfo // 只有 memberPkgFunc 带：交回包外那个函数自己的那份结论
+	fi       *funcInfo // 只有 memberPkgFunc 带：返回包外那个函数自己的那份结论
+	// owner 是"这一个成员挂在哪一个类型或包上"，只有类与 struct 的字段、方法要在这里记：
+	// 标准库与枚举那两种从 typ.Name 的前缀就能读出来。编辑器分档与悬停用 Facts.Members。
+	owner string
 }
 
+// memberOf 认一次 `.名字`，顺手把认出来的种类与归属记进 Facts.Members。
+// 编辑器给点号后面那一个名字分档读的就是这一张表：字段是字段、方法是方法，
+// 不再靠"名字后面跟不跟左括号"这种形状猜——自己写的字段带上括号也会被判成方法。
+//
+// en: memberOf resolves one `.name` and records the kind and owner in Facts.Members. That table is
+// what the editor classifies the name after a dot from - a field is a field, a method is a method -
+// instead of guessing from whether a bracket follows, which reads a parenthesised field as a method.
 func (c *Checker) memberOf(m *ast.Member) (member, bool) {
+	mm, ok := c.resolveMember(m)
+	if ok && c.facts != nil {
+		c.facts.Members[m] = MemberNote{Kind: noteKind(mm.kind), OwnerName: noteOwner(mm)}
+	}
+	return mm, ok
+}
+
+// noteKind 把检查器内部那一个种类换成给编辑器的那一档。
+//
+// en: noteKind turns the checker's internal kind into the one handed to the editor.
+func noteKind(k memberKind) MemberKind {
+	switch k {
+	case memberField:
+		return MemberField
+	case memberMethod:
+		return MemberMethod
+	case memberEnumValue:
+		return MemberEnumValue
+	case memberStd:
+		return MemberStd
+	case memberPkgFunc:
+		return MemberPkgFunc
+	case memberPkgConst:
+		return MemberPkgConst
+	}
+	return MemberField
+}
+
+// noteOwner 说出这一个成员属于哪一个类型、组或包：类与 struct 那两种在认的时候已经写上，
+// 剩下的从落点名读——`console.print` 的组名是 console，`Color` 那种枚举成员属于 Color。
+//
+// en: noteOwner names the type, group or package a member belongs to. Class and struct members
+// carry it already; the rest read it out of the dotted name - the group of `console.print` is
+// console, an enum member of `Color` belongs to Color.
+func noteOwner(mm member) string {
+	if mm.owner != "" {
+		return mm.owner
+	}
+	switch mm.kind {
+	case memberStd:
+		if dot := strings.IndexByte(mm.typ.Name, '.'); dot > 0 {
+			return mm.typ.Name[:dot]
+		}
+		return ""
+	case memberEnumValue:
+		return mm.typ.Name
+	}
+	return ""
+}
+
+func (c *Checker) resolveMember(m *ast.Member) (member, bool) {
 	// 包的挂名走这一侧：`a.make(...)`。挂名不是值，也不是类型名。
 	if n, ok := m.What.(*ast.Name); ok {
 		if b, isPkg := c.packages[n.Text]; isPkg {
@@ -707,12 +800,12 @@ func (c *Checker) memberOf(m *ast.Member) (member, bool) {
 		for _, f := range info.fields {
 			if f.Name == m.NameText {
 				c.fieldOf[m] = base
-				return member{kind: memberField, typ: f.Typ}, true
+				return member{kind: memberField, typ: f.Typ, owner: bareName(base.Name)}, true
 			}
 		}
 		for _, mm := range info.methods {
 			if mm.Name == m.NameText {
-				return member{kind: memberMethod, typ: Type{Kind: FuncT, Name: mm.Name}, sig: mm}, true
+				return member{kind: memberMethod, typ: Type{Kind: FuncT, Name: mm.Name}, sig: mm, owner: bareName(base.Name)}, true
 			}
 		}
 		c.fail(m.Where(), "%s 里没有 %s 这个字段或方法", base.Name, m.NameText)
@@ -816,8 +909,9 @@ func stdMember(base Type, name string) member {
 			if base.Kind != Dict {
 				return member{}
 			}
-			// 键只读一次，默认值交出去：用不上就当场析构，用得上就归调用方
-			return member{takesVal: true, kind: memberStd, typ: Type{Kind: FuncT, Name: group},
+			// 键与默认值都只读一次：读出来的那一份与容器下标同一本账，
+			// 键在就是容器里那一份，键不在就是调用方自己带进来的那一份，两种都不是新的一份。
+			return member{kind: memberStd, typ: Type{Kind: FuncT, Name: group},
 				sig: methodSig{Params: []Param{{Typ: key}, {Typ: val}}, Ret: val}}
 		case "first", "last", "clear":
 			if base.Kind != List {
@@ -1011,6 +1105,52 @@ func entryCopyable(t Type) bool {
 
 func (c *Checker) callExprPos(call *ast.Call) ast.Pos { return call.Where() }
 
+// funcValueType 算出"这一个函数按值交出去时是什么类型"：返回类型排在第一位，
+// 参数依次往后排，参数前写了 `ref` 的那一个套一层 Borrow。
+// 带默认值的参数照全数排进去——一份函数类型说不出"这一个可以省"，
+// 所以通过值调用时那一个位置也得给实参，省下来的是直接调用那一侧的好处。
+//
+// 交不出来的是那两类要说不清归谁的：参数既不是参与归还的值类型又没写成 `ref`（引用类型不写
+// `ref` 就是要拿走，而一份函数类型说不出接住的到底是哪一支函数，"被调方留没留"这件事证不了）；
+// 返回的是文本、容器、句柄或 `struct`（同一条理由，接结果的那一侧也算不出这一块是不是当场新造的）。
+// 这两处当场拒绝，报错落在函数的定义那一处。
+//
+// en: funcValueType computes the type a function has when handed over as a value: the return
+// type first, then the parameters in order, each one taken with `ref` wrapped in Borrow.
+// A parameter with a default counts in full - a function type cannot say "this one may be
+// omitted", so a call through a value must supply it too; what defaults save is the direct
+// call's side of the ledger.
+func (c *Checker) funcValueType(fi funcInfo) Type {
+	params := make([]Type, 0, len(fi.params))
+	refs := make([]bool, 0, len(fi.params))
+	for i, p := range fi.params {
+		ref := i < len(fi.fn.Params) && fi.fn.Params[i].Ref
+		if !ref && !callPlainValue(p.Typ) {
+			c.fail(fi.fn.Where(), "把 %s 当值交出去不行：它的第 %d 个参数是 %s，这样的参数要么不参与归还，要么写成 ref",
+				fi.fn.NameText, i+1, p.Typ)
+		}
+		params = append(params, p.Typ)
+		refs = append(refs, ref)
+	}
+	if fi.ret.Kind != NoRet && !callPlainValue(fi.ret) {
+		c.fail(fi.fn.Where(), "把 %s 当值交出去不行：它返回 %s，这一版只接不参与归还的返回类型",
+			fi.fn.NameText, fi.ret)
+	}
+	return funcTypeOf(fi.ret, params, refs)
+}
+
+// callPlainValue 判这一个类型按值走一趟调用会不会产生归还的问题：那六种不参与析构的值类型不会。
+//
+// en: callPlainValue asks whether passing this type through one call raises any question of
+// dismantling it - the six value types that take no part in destruction do not.
+func callPlainValue(t Type) bool {
+	switch t.Kind {
+	case Bool, Int, Float, Byte, Unicode, Enum:
+		return true
+	}
+	return false
+}
+
 func (c *Checker) call(call *ast.Call) Type {
 	// 成员式调用：x.f(...)
 	if m, ok := call.Callee.(*ast.Member); ok {
@@ -1024,6 +1164,11 @@ func (c *Checker) call(call *ast.Call) Type {
 	if name == "" {
 		c.fail(call.Where(), "调用左边只能是一个名字或 点号成员")
 		return errType
+	}
+	// 名字接住的是一个函数值：这一句是按值里那份地址调用，参数与返回按那一份函数类型算。
+	if v, has := c.lookup(name); has && v.typ.Kind == FuncVal {
+		c.recordCall(call, CallRef{Kind: CallValue, Func: name, Sig: v.typ})
+		return c.valueCall(call, name, v.typ)
 	}
 	if fi, ok := c.funcs[c.key(name)]; ok && fi.fn != nil {
 		c.markUsed(name)
@@ -1043,8 +1188,8 @@ func (c *Checker) call(call *ast.Call) Type {
 	return errType
 }
 
-// pkgMember 认 `a.make`、`a.Pair` 这一种点号：左边是本文件挂上的包名，右边得是那个包交出来的东西。
-// 函数返回 memberPkgFunc，交出来的数返回 memberPkgConst，类型在这一侧用不了
+// pkgMember 认 `a.make`、`a.Pair` 这一种点号：左边是本文件绑定的包名，右边得是那个包导出的东西。
+// 函数返回 memberPkgFunc，导出的数返回 memberPkgConst，类型在这一侧用不了
 // （要类型的位置走 resolveType 那头的双名分支）。
 //
 // en: pkgMember recognises the dot in `a.make` and `a.Pair`: the left side is a package alias
@@ -1054,7 +1199,7 @@ func (c *Checker) call(call *ast.Call) Type {
 func (c *Checker) pkgMember(m *ast.Member, pkgName, root string) (member, bool) {
 	fi, ti, found, exported := c.pkgExported(root, m.NameText)
 	if !found {
-		// 不是函数也不是类型，再看是不是那一个包交出来的数。
+		// 不是函数也不是类型，再看是不是那一个包导出的数。
 		if tv, isVal := c.topVals[qualKey(root, m.NameText)]; isVal {
 			return c.pkgValue(m, pkgName, tv)
 		}
@@ -1068,12 +1213,12 @@ func (c *Checker) pkgMember(m *ast.Member, pkgName, root string) (member, bool) 
 		c.fail(m.Where(), "%s 是类型名，要用 new 造值", m.NameText)
 		return member{}, false
 	}
-	return member{kind: memberPkgFunc, typ: Type{Kind: FuncT, Name: m.NameText}, fi: fi}, true
+	return member{kind: memberPkgFunc, typ: Type{Kind: FuncT, Name: m.NameText}, fi: fi, owner: pkgName}, true
 }
 
 // pkgValue 是 `greet.LIMIT` 这一种取法：交出来的 `const` 才读得到。`export shared` 的那一个名字
 // 定成不交给包外面：它只在同一个包里几个文件共用，读出去要多出一个持有者、写出去要
-// 回答"外面写进来的这一块归谁"，两条都没有答复；要交给外面，包里写一条函数。没挂 export 的那一种
+// 回答"外面写进来的这一块归谁"，两条都没有答复；要交给外面，包里写一条函数。没写 export 的那一种
 // 与函数、类型同一句说法。记下声明节点，是因为静态槽按节点排，后端要找那一个槽只有这一个凭据。
 //
 // en: pkgValue handles the `greet.LIMIT` read: only an exported const may be read. An `export
@@ -1085,7 +1230,7 @@ func (c *Checker) pkgMember(m *ast.Member, pkgName, root string) (member, bool) 
 // per node, and that node is the only handle the backend has on the slot.
 func (c *Checker) pkgValue(m *ast.Member, pkgName string, tv TopValue) (member, bool) {
 	if !tv.Export {
-		c.fail(m.Where(), "%s 里的 %s 没有挂 export：包只把交出来的东西给别人用", pkgName, m.NameText)
+		c.fail(m.Where(), "%s 里的 %s 没有写 export：包只把导出的东西给别人用", pkgName, m.NameText)
 		return member{}, false
 	}
 	if tv.Shared {
@@ -1096,10 +1241,10 @@ func (c *Checker) pkgValue(m *ast.Member, pkgName string, tv TopValue) (member, 
 	if c.facts != nil {
 		c.facts.PkgValues[m] = tv.Decl
 	}
-	return member{kind: memberPkgConst, typ: tv.Typ}, true
+	return member{kind: memberPkgConst, typ: tv.Typ, owner: pkgName}, true
 }
 
-// pkgConstRead 认出"这一处 `.名字` 读的是某个包交出来的数"，交回写出来的那一段（`greet.LIMIT`）。
+// pkgConstRead 认出"这一处 `.名字` 读的是某个包导出的数"，返回写出来的那一段（`greet.LIMIT`）。
 // 自增减那一处要拒绝的是写法本身，而 facts 在 `nf check` 那一路是空的，所以这里重问一遍名字表，
 // 不靠 PkgValues 那份记录。
 //
@@ -1167,6 +1312,11 @@ func (c *Checker) memberCall(call *ast.Call, m *ast.Member) Type {
 				if t.Kind == Null {
 					c.fail(a.Where(), bareNullMsg)
 				}
+				// 函数值打印不出来：那一个位置上是机器代码里的一个入口，不是一个能给人看的数。
+				// 与容器、盒子那一族同样拦在检查这一层，不留到发码那一步报"后端还没做到"。
+				if t.Kind == FuncVal {
+					c.fail(a.Where(), "函数值打印不出来：它是机器代码里的一个入口，不是一个可展示的数")
+				}
 				c.refuseNoValue(a, t)
 				continue
 			}
@@ -1203,16 +1353,28 @@ func (c *Checker) memberCall(call *ast.Call, m *ast.Member) Type {
 		if mm.sig.Poly != 0 {
 			return c.polyReturn(call, mm.typ.Name, mm.sig.Poly, got)
 		}
+		// 读位置那三个成员与容器下标同一本账：返回的是那一个位置里现成的值，不是新的一份。
+		// `xs.first()`、`xs.last()`、`d.get(键, 默认)` 三个名字在这里登记成只读借用，
+		// 要收走值的那四个地方照着下标那条规则一起拒绝。默认值那一侧不再交出去：
+		// `d.get` 两种结果都是借来的，键在就还容器里那一份，键不在就还调用方自己带进来的那一份。
+		if !mm.sig.Ret.ByValue() && readsPosition(mm.typ.Name) {
+			c.borrowRead[call] = true
+		}
 		if mm.sig.Ret.Kind != 0 {
 			return mm.sig.Ret
 		}
 		return Type{Kind: NoRet}
 	case memberField:
+		// 字段里装的是一份函数值：这一句就是按那一份地址调用，与名字里接住的是同一件事
+		if ft := c.exprTypeOf(m); ft.Kind == FuncVal {
+			c.recordCall(call, CallRef{Kind: CallValue, Func: m.NameText, Sig: ft})
+			return c.valueCall(call, m.NameText, ft)
+		}
 		c.fail(call.Where(), "%s 是字段，不能加括号调用", m.NameText)
 	case memberEnumValue:
 		c.fail(call.Where(), "%s 是枚举成员，不能被调用", m.NameText)
 	case memberPkgConst:
-		c.fail(call.Where(), "%s 是包交出来的数，不能加括号调用", m.NameText)
+		c.fail(call.Where(), "%s 是包导出的数，不能加括号调用", m.NameText)
 	}
 	return errType
 }
@@ -1234,11 +1396,16 @@ func (c *Checker) arg(a ast.Expr, want Type, p Param) {
 		// `export shared` 的名字与遍历、this 借来的名字也都交得进去。
 		return
 	}
+	if c.borrowRead[a] && !want.ByValue() && want.Kind != ErrT {
+		// 读一个位置拿到的那一份是借来的，交给要自己留一份的参数就会有两个持有者。
+		c.fail(a.Where(), "读出来的那一份是只读借用，不能交给要拿走的那个参数：文本拷一份，能摘出来的位置用 remove_at 或 json.take 摘出来")
+		return
+	}
 	if !want.ByValue() && want.Kind != ErrT && c.markFieldTaken(a, want) {
 		// 字段那本账本身没错：记的是"那个槽位读完写空"，后端照它抹那一个字段。
 		// 要拒绝的是这一步悄悄发生：把字段直接交给自己写的函数当实参，交完那个位置就空了，
 		// 下一次读它是运行期的 10092，可在编译期一个字的错都不报（同一条用在容器那个位置上，
-		// 容器那一条写明"被读走的那个位置交回 null"，字段这一侧没写死）。这里当场拒绝。
+		// 容器那一条写明"被读走的那个位置返回 null"，字段这一侧没写死）。这里当场拒绝。
 		// 正确写法是先接给一个名字再交——接名字那一步本来就是把那个位置过户出来。
 		path := c.fieldPath(a)
 		c.fail(a.Where(), "%s 是字段，直接交出去之后那个位置就空了：先接给一个名字，再拿那个名字交出去", path)
@@ -1320,6 +1487,37 @@ func (c *Checker) userCall(call *ast.Call, fi funcInfo, name string) Type {
 	return fi.ret
 }
 
+// valueCall 查通过一个函数值的那一次调用：参数个数、类型与借用那一层都按名字里那一份函数类型对。
+// 借用那一位上的实参只读一次，名字照旧能用；其余的与直接调用同一个函数名是同一条——交出去就作废。
+//
+// en: valueCall checks one call made through a function value: the number of arguments, their
+// types and the borrow layer all follow the function type held by the name. An argument in a
+// borrowed position is read once and its name stays usable; every other position is the same
+// rule as calling that function by name - hand it over and the name is void.
+func (c *Checker) valueCall(call *ast.Call, name string, fv Type) Type {
+	n := len(fv.Args) - 1
+	if len(call.Args) < n {
+		c.fail(call.Where(), "%s 需要 %d 个参数，这里只给了 %d 个", name, n, len(call.Args))
+		return funcRetOf(fv)
+	}
+	if len(call.Args) > n {
+		c.fail(call.Where(), "%s 只收 %d 个参数，这里给了 %d 个", name, n, len(call.Args))
+		return funcRetOf(fv)
+	}
+	// 那一个名字读一次：它自己不交出什么，交出去的是里面那一份地址
+	c.expr(call.Callee)
+	for i, a := range call.Args {
+		want := fv.Args[i+1]
+		if want.Kind == Borrow {
+			// 借用那一位：读一次就够，不动所有权，也不要求实参是持有者
+			c.exprExpected(a, want.Args[0])
+			continue
+		}
+		c.arg(a, want, Param{})
+	}
+	return funcRetOf(fv)
+}
+
 func (c *Checker) memberOfCallArg(a ast.Expr) bool {
 	_, ok := a.(*ast.Member)
 	return ok
@@ -1377,26 +1575,26 @@ func (c *Checker) indexExpr(ix *ast.Index) Type {
 	return errType
 }
 
-// takeOut：引用类型的元素取出来就是接管那个位置。
+// takeOut 读容器里的一个位置。装的是引用类型时这一读**不拿走**：那个位置之后还留着，
+// 读出来的那一份登记成只读借用，四个要收走值的地方（收到名字、进容器那个位置、
+// 交给要拿走的那个参数、装箱）看到它就拒绝。装值类型时是普通拷贝，不登记。
 //
-// en: takeOut: reading a reference-typed element out of a container takes over that position.
+// 来源本身已经被交出去时仍然不给过：那一个容器已经不归这个名字管了。
+//
+// en: takeOut reads one position of a container. When the position holds a reference type the
+// read does NOT take it away: the position keeps its value, and what the read yields is
+// registered as a read-only borrow, which the four places that would take it over (into a name,
+// into a container position, into a parameter that keeps it, into a box) refuse. A value type is
+// an ordinary copy and is not registered. Reading through a name that already handed itself over
+// is still refused: that container no longer belongs to this name.
 func (c *Checker) takeOut(base Type, ix *ast.Index) Type {
 	elem := base.Args[len(base.Args)-1]
 	if !elem.ByValue() {
-		if n, ok := ix.What.(*ast.Name); ok {
-			switch c.borrowed[n.Text] {
-			case borrowLoop:
-				c.fail(ix.Where(), "遍历交出的 %s 是只读借用，不能再把里面的东西交给自己", n.Text)
-				return errType
-			case borrowParam:
-				c.fail(ix.Where(), "ref 参数 %s 是只读借用，不能再把里面的东西交给自己", n.Text)
-				return errType
-			}
-		}
-		if m, ok := ix.What.(*ast.Member); ok {
-			if b, ok := c.lookupOf(m); ok && c.moved[b] {
-				return errType
-			}
+		c.borrowRead[ix] = true
+	}
+	if m, ok := ix.What.(*ast.Member); ok {
+		if b, ok := c.lookupOf(m); ok && c.moved[b] {
+			return errType
 		}
 	}
 	return elem
@@ -1412,11 +1610,6 @@ func (c *Checker) lookupOf(m *ast.Member) (string, bool) {
 func (c *Checker) convert(cv *ast.Convert) Type {
 	from := c.expr(cv.What)
 	to := c.resolveType(cv.Typ, cv.Where())
-	if n, ok := cv.What.(*ast.Name); ok {
-		if c.borrowed[n.Text] != "" {
-			c.fail(cv.Where(), "只读借用不能拆盒")
-		}
-	}
 	if to.Kind == Iface {
 		c.fail(cv.Where(), "%s 是接口名，不能当类型写", bareName(to.Name))
 		return errType
@@ -1437,6 +1630,10 @@ func (c *Checker) convert(cv *ast.Convert) Type {
 			c.fail(cv.Where(), "null 装不进盒子：装箱装的是那一个值，空句柄没有值可装")
 			return errType
 		}
+		if from.Kind == FuncVal {
+			c.fail(cv.Where(), "%s 装不进盒子：盒子里那一个位置要靠类型字认回来，函数值没有", from)
+			return errType
+		}
 		// 整只容器、Json 与 bytes 不进盒子：拆回来要认出尖括号里那一层，形状表里一个类型字不够；
 		// Json 那一棵树同理。这两条原先留到发码那一步才报（"类型字没排上"），
 		// 等于把一条语言规则说成后端少做的一块。bytes 是同一档：盒子里那个位置只放得下一个句柄，
@@ -1449,7 +1646,13 @@ func (c *Checker) convert(cv *ast.Convert) Type {
 			c.fail(cv.Where(), "%s 不必再装箱：它已经在盒子里，直接用它就行", from)
 			return errType
 		}
-		// 装箱就是把那一个值交出去：来源是字段时记字段那一笔，是名字时记原名作废
+		// 装箱就是把那一个值交出去：来源是字段时记字段那一笔，是名字时记原名作废。
+		// 来源是借来的那一份时，盒子装的也是借来的那一份：这一句能读能印，
+		// 但盒子接不进名字、进不了容器、也返回不出去（下面把它登记成同一个借用）。
+		if c.isReadBorrow(cv.What) && !from.ByValue() {
+			c.borrowRead[cv] = true
+			return to
+		}
 		if !from.ByValue() && c.markFieldTaken(cv, to) {
 			return to
 		}
@@ -1459,12 +1662,17 @@ func (c *Checker) convert(cv *ast.Convert) Type {
 		return to
 	}
 	if from.Kind == Obj {
-		// 拆盒的目标得是进得了盒子的那一档：容器、Json 与 bytes 从来没装进去过，`o as list<int>`、
+		// 拆箱的目标得是进得了盒子的那一档：容器、Json 与 bytes 从来没装进去过，`o as list<int>`、
 		// `o as Json` 拆的是一个装不进去的东西。这一条原先到发码才报
 		// "%s 的类型字没排上，拆不开这个盒"，看起来像后端缺的实现，要改的其实是那句 as。
-		if to.Kind == List || to.Kind == Dict || to.Kind == Set || to.Kind == Json || to.Kind == Bytes || to.Kind == Socket || to.Kind == Listener || to.Kind == Process {
+		if to.Kind == List || to.Kind == Dict || to.Kind == Set || to.Kind == Json || to.Kind == Bytes || to.Kind == Socket || to.Kind == Listener || to.Kind == Process || to.Kind == FuncVal {
 			c.fail(cv.Where(), "盒子里没有 %s：它进不了盒子，也拆不出来", to)
 			return errType
+		}
+		if c.isReadBorrow(cv.What) {
+			// 拆的也是借来的那一份：返回的同一个句柄仍归原来的容器或树持有
+			c.borrowRead[cv] = true
+			return to
 		}
 		if c.markFieldTaken(cv, from) {
 			return to
@@ -1655,7 +1863,7 @@ func takesIntoCell(t Type) bool {
 // （`listLit`、`mapLit`、`setLit` 与 `newObject` 都走 `lower.go` 的 `cellValue`），
 // 名字那头仍是自己那一块的持有者。
 // 这里原先替值类型也记一笔"交出去过"，后端 `claim` 因此不登记那个名字，那一块没人析构
-// （实测 `[one]` 与 `new Holder(p: one)` 各每圈留 16 字节）。
+// （实测 `[one]` 与 `new Holder(p: one)` 各每轮留 16 字节）。
 //
 // en: putInCell is the ledger of "place a value into a position", shared by container literals
 // and the field initialisers of `new`: a reference type counts as handed over - the original
@@ -1667,6 +1875,11 @@ func takesIntoCell(t Type) bool {
 // nobody to dismantle the block (measured: `[one]` and `new Holder(p: one)` each leaked 16
 // bytes per iteration).
 func (c *Checker) putInCell(v ast.Expr, t Type) {
+	if c.borrowRead[v] && takesIntoCell(t) {
+		// 容器那个位置要自己拿着一份；读出来的那一份还归原来那个容器或者那棵树。
+		c.fail(v.Where(), "读出来的那一份是只读借用，不能放进容器那一个位置：文本拷一份，能摘出来的位置用 remove_at 或 json.take 摘出来")
+		return
+	}
 	if c.markFieldTaken(v, t) {
 		return // 装进位置的那一个来自 `class` 的字段，读完那个槽位写空
 	}
@@ -1777,7 +1990,7 @@ type stdSig struct {
 	params []Param
 	ret    Type
 	vararg bool
-	// poly 非 0 表示"交回的类型跟着第一个实参走"：`math.absolute_value` 与 `math.minimum` 那几条是这种。
+	// poly 非 0 表示"返回的类型跟着第一个实参走"：`math.absolute_value` 与 `math.minimum` 那几条是这种。
 	// 这一类以前把 ret 写成 ErrT，而 ErrT 就是 0，stdCall 那句"ret.Kind != 0 才用它"
 	// 一穿过去就成了"没有返回值"——`let x:float = math.absolute_value(-7.5)` 因此报"给的是 无返回值"。
 	// 1 = 只看第一个实参；2 = 两个实参必须同型，返回那一个的类型。
@@ -1901,7 +2114,9 @@ var stdFuncs = map[string]stdSig{
 	"json.keys":       {params: []Param{{Typ: typeJson}}, ret: typeStrList},
 	"json.has":        {params: []Param{{Typ: typeJson}, {Typ: typeStr}}, ret: typeBool},
 	"json.at":         {params: []Param{{Typ: typeJson}, {Typ: typeStr}}, ret: typeJson},
+	"json.take":       {params: []Param{{Typ: typeJson}, {Typ: typeStr}}, ret: typeJson},
 	"json.item":       {params: []Param{{Typ: typeJson}, {Typ: typeInt}}, ret: typeJson},
+	"json.take_item":  {params: []Param{{Typ: typeJson}, {Typ: typeInt}}, ret: typeJson},
 	"json.to_text":    {params: []Param{{Typ: typeJson}}, ret: typeStr},
 	"json.to_integer": {params: []Param{{Typ: typeJson}, {Typ: typeInt}}, ret: typeInt},
 	"json.to_number":  {params: []Param{{Typ: typeJson}, {Typ: typeFloat}}, ret: typeFloat},
@@ -1970,7 +2185,7 @@ func callText(e ast.Expr) string {
 	return "这一句"
 }
 
-// refuseNoValue 拒绝"把一个不交回值的动作放在要值的位置上"（不写返回类型就是不返回值）。
+// refuseNoValue 拒绝"把一个不返回值的动作放在要值的位置上"（不写返回类型就是不返回值）。
 //
 // 带类型的参数槽位那一侧由 exprExpected 拒绝（报"这里要的是 int，给的是 无返回值"）；
 // 这一处管的是没有写着类型的落点——变长参数那一个，以及 `length`、`number.to_string`
@@ -2049,6 +2264,11 @@ func (c *Checker) stdCall(call *ast.Call, name string, sig stdSig) Type {
 		got = append(got, want)
 	}
 	c.checkRadix(call, name)
+	// `json.at(树, 键)` 与 `json.item(树, 第几个)` 读的是树上那一个位置，与容器下标同一本账：
+	// 读出来不拿走，树上那个位置之后还在。
+	if sig.poly == 0 && !sig.ret.ByValue() && readsPosition(name) {
+		c.borrowRead[call] = true
+	}
 	if sig.poly != 0 {
 		return c.polyReturn(call, name, sig.poly, got)
 	}
@@ -2056,6 +2276,39 @@ func (c *Checker) stdCall(call *ast.Call, name string, sig stdSig) Type {
 		return sig.ret
 	}
 	return Type{Kind: NoRet}
+}
+
+// readsPosition 说这一个名字读的是"某个容器或者某棵树里的一个位置"，返回的是那一个位置上
+// 现成的值，不是新的一份。容器下标走 `takeOut`，这五个成员走这里，两处登记同一本账。
+//
+// en: readsPosition says the name reads one position inside a container or inside a tree and
+// hands back the value that is already there, not a new one. Container indices register in
+// takeOut; these five members register here - one ledger for both.
+func readsPosition(name string) bool {
+	switch name {
+	case "list.first", "list.last", "dict.get", "json.at", "json.item":
+		return true
+	}
+	return false
+}
+
+// isReadBorrow 说这一个表达式交出的是一份只读借用：来源是读一个位置（下标与那五个成员，
+// 记在 `borrowRead` 里），或者是一个本来就标着借用的名字（遍历交出的、`ref` 参数、方法接收者）。
+// 装箱与拆箱顺着这样一份值写，得到的还是同一份借用，容器、盒子和字段都不改动。
+//
+// en: isReadBorrow says this expression hands back a read-only borrow: either the source is a
+// position read (an index or one of those five members, recorded in borrowRead), or it is a name
+// that already carries a borrow (from a loop, a ref parameter, or a receiver). Boxing or unboxing
+// such a value yields the same borrow and changes nothing - not the container, not the box, not
+// the field.
+func (c *Checker) isReadBorrow(e ast.Expr) bool {
+	if c.borrowRead[e] {
+		return true
+	}
+	if n, ok := e.(*ast.Name); ok {
+		return c.borrowed[n.Text] != ""
+	}
+	return false
 }
 
 // checkRadix 是进制那一对的编译期检查：那一个位置只准写字面量，而且只能是
@@ -2085,7 +2338,7 @@ func (c *Checker) checkRadix(call *ast.Call, name string) {
 	}
 }
 
-// polyReturn 落那三条"交回的类型跟进来的值走"的组函数：
+// polyReturn 落那三条"返回的类型跟进来的值走"的组函数：
 // `math.absolute_value` 只看第一个，`math.minimum`／`math.maximum` 要求两个同型。
 //
 // 能进来的只有 int、float、byte 三种：布尔、码点、enum 取绝对值或比大小都没有意义，

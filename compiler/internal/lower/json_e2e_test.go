@@ -25,7 +25,7 @@ import (
 // 写它的用意是"只经公开的十二条取用"：签名函数访问不到节点内部，只能用 json.kind、
 // json.count、json.keys、json.at、json.item、json.to_*——所以签名对得上，
 // 就说明这十二条成员确实能完整描述这棵树。@PATH@ 由测试替换成一份写好的样例文件路径。
-const jsonSigProg = `method signature(x:Json):string {
+const jsonSigProg = `method signature(ref x:Json):string {
     let k:string = json.kind(x)
     if (k == "null") {
         return "null"
@@ -60,7 +60,7 @@ const jsonSigProg = `method signature(x:Json):string {
         if (i > 0) {
             out = out + ","
         }
-        let key:string = keys[i]
+        let key:string = keys[i] + ""
         out = out + key + ":" + signature(json.at(x, key))
     }
     return out + "}"
@@ -69,7 +69,7 @@ const jsonSigProg = `method signature(x:Json):string {
 let body:string = file.read("@PATH@")
 let lines:list<string> = body.split("\n")
 for (i:int in 0 until length(lines)) {
-    let line:string = lines[i]
+    let line:string = lines[i] + ""
     let tree:Json = json.parse(line)
     if (tree == null) {
         console.print("坏了：" + json.explain(line))
@@ -123,21 +123,22 @@ let j:Json = json.parse("{ \"a\": [1, 2], \"b\": \"甲\" }")
 console.print(j)
 console.print(json.count(j))
 `, "{\"a\":[1,2],\"b\":\"甲\"}\n2\n"},
-		{"取走那一格就空了", `
+		{"读两遍都在，摘下来那一格才空", `
 let j:Json = json.parse("{ \"a\": 1 }")
-let one:Json = json.at(j, "a")
+console.print(json.kind(json.at(j, "a")), json.to_integer(json.at(j, "a"), -1))
+let one:Json = json.take(j, "a")
 console.print(json.kind(one), json.to_integer(one, -1))
 console.print(json.at(j, "a"))
 console.print(j)
-`, "number 1\nnull\n{\"a\":null}\n"},
+`, "number 1\nnumber 1\nnull\n{\"a\":null}\n"},
 		{"没毛病那一句是空的，坏了那句说清行列", `
 console.print(json.explain("[1, 2]"))
 console.print(json.explain("[1,"))
 `, "\n第 1 行第 4 列：这一片到这儿就断了，后头还差东西\n"},
-		{"数组按下标取，越界给 null", `
+		{"数组按下标摘一个，越界给 null", `
 let j:Json = json.parse("[10, 20, 30]")
 console.print(json.count(j))
-let mid:Json = json.item(j, 1)
+let mid:Json = json.take_item(j, 1)
 console.print(json.kind(mid), json.to_integer(mid, 0))
 console.print(json.item(j, 9) == null)
 console.print(j)
@@ -147,7 +148,7 @@ let j:Json = json.parse("{ \"甲\": true, \"乙\": 2.5, \"丙\": \"喂\" }")
 console.print(json.has(j, "甲"), json.has(j, "丁"))
 let keys:list<string> = json.keys(j)
 console.print(length(keys), keys[0], keys[2])
-let v:Json = json.at(j, "乙")
+let v:Json = json.take(j, "乙")
 console.print(json.to_number(v, 0.0), json.to_integer(v, -1))
 console.print(json.to_text(json.at(j, "丙")))
 console.print(json.to_text(j), json.to_boolean(json.at(j, "甲"), false))
@@ -191,8 +192,8 @@ console.print(total)
 let total:int = 0
 for (i:int in 0 until @N@) {
     let j:Json = json.parse("{ \"a\": { \"b\": [1, 2] } }")
-    let one:Json = json.at(j, "a")
-    let two:Json = json.at(one, "b")
+    let one:Json = json.take(j, "a")
+    let two:Json = json.take(one, "b")
     total = total + json.count(two)
 }
 console.print(total)
@@ -227,7 +228,7 @@ let j:Json = json.parse(deep)
 console.print(json.kind(j), json.count(j))
 let inmost:Json = j
 while (json.count(inmost) == 1) {
-    inmost = json.item(inmost, 0)
+    inmost = json.take_item(inmost, 0)
 }
 console.print(json.kind(inmost), json.count(inmost))
 `)

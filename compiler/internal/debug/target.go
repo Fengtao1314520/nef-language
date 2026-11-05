@@ -182,20 +182,52 @@ func (t *Target) siteAt(off int) (codegen.Site, bool) {
 	return best, found
 }
 
+// SiteAtAddr 把代码里的一个绝对地址翻成它所在那一句的检查点：抛出那一步返回的就是
+// 那一次调用之后的第一个字节，往前找最近的一条检查点正对（与 Stack 里那一处同一条规矩）。
+// 落在映像之外（地址比摆代码的那一块还靠前）就说查不出。
+// 越出检查点表那一段之外不再另外拦：调用链表里的用户代码末尾由运行期自己比过（codeEnd），
+// 走到这里的那个地址已经在用户代码里，而最后一条检查点之后仍有代码（函数尾巴与收尾那几行），
+// 拦它反倒把这些位置说成查不出。
+//
+// en: SiteAtAddr turns an absolute address in the code into the checkpoint of the statement it
+// belongs to: the throw hands back the first byte after that call, and looking back for the
+// nearest checkpoint is correct (the same rule Stack uses). An address outside the image - below
+// where the code was placed - is reported as unknown. Nothing else is filtered out beyond the
+// checkpoint table's stretch: the runtime has already compared the end of user code (codeEnd)
+// while walking the frames, so the address reaching here is inside user code, and code still
+// follows the last checkpoint (the tail of a function and its closing lines) - filtering on that
+// last offset would call those positions unknown.
+func (t *Target) SiteAtAddr(addr uintptr) (codegen.Site, bool) {
+	if addr < t.Base {
+		return codegen.Site{}, false
+	}
+	return t.siteAt(int(addr - t.Base))
+}
+
 // Stack 沿 [rbp+0]（上一层的 rbp）与 [rbp+8]（返回地址）往上走。
 //
 // 第 0 帧的位置不能用返回地址查：那个位置存的是"call 回来接着往哪儿走"，属于**上一层**。
-// 所以最上面那个位置得用停住的那一条检查点自己，从第二条记录起才轮到返回地址。
+// 所以最上面那个位置得用停住的那一条检查点自己，从第二条记录起轮到"上一层读回来的那一个返回地址"：
+// 第 k 帧的位置就是它调用第 k-1 帧之后要回到的那一个字节，那一个数是在第 k-1 帧里读到的，
+// 不是第 k 帧自己的 [rbp+8]（那一个属于第 k+1 帧；早先在这儿读错了，往外的每一帧都把行号说成了
+// 再外面一层——实测：停在 pick 里抛出那一句，栈里第 2 帧报的也是 pick 第 2 行）。
 // top 是停住那一条的位置；没有就传零值，那个位置只按返回地址说。
 //
 // en: Stack walks up along [rbp+0] (the previous frame's rbp) and [rbp+8] (the return address).
 // The position of frame 0 must not be looked up through the return address: that slot says
 // "where to continue after the call returns", which belongs to the frame ABOVE. So the topmost
-// position uses the checkpoint that stopped, and only from the second entry on do return
-// addresses apply. top is the position of the checkpoint that stopped; pass a zero value when
-// there is none and that position is described by its return address alone.
+// position uses the checkpoint that stopped, and from the second entry on each frame's position
+// is the return address read from the frame INSIDE it - "where this frame resumes after calling
+// the one below". That number was taken in frame k-1, not from frame k's own [rbp+8], which
+// belongs to frame k+1 (reading it here was wrong: every outer frame showed the line of the one
+// further out - measured, stopping on the throwing statement inside pick showed pick 2:5 again
+// for the second entry). top is the position of the checkpoint that stopped; pass a zero value
+// when there is none and that position is described by its return address alone.
 func (t *Target) Stack(rbp uintptr, top codegen.Site) []Frame {
 	var out []Frame
+	// back 是上一圈从 [rbp+8] 读回来的那一个返回地址，useBack 说它是不是已经来过一次。
+	var back uint64
+	useBack := false
 	for len(out) < maxFrames && rbp != 0 {
 		saved, ok1 := t.u64(rbp)
 		ret, ok2 := t.u64(rbp + 8)
@@ -203,12 +235,21 @@ func (t *Target) Stack(rbp uintptr, top codegen.Site) []Frame {
 			break
 		}
 		f := Frame{Number: len(out), RBP: rbp}
-		if len(out) == 0 && top.Line != 0 {
+		// 第 0 帧没有上一圈读回来的地址可用（useBack 还是假的），就照旧用自己那一个返回地址。
+		at := ret
+		if useBack {
+			at = back
+		}
+		switch {
+		case len(out) == 0 && top.Line != 0:
 			f.Name, f.File, f.Line, f.Col = top.Func, top.File, top.Line, top.Col
-		} else if s, ok := t.siteAt(int(ret) - int(t.Base)); ok {
-			f.Name, f.File, f.Line, f.Col = s.Func, s.File, s.Line, s.Col
+		default:
+			if s, ok := t.siteAt(int(at) - int(t.Base)); ok {
+				f.Name, f.File, f.Line, f.Col = s.Func, s.File, s.Line, s.Col
+			}
 		}
 		out = append(out, f)
+		back, useBack = ret, true
 		next := uintptr(saved)
 		if next == 0 || next <= rbp { // 链不再向上就是走到头了（或者读到了别的数据）
 			break

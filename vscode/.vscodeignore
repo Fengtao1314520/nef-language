@@ -5,3 +5,7 @@ out/test/**
 tsconfig.json
 .vscodeignore
 **/*.ts
+# 打包脚本产的东西不能进包：安装包自己、以及它的任何临时副本
+**/*.vsix
+**/*.vsix.*
+**/*.bak*

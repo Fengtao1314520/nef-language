@@ -5,7 +5,7 @@ package check
 import "testing"
 
 // member_range_test.go 覆盖三条的范围：谁能排序、keys 与 values 交得回什么。
-// 两句都是整句比对（`expectErr` 认 `Error.Msg` 相等），改一个字就红。
+// 两句都是整句比对（`expectErr` 认 `Error.Msg` 相等），改一个字就失败。
 
 func TestSortRefusesUnorderedElements(t *testing.T) {
 	cases := []struct{ src, want string }{
@@ -88,15 +88,19 @@ console.print(length(xs), xs.first())
 `)
 }
 
-// TestDictGetOwnsItsArguments 键那个位置是只读借用（原名还能用），默认值那个位置是交出
-// （用上了归调用方，没用上就地析构，两种情况下原名都不能再用）。
+// TestDictGetOwnsItsArguments `d.get(键, 默认)` 两个位置都只读一次：键与默认值的原名都还能再用，
+// 读回来的那一份是借来的，接不进名字。没命中读默认值，命中读表里那个位置，两种都不改动表。
 func TestDictGetOwnsItsArguments(t *testing.T) {
-	expectErr(t, `
+	expectOK(t, `
 let d:dict<string, list<int>> = {}
 let miss:list<int> = [9]
-let got:list<int> = d.get("无", miss)
-console.print(length(miss))
-`, "miss 已经交出去了，这个名字不能再写")
+console.print(d.get("无", miss)[0], length(miss))
+`)
+	expectErr(t, `
+let d:dict<string, list<int>> = {}
+let got:list<int> = d.get("无", [9])
+console.print(length(got))
+`, "读出来的那一份是只读借用，不能收到名字里、写进字段或者交给调用方：文本拷一份，能摘出来的位置用 remove_at 或 json.take 摘出来")
 	expectErr(t, `
 let d:dict<string, int> = {}
 console.print(d.get("无", null))

@@ -828,7 +828,7 @@ func rxCompile(b *rt) {
 	b.storeRIP(x64.RAX, "rxLen")
 	b.epilogue()
 
-	// ---- last 的两个槽：叶子刚发出、组刚收完，都从这里挂上 ----
+	// ---- last 的两个槽：叶子刚发出、组刚收完，都从这里写入 ----
 	a.Mark(lLeafTail)
 	b.put(kFragS, x64.RAX)
 	a.AddImm(x64.RAX, rxOut1)
@@ -1515,8 +1515,8 @@ func regexSplit(b *rt) {
 	b.put(sFrom, x64.RAX)
 	b.put(sCut, x64.RAX)
 
-	// 每一段都是 @str_sub 现造的，再造一条 list_add 挂上去；两条路（撞上切点／收尾那一段）
-	// 各摆一份，为的是收尾那一段挂完就该出去，不能再跳回循环。
+	// 每一段都是 @str_sub 现造的，再造一条 list_add 附加在后面；两条路（撞上切点／收尾那一段）
+	// 各摆一份，为的是收尾那一段附加完就该出去，不能再跳回循环。
 	loop := b.label()
 	tail := b.label()
 	done := b.label()

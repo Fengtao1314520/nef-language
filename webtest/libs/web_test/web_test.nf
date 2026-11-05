@@ -19,13 +19,13 @@ import { build_handshake, json_string_of, first_chars_of, reply_field_of, png_fr
 // 浏览器起来了，等不到它写下那个端口。
 // en: The browser started but never wrote its port file in time.
 // 例：
-// try { wt.start("msedge.exe", "profile") } catch (bad_code, bad_msg) { console.print(bad_code == wt.code_port_timeout, bad_msg) }
+// try { wt.start("msedge.exe", "profile") } catch (bad_code, bad_msg, bad_at) { console.print(bad_code == wt.code_port_timeout, bad_msg) }
 export const code_port_timeout:int = 200
 
 // 握手回来的不是 101。
 // en: The handshake came back with something other than 101.
 // 例：
-// try { wt.start("msedge.exe", "profile") } catch (bad_code, bad_msg) { console.print(bad_code == wt.code_handshake_failed, bad_msg) }
+// try { wt.start("msedge.exe", "profile") } catch (bad_code, bad_msg, bad_at) { console.print(bad_code == wt.code_handshake_failed, bad_msg) }
 export const code_handshake_failed:int = 201
 
 // 连接断了，或对方先关了。
@@ -194,9 +194,9 @@ method ask(page_index:int, ref method_name:string, ref params:string):string {
         let one:string = read_message()
         let doc:Json = json.parse(one)
         if (doc == null) {
-            throw (code_reply_not_json, "浏览器交回来的不是一段 JSON：" + first_chars_of(one, 60))
+            throw (code_reply_not_json, "浏览器返回的不是一段 JSON：" + first_chars_of(one, 60))
         }
-        let id_slot:Json = json.at(doc, "id")
+        let id_slot:Json = json.take(doc, "id")
         if (id_slot == null) {
             store_event(one)
         } else {
@@ -216,8 +216,8 @@ method ask(page_index:int, ref method_name:string, ref params:string):string {
 // —— 浏览器主动发来的那一条（通知）——
 //
 // 存的是"哪一个页发的、哪一件事"两部分拼成的键，值是那条原文。不用 list 逐条比对：
-// 容器装引用类型时进出都是交出，位置读一次就归读走（实测 `xs[0]` 第二次读就是 10092），
-// 扫一遍等于清空整条队列。查询走只读借用，`contains` 与 `get` 不动其他槽位。
+// 扫一遍 list 要把每个位置读出来比键，比的是文本内容，整条队列读完还得自己拷一份才能留着用；
+// 查询走只读借用，`contains` 与 `get` 不动其他槽位。
 // 同一页同一事件连续到来只留最后一条：这里等的是"发生过"，等不到报 209。
 
 method store_event(body:string) {
@@ -225,7 +225,7 @@ method store_event(body:string) {
     if (doc == null) {
         return
     }
-    let which:Json = json.at(doc, "method")
+    let which:Json = json.take(doc, "method")
     if (which == null) {
         return
     }
@@ -234,7 +234,7 @@ method store_event(body:string) {
         return
     }
     // 不带 sessionId 的是浏览器层的通知，键的开头用 "*" 占位：空句柄拼进 `+` 会触发运行期 10092。
-    let here:Json = json.at(doc, "sessionId")
+    let here:Json = json.take(doc, "sessionId")
     let session:string = "*"
     if (here != null) {
         let got:string = json.to_text(here)
@@ -250,13 +250,13 @@ method store_event(body:string) {
 method take_event(ref name:string, ref session:string):string {
     let mine:string = session + "|" + name
     if (link.events.contains(mine)) {
-        let first:string = link.events.get(mine, "")
+        let first:string = link.events.get(mine, "") + ""
         link.events.remove(mine)
         return first
     }
     let broad:string = "*|" + name
     if (link.events.contains(broad)) {
-        let second:string = link.events.get(broad, "")
+        let second:string = link.events.get(broad, "") + ""
         link.events.remove(broad)
         return second
     }
@@ -283,7 +283,7 @@ method wait_event_in(page_index:int, ref name:string, timeout_ms:int):string {
         try {
             let one:string = read_message()
             store_event(one)
-        } catch (code, msg) {
+        } catch (code, msg, at) {
             if (code != 10102) {
                 throw (code, msg)
             }
@@ -298,7 +298,7 @@ method session_of(page_index:int):string {
     }
     // 从 list 里取那一样是交出语义，取过之后位置就空了。
     // 这个位置后面还要再取（同一页的第二条命令），所以取出来先接住，再把一份拷贝写回去。
-    let got:string = link.sessions[page_index]
+    let got:string = link.sessions[page_index] + ""
     link.sessions[page_index] = got + ""
     return got
 }
@@ -315,7 +315,7 @@ method run_js_in(page_index:int, ref expression:string):string {
     if (json.at(doc, "error") != null) {
         throw (code_browser_error, "这段 JS 被浏览器拒了：" + first_chars_of(answer, 120))
     }
-    let result:Json = json.at(doc, "result")
+    let result:Json = json.take(doc, "result")
     if (result == null) {
         return null
     }
@@ -324,11 +324,11 @@ method run_js_in(page_index:int, ref expression:string):string {
     if (json.at(result, "exceptionDetails") != null) {
         throw (code_browser_error, "这段 JS 在页面上出了错：" + first_chars_of(expression + " || ", 120) + first_chars_of(answer, 200))
     }
-    let inner:Json = json.at(result, "result")
+    let inner:Json = json.take(result, "result")
     if (inner == null) {
         return null
     }
-    let slot:Json = json.at(inner, "value")
+    let slot:Json = json.take(inner, "value")
     if (slot == null) {
         return null
     }
@@ -534,16 +534,16 @@ export class Browser {
         let doc:Json = json.parse(ask(-1, "Target.getTargets", "{}"))
         let result:Json = null
         if (doc != null) {
-            result = json.at(doc, "result")
+            result = json.take(doc, "result")
         }
         if (result != null) {
-            let items:Json = json.at(result, "targetInfos")
+            let items:Json = json.take(result, "targetInfos")
             if (items != null) {
                 for (i:int in 0 until json.count(items)) {
-                    let one_info:Json = json.item(items, i)
+                    let one_info:Json = json.take_item(items, i)
                     if (one_info != null) {
-                        let kind_slot:Json = json.at(one_info, "type")
-                        let id_slot:Json = json.at(one_info, "targetId")
+                        let kind_slot:Json = json.take(one_info, "type")
+                        let id_slot:Json = json.take(one_info, "targetId")
                         if (kind_slot != null && id_slot != null && json.to_text(kind_slot) == "page") {
                             let id:string = json.to_text(id_slot)
                             if (id != null) {
@@ -557,7 +557,7 @@ export class Browser {
         return out
     }
 
-    // 开一页并挂上去，等它报成 complete（等不到报 207）。
+    // 开一页并附加，等它报成 complete（等不到报 207）。
     // en: Opens a tab, attaches to it, and waits until the document reports complete; 207 if that never happens.
     // 例：
     // let opened: Page = browser.open_page("https://example.com/")
@@ -565,14 +565,14 @@ export class Browser {
         let created:string = ask(-1, "Target.createTarget", "{\"url\":" + json_string_of(url) + "}")
         let target:string = reply_field_of(created, "targetId")
         if (target == null) {
-            throw (code_reply_not_json, "开一页那一步的答复里没有 targetId 那一格")
+            throw (code_reply_not_json, "打开一页那一步的答复里没有 targetId 这个字段")
         }
         let made:Page = this.attach_page(target)
         made.settle_on(url, wait_ms)
         return made
     }
 
-    // 挂到一个已经开着的页面上（页号从 list_pages 那边来）。
+    // 附加到一个已经开着的页面上（页号从 list_pages 那边来）。
     // en: Attaches to a tab that is already open; the targetId comes from list_pages.
     // 例：
     // let opened: Page = browser.attach_page(browser.list_pages()[0])
@@ -580,7 +580,7 @@ export class Browser {
         let attached:string = ask(-1, "Target.attachToTarget", "{\"targetId\":" + json_string_of(target_id) + ",\"flatten\":true}")
         let session:string = reply_field_of(attached, "sessionId")
         if (session == null) {
-            throw (code_reply_not_json, "挂上去那一步的答复里没有 sessionId 那一格")
+            throw (code_reply_not_json, "附加那一步的答复里没有 sessionId 这个字段")
         }
         link.sessions.add(session)
         let made:int = length(link.sessions) - 1
@@ -619,7 +619,7 @@ export class Browser {
 export class Page {
     index:int
 
-    // 取回这一页所属的那只浏览器把手。
+    // 取回这一页所属的那个浏览器句柄。
     // en: Gives back the browser handle this page belongs to.
     // 例：
     // let back: Browser = page.get_browser()
@@ -993,7 +993,7 @@ export class Page {
         }
     }
 
-    // 三种定位方式共用的一步：按那一种取法数一下，有就交回第一个位置的把手，没有就交回空句柄。
+    // 三种定位方式共用的一步：按那一种取法数一下，有就返回第一个位置的句柄，没有就返回空句柄。
     // en: The step the three finders share: ask the page how many match, then give back a handle for the first one, or a null handle.
     // 例：
     // let one: Element = page.find_one(1, "h1")
@@ -1004,7 +1004,7 @@ export class Page {
         return null
     }
 
-    // 三种定位方式共用的一步：按那一种取法数几个，然后把每一个位置的把手装进列表。
+    // 三种定位方式共用的一步：按那一种取法数几个，然后把每一个位置的句柄装进列表。
     // en: The step the three plural finders share: count the matches, then put a handle for each position into a list.
     // 例：
     // console.print(length(page.find_many(1, "li")))
@@ -1209,7 +1209,7 @@ export method start(ref exe:string, ref profile:string, port_wait:int = port_ms,
         wait_port(mark, port_wait)
         link.sock = net.connect("127.0.0.1", link.port, io_wait)
         handshake()
-    } catch (code, msg) {
+    } catch (code, msg, at) {
         if (link.sock != null) {
             link.sock.close()
             link.sock = null
@@ -1324,7 +1324,7 @@ export method build_frame(ref body:string, ref key:bytes):bytes {
     return encode_text(body.to_bytes(), key)
 }
 
-// 从这一串字节里读出最前面那一条帧；不够一条就交回空句柄，读掉的那一段从缓冲里去掉。
+// 从这一串字节里读出最前面那一条帧；不够一条就返回空句柄，读掉的那一段从缓冲里去掉。
 // en: Reads the frontmost frame out of this run of bytes, or a null handle when it is not a whole frame yet; the part consumed leaves the buffer.
 // 例：
 // let got: wt.Frame = wt.read_frame(block)
@@ -1340,7 +1340,7 @@ export method handshake_text(port:int, ref path_value:string):string {
     return build_handshake(port, path_value)
 }
 
-// 从一条答复里取 result 下面那一个位置，取不到交回空句柄。
+// 从一条答复里取 result 下面那一个位置，取不到返回空句柄。
 // en: Takes one slot under result out of a reply, or a null handle when there is none.
 // 例：
 // let field:string = wt.reply_field(answer, "id")
@@ -1348,7 +1348,7 @@ export method reply_field(ref answer:string, ref key:string):string {
     return reply_field_of(answer, key)
 }
 
-// 把答复里那一段 base64 的截图解成 PNG 字节，交回一整块。
+// 把答复里那一段 base64 的截图解成 PNG 字节，返回一整块。
 // en: Decodes the base64 screenshot carried in a reply into a whole PNG block.
 // 例：
 // let picture: bytes = wt.png_from_reply(answer)

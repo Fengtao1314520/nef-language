@@ -42,6 +42,14 @@ type Linker struct {
 	rtLabel map[string]x64.Label
 	patches []pe.Patch
 	next    x64.Label
+	// userRefs 是用户代码里指向运行期自己那半截数据的回填点（现在只有一处：摆抛出位置）。
+	// At 已经是它在整块代码里的位置，装配时与运行期那些引用一起回填，只是不再加上运行期那一段的起点。
+	//
+	// en: userRefs are the backfill positions inside user code that point at the runtime's own
+	// half of the data (so far there is one: setting the throw position). At is already its offset
+	// in the whole code block, so assembly resolves them next to the runtime's own references
+	// without shifting At again.
+	userRefs []runtime.Ref
 	// sites 是检查点表：只有 debug 构建会有内容，顺序就是代码里的先后。
 	sites []Site
 }
@@ -97,6 +105,17 @@ func (l *Linker) take() x64.Label {
 	return n
 }
 
+// StoreRtData 落 [运行期数据 name] = reg。用户代码够不到运行期那半截数据的偏移，
+// 那一个数只有装配时才知道，所以这里先记下回填点，交给 assemble 一起补。
+//
+// en: StoreRtData emits [runtime data name] = reg. User code cannot know the offset inside the
+// runtime's half of the data - only assembly does - so this records a backfill position and
+// leaves it to assemble.
+func (l *Linker) StoreRtData(name string, reg int) {
+	at := l.a.MovStoreRIP(reg)
+	l.userRefs = append(l.userRefs, runtime.Ref{At: at, Kind: runtime.RefData, Name: name})
+}
+
 // CallRt 调一个运行期例程，比如 @put_int。
 //
 // en: CallRt calls one runtime routine, for example @put_int.
@@ -110,7 +129,7 @@ func (l *Linker) CallRt(name string) {
 func (l *Linker) RtLabel(name string) x64.Label { return l.rtLabel[name] }
 
 // LeaData 落 reg = &[静态数据 off]，回填留给 Build。
-// off 是 userData 里的偏移；运行期自己那半截的数据由 Build 往后接，不用调用方操心。
+// off 是 userData 里的偏移；运行期自己那半截的数据由 Build 往后接，不需要调用方另外登记。
 //
 // en: LeaData emits reg = &[static data off], leaving the patch to Build. off is an offset
 // inside userData; the runtime's own half of the data is appended by Build and is not the
@@ -214,6 +233,16 @@ func (l *Linker) assemble(userData []byte, entry int) (pe.Layout, error) {
 			}
 			l.patches = append(l.patches, patch)
 		}
+	}
+	for _, r := range l.userRefs {
+		if r.Kind != runtime.RefData {
+			return pe.Layout{}, fmt.Errorf("用户代码里的运行期数据引用种类是 %d，只认数据这一种", r.Kind)
+		}
+		off, ok := l.rt.DataAt[r.Name]
+		if !ok {
+			return pe.Layout{}, fmt.Errorf("运行期数据里没有 %q 这一项", r.Name)
+		}
+		l.patches = append(l.patches, pe.Patch{At: r.At, Sec: pe.SecData, Off: len(userData) + off})
 	}
 	code, err := l.a.Finish()
 	if err != nil {

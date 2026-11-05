@@ -57,9 +57,9 @@ npm run verify    # check + ledger + rhythm + structure + typography + names + b
 
 代码块标记有五种：`nf`、`nf-bad`、`nf-frag`、`nef`、`text`。
 
-七项检查各自的实现在 `tools-site/`，跑法写在 `package.json` 的 scripts 里；这五种标记各自的规矩由 `tools-site/check-site.mjs` 钉住。
+七项检查各自的实现在 `tools-site/`，跑法写在 `package.json` 的 scripts 里；这五种标记各自的规矩由 `tools-site/check-site.mjs` 逐条核对。
 
-`tools-site/` 里还有一条不属于检查的脚本：`make-third-party.mjs`（`npm run third-party`）重新生成 `public/third-party-licenses.txt`，那是站上发布物里那些第三方依赖的许可与版权行清单，依赖变动之后跑一次。
+`tools-site/` 里还有一条不属于检查的脚本：`make-third-party.mjs`（`npm run third-party`）重新生成 `public/third-party-licenses.txt`，那是网站发布物里那些第三方依赖的许可与版权行清单，依赖变动之后跑一次。
 
 ## 目录
 
@@ -87,9 +87,9 @@ public/               favicon、logo、`third-party-licenses.txt`、`inter-font-
 - 一个页面只讲一件事，超出的部分留给下一课或参考页。
 - 报错示例里那句 `// 报：……` 要抄编译器的原文，不要凭记忆写。
 - 正文不写开发进度，不引用内部文档的章节编号。
-- 不引用只在本地留存的材料（`docs/` 那九份技术文档、`internaldocs/`、决定编号）；克隆这个仓库的人打不开它们。这条由 `compiler/cmd/nf/public_docs_test.go` 扫两份 README、站上全部页面与另外两份 README 钉着。
+- 不引用只在本地留存的材料（`docs/` 那九份技术文档、`internaldocs/`、决定编号）；克隆这个仓库的人打不开它们。这条由 `compiler/cmd/nf/public_docs_test.go` 扫两份 README、网站上全部页面与另外两份 README 守住。
 - 会随每轮变动的统计数（测试函数条数、报错句子数、页面份数）不写进页面。
-- 仓库里说惯了的词不进正文（钉住、挂上、借看、只借不交、写代码的人、站上……），这一批钉在 `tools-site/rhythm.mjs` 的禁词表上；编译器原话写在行内代码里，不受这一张表管。
+- 仓库里说惯了的词不进正文（钉住、挂上、借看、只借不交、写代码的人、站上……），这一批记在 `tools-site/rhythm.mjs` 的禁词表里；编译器原话写在行内代码里，不受这一张表管。
 - 语言规则本身以 `reference/` 那几页为准，用词阈值与禁词表在 `tools-site/rhythm.mjs`。
 
 ## 许可

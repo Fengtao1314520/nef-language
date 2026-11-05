@@ -160,32 +160,34 @@ var jsonKinds = []string{"null", "boolean", "boolean", "number", "number", "stri
 // en: The names of the nef.json.* functions. User function names contain no dot, so they
 // cannot collide.
 const (
-	fnJSONNew     = "nef.json.new"      // (种类) → 一块节点，六格清零
-	fnJSONLit     = "nef.json.lit"      // (那一个字的正文, 种类, 拼错了算哪一类) → 节点或空
-	fnJSONHex     = "nef.json.hex4"     // (绝对位置) → 码点，对不上是 -1
-	fnJSONUnesc   = "nef.json.unesc"    // () → 码点，读不成是 -1
-	fnJSONText    = "nef.json.textof"   // () → 解过码的一条文本，读不成是空句柄
-	fnJSONString  = "nef.json.string"   // () → 文本节点
-	fnJSONNumber  = "nef.json.number"   // () → 数节点
-	fnJSONValue   = "nef.json.value"    // () → 一个值（递归下降的总入口）
-	fnJSONObject  = "nef.json.object"   // () → 对象节点
-	fnJSONArray   = "nef.json.array"    // () → 数组节点
-	fnJSONPair    = "nef.json.pair"     // (对象, 键, 值) → 收下这一对（重复键后覆盖前）
-	fnJSONParse   = "nef.json.parse"    // (文本) → 树根或空句柄
-	fnJSONFree    = "nef.json.free"     // (节点) → 从里到外拆干净
-	fnJSONRender  = "nef.json.render"   // (节点) → 那一段 JSON 文本
-	fnJSONQuote   = "nef.json.quote"    // (文本) → 带引号、把该转的转掉
-	fnJSONKind    = "nef.json.kind"     // (节点) → 六个词之一
-	fnJSONCount   = "nef.json.count"    // (节点) → 有几样
-	fnJSONKeys    = "nef.json.keys"     // (节点) → list<string>，键的原文顺序
-	fnJSONHas     = "nef.json.has"      // (节点, 键) → 真／假
-	fnJSONAt      = "nef.json.at"       // (节点, 键) → 子节点（读走那一格）
-	fnJSONItem    = "nef.json.item"     // (节点, 位置) → 子节点（读走那一格）
-	fnJSONToText  = "nef.json.to_text"  // (节点) → 那一段文本的拷贝，不是文本就空句柄
-	fnJSONToInt   = "nef.json.to_int"   // (节点, 默认) → 整数面的数，否则默认
-	fnJSONToFloat = "nef.json.to_float" // (节点, 默认位型) → 小数位型，否则默认
-	fnJSONToBool  = "nef.json.to_bool"  // (节点, 默认) → 真／假，否则默认
-	fnJSONExplain = "nef.json.explain"  // (文本) → 那一句人话，没毛病是空文本
+	fnJSONNew     = "nef.json.new"       // (种类) → 一块节点，六格清零
+	fnJSONLit     = "nef.json.lit"       // (那一个字的正文, 种类, 拼错了算哪一类) → 节点或空
+	fnJSONHex     = "nef.json.hex4"      // (绝对位置) → 码点，对不上是 -1
+	fnJSONUnesc   = "nef.json.unesc"     // () → 码点，读不成是 -1
+	fnJSONText    = "nef.json.textof"    // () → 解过码的一条文本，读不成是空句柄
+	fnJSONString  = "nef.json.string"    // () → 文本节点
+	fnJSONNumber  = "nef.json.number"    // () → 数节点
+	fnJSONValue   = "nef.json.value"     // () → 一个值（递归下降的总入口）
+	fnJSONObject  = "nef.json.object"    // () → 对象节点
+	fnJSONArray   = "nef.json.array"     // () → 数组节点
+	fnJSONPair    = "nef.json.pair"      // (对象, 键, 值) → 收下这一对（重复键后覆盖前）
+	fnJSONParse   = "nef.json.parse"     // (文本) → 树根或空句柄
+	fnJSONFree    = "nef.json.free"      // (节点) → 从里到外拆干净
+	fnJSONRender  = "nef.json.render"    // (节点) → 那一段 JSON 文本
+	fnJSONQuote   = "nef.json.quote"     // (文本) → 带引号、把该转的转掉
+	fnJSONKind    = "nef.json.kind"      // (节点) → 六个词之一
+	fnJSONCount   = "nef.json.count"     // (节点) → 有几样
+	fnJSONKeys    = "nef.json.keys"      // (节点) → list<string>，键的原文顺序
+	fnJSONHas     = "nef.json.has"       // (节点, 键) → 真／假
+	fnJSONAt      = "nef.json.at"        // (节点, 键) → 子节点（读了不拿走，那一个位置留着）
+	fnJSONItem    = "nef.json.item"      // (节点, 位置) → 子节点（读了不拿走）
+	fnJSONTake    = "nef.json.take"      // (节点, 键) → 子节点（从树上摘下来交给调用方）
+	fnJSONTakeI   = "nef.json.take_item" // (节点, 位置) → 子节点（同样摘下来交出去）
+	fnJSONToText  = "nef.json.to_text"   // (节点) → 那一段文本的拷贝，不是文本就空句柄
+	fnJSONToInt   = "nef.json.to_int"    // (节点, 默认) → 整数面的数，否则默认
+	fnJSONToFloat = "nef.json.to_float"  // (节点, 默认位型) → 小数位型，否则默认
+	fnJSONToBool  = "nef.json.to_bool"   // (节点, 默认) → 真／假，否则默认
+	fnJSONExplain = "nef.json.explain"   // (文本) → 那一句人话，没毛病是空文本
 )
 
 // jsonFns 是这一组要排的全部函数。第一次降到 json 的成员时一次排齐：互相回叫的那几支
@@ -198,7 +200,7 @@ var jsonFns = []string{
 	fnJSONNew, fnJSONLit, fnJSONHex, fnJSONUnesc, fnJSONText, fnJSONString,
 	fnJSONNumber, fnJSONValue, fnJSONObject, fnJSONArray, fnJSONPair, fnJSONParse,
 	fnJSONFree, fnJSONRender, fnJSONQuote, fnJSONKind, fnJSONCount, fnJSONKeys,
-	fnJSONHas, fnJSONAt, fnJSONItem, fnJSONToText, fnJSONToInt, fnJSONToFloat,
+	fnJSONHas, fnJSONAt, fnJSONItem, fnJSONTake, fnJSONTakeI, fnJSONToText, fnJSONToInt, fnJSONToFloat,
 	fnJSONToBool, fnJSONExplain,
 	fnJSONFreeKeys, fnJSONFreeVals, fnJSONRenderList, fnJSONHexChar,
 }
@@ -260,8 +262,10 @@ func ensureJSON(l *L) {
 	jsonBuildCount(l)
 	jsonBuildKeys(l)
 	jsonBuildHas(l)
-	jsonBuildAt(l)
-	jsonBuildItem(l)
+	jsonBuildAt(l, false)
+	jsonBuildItem(l, false)
+	jsonBuildAt(l, true)
+	jsonBuildItem(l, true)
 	jsonBuildToText(l)
 	jsonBuildToInt(l)
 	jsonBuildToFloat(l)
@@ -483,7 +487,7 @@ func jsonBuildLit(l *L) {
 	j.addOne(k)
 	j.jmp(top)
 	j.at(bad)
-	j.setPos(j.add(j.pos(), k)) // 停在比不下去的那一格上
+	j.setPos(j.add(j.pos(), k)) // 停在比不下去的那个位置上
 	j.errVal(why)
 	j.ret(j.zero())
 	j.at(done)
@@ -683,9 +687,9 @@ func jsonBuildUnesc(l *L) {
 	j.ret(cp)
 }
 
-// jsonMemberFn 是那十二条成员各对应哪一支发出来的函数。
+// jsonMemberFn 是那十四条成员各对应哪一支发出来的函数。
 //
-// en: jsonMemberFn maps each of the twelve members to the function that implements it.
+// en: jsonMemberFn maps each of the fourteen members to the function that implements it.
 var jsonMemberFn = map[string]string{
 	"json.parse":      fnJSONParse,
 	"json.explain":    fnJSONExplain,
@@ -695,6 +699,8 @@ var jsonMemberFn = map[string]string{
 	"json.has":        fnJSONHas,
 	"json.at":         fnJSONAt,
 	"json.item":       fnJSONItem,
+	"json.take":       fnJSONTake,
+	"json.take_item":  fnJSONTakeI,
 	"json.to_text":    fnJSONToText,
 	"json.to_integer": fnJSONToInt,
 	"json.to_number":  fnJSONToFloat,

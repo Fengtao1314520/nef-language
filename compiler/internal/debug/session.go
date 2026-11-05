@@ -23,7 +23,10 @@
 // side.
 package debug
 
-import "neflang.org/nf/internal/codegen"
+import (
+	"neflang.org/nf/internal/codegen"
+	"neflang.org/nf/internal/runtime"
+)
 
 // Action 是"这一条检查点命中之后干什么"。
 //
@@ -63,6 +66,13 @@ type Session struct {
 	ID    int // 当前停住的那一条检查点号
 	// reason 说这一次为什么停：编辑器要在断点上停与在单步上停分两种图标。
 	reason string
+	// throwOn 是编辑器那一头 breakOnThrow 开没开：开着才在没人接住的那一次抛出停。
+	// 问话在运行期那两条抛出的路上（@throw 与 @rethrow），回到这一个宿主，停不停在这儿定。
+	throwOn bool
+	// thrown 与 throwTop 说的是眼下停住的这一次是抛出：那一条陷阱不在检查点表里
+	// （表里只有语句边界的检查点），所以位置由宿主查出来交进来，Site() 报的就是那一个位置。
+	thrown   bool
+	throwTop codegen.Site
 	// pause 是"编辑器按了暂停"那块牌子。跑的时候每句也回宿主问一次，所以立起牌子之后
 	// 下一条检查点就会停；停过一次就放下，不然按继续会变成每句都停。
 	pause bool
@@ -147,7 +157,50 @@ func (s *Session) OnHit(id int, rbp uintptr, depth int) Action {
 func (s *Session) halt(id int, rbp uintptr, depth int, reason string, after stepMode) {
 	s.Last, s.RBP, s.Depth, s.ID, s.reason = id, rbp, depth, id, reason
 	s.step = after
+	s.thrown = false
 	s.pause = false // 停过一次就把牌子放下，不然按继续会变成每句都停
+}
+
+// ThrowID 是"抛出那一步"那一次问话的号，与运行期那一条 @throw 里摆的是同一个数
+// （定义在 `internal/runtime`，两边共用）。
+//
+// en: ThrowID is the number that asks "the throw happened here", the same one the runtime's
+// @throw puts in (it is defined in internal/runtime and both sides take it from there).
+const ThrowID = runtime.DbgThrowID
+
+// SetBreakOnThrow 记下编辑器那一头 breakOnThrow 开没开。这一号程序起的时候就定下来，
+// 中途不改：开关在 launch.json 里，改了要重启这一次调试。
+//
+// en: SetBreakOnThrow records whether the editor asked to stop on a throw. It is settled when
+// this run starts and never changes midway: the switch lives in launch.json, so changing it
+// means starting the debug session again.
+func (s *Session) SetBreakOnThrow(on bool) { s.throwOn = on }
+
+// BreakOnThrow 交出这一个开关现在的样子，测试与"这一次为什么没停"都要看它。
+//
+// en: BreakOnThrow hands back the switch as it now stands; both the tests and the question
+// "why did this run not stop" read it.
+func (s *Session) BreakOnThrow() bool { return s.throwOn }
+
+// OnThrow 是抛出那一步问的那一句：停下来还是走。top 是宿主从代码里那一个返回地址查出来的
+// 检查点（抛出所在的那一句），rbp 是那一帧的帧基，depth 是它这一头的层号。
+//
+// 停的条件只有一条：开关开着。运行期已经把"有人接住的那一次"跳过了（问都不问），
+// 所以走到这里的都是没人接住的抛出。
+//
+// en: OnThrow is the question the throw asks: stop or go. top is the checkpoint the host found
+// from that return address in the code (the throwing statement), rbp is that frame's base and
+// depth is its frame number. One condition stops it: the switch is on. The runtime has already
+// skipped the throws somebody catches - those never even ask - so everything reaching here is
+// caught by nobody.
+func (s *Session) OnThrow(top codegen.Site, rbp uintptr, depth int) Action {
+	if !s.throwOn {
+		return Run
+	}
+	s.halt(ThrowID, rbp, depth, "exception", stepNone)
+	s.thrown = true
+	s.throwTop = top
+	return Stop
 }
 
 // Pause 立一块牌子：下一条检查点就停，理由报 pause。跑的时候每句也回宿主问一次，
@@ -198,10 +251,16 @@ func (s *Session) Step(mode string) {
 // en: Stopped says whether the program is currently stopped in front of the user.
 func (s *Session) Stopped() bool { return s.ID != 0 }
 
-// Site 交出当前停住那一条的源码位置。
+// Site 交出当前停住那一条的源码位置。停在抛出那一步时表里没有那一条号（陷阱不是检查点），
+// 交的是宿主查出来存下的那一个。
 //
-// en: Site hands out the source position of the checkpoint that is stopped.
+// en: Site hands out the source position of the checkpoint that is stopped. When the stop
+// happened at a throw the table has no such number - the trap is not a checkpoint - so what
+// comes back is the one the host looked up and stored.
 func (s *Session) Site() (codegen.Site, bool) {
+	if s.thrown {
+		return s.throwTop, s.throwTop.Line != 0
+	}
 	for _, at := range s.sites {
 		if at.ID == s.ID {
 			return at, true

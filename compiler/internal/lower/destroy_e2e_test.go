@@ -279,13 +279,13 @@ for (i:int in 0 until 3000) {
 }
 console.print(n)
 `)
-	// 每圈 2 + 2 + 2 + 2 + 3 = 11
+	// 每轮 2 + 2 + 2 + 2 + 3 = 11
 	if want := "33000\n"; got != want || code != 0 {
 		t.Fatalf("混着装的文本跑三千圈不对：\n got %q 码 %d\nwant %q", got, code, want)
 	}
 }
 
-// TestDestroyStressRun 用端到端运行验证结果：一万圈，每圈造一批新对象——list、
+// TestDestroyStressRun 用端到端运行验证结果：一万圈，每轮造一批新对象——list、
 // 字典、class、struct、嵌套 list——块尾应把它们全部释放，而下一圈新分配的块必须
 // 是清零的（`new C()` 的字段默认值是零；未启用空闲链复用时新分配的内存本来就是清零的，
 // 启用复用之后由 @alloc 负责抹零）。任何一处提前释放、释放错、或者漏了清零，这里的数字都会漂移。

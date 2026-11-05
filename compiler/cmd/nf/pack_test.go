@@ -6,6 +6,12 @@
 package main
 
 import (
+	"archive/zip"
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
+	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -645,4 +651,162 @@ export method greet():string { return far() }
 			t.Errorf("原话或退出码不对（%d）：%s", code, out)
 		}
 	})
+}
+
+// 一份自己写的容器：清单（meta.Files）与条目内容（entries）各给各的，故意让它们对不上。
+// 不用 nf pack 打，是因为这一条要钉的正是"清单与内容不一致"那种容器。
+func writeContainer(t *testing.T, dir, name string, meta pkgfmt.Meta, entries map[string]string) string {
+	t.Helper()
+	full := filepath.Join(dir, name)
+	f, err := os.Create(full)
+	if err != nil {
+		t.Fatal(err)
+	}
+	zw := zip.NewWriter(f)
+	head, err := json.Marshal(meta)
+	if err != nil {
+		t.Fatal(err)
+	}
+	w, err := zw.CreateHeader(&zip.FileHeader{Name: "nf.json", Method: zip.Store})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := w.Write(append(head, '\n')); err != nil {
+		t.Fatal(err)
+	}
+	var rels []string
+	for rel := range entries {
+		rels = append(rels, rel)
+	}
+	sort.Strings(rels)
+	for _, rel := range rels {
+		w, err := zw.CreateHeader(&zip.FileHeader{Name: rel, Method: zip.Store})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := io.WriteString(w, entries[rel]); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := zw.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if err := f.Close(); err != nil {
+		t.Fatal(err)
+	}
+	return full
+}
+
+// 校验值这一条要钉住四种情况：对不上的是哪一条、清单里没有的、清单上有而容器里没有的、
+// 以及整份容器根本没有清单。
+func TestPackChecksumListIsCheckedOnLoad(t *testing.T) {
+	const body = "export method greet():string { return \"hi\" }\n"
+	good := pkgfmt.Meta{Name: "greet", Version: "1.0"}
+	good.Files = []pkgfmt.Entry{noteOfFor("greet.nf", body)}
+
+	t.Run("内容被改过一个字节", func(t *testing.T) {
+		root := t.TempDir()
+		meta := good
+		meta.Files = append([]pkgfmt.Entry(nil), good.Files...)
+		container := writeContainer(t, root, "greet.nfpack", meta, map[string]string{
+			"greet.nf": body,
+		})
+		if _, _, err := pkgfmt.Open(container); err != nil {
+			t.Fatalf("对得上的容器不该报错：%v", err)
+		}
+		// 把内容改成同长度的另一串：清单上的字节数还对得上，校验值必须把这一条抓出来
+		tampered := strings.Replace(body, "hi", "yo", 1)
+		bad := writeContainer(t, root, "bad.nfpack", meta, map[string]string{"greet.nf": tampered})
+		_, _, err := pkgfmt.Open(bad)
+		if err == nil || !strings.Contains(err.Error(), "greet.nf 这一条与清单对不上：校验值要") {
+			t.Fatalf("没抓出被改过的那一条：%v", err)
+		}
+		if !strings.Contains(err.Error(), "校验值要 "+good.Files[0].SHA256+"、得到 ") {
+			t.Errorf("报错里没给出期望与实际那两串：%v", err)
+		}
+	})
+
+	t.Run("字节数对不上", func(t *testing.T) {
+		root := t.TempDir()
+		meta := good
+		meta.Files = []pkgfmt.Entry{{Name: "greet.nf", Bytes: 3, SHA256: good.Files[0].SHA256}}
+		container := writeContainer(t, root, "size.nfpack", meta, map[string]string{"greet.nf": body})
+		if _, _, err := pkgfmt.Open(container); err == nil ||
+			!strings.Contains(err.Error(), fmt.Sprintf("greet.nf 这一条与清单对不上：字节数要 3、得到 %d", len(body))) {
+			t.Fatalf("字节数那一处没报出来：%v", err)
+		}
+	})
+
+	t.Run("容器里多出一条没记的", func(t *testing.T) {
+		root := t.TempDir()
+		container := writeContainer(t, root, "extra.nfpack", good, map[string]string{
+			"greet.nf": body,
+			"other.nf": "export method other():int { return 1 }\n",
+		})
+		if _, _, err := pkgfmt.Open(container); err == nil ||
+			!strings.Contains(err.Error(), "other.nf 这一条没有记在清单上") {
+			t.Fatalf("多出来那一条没报出来：%v", err)
+		}
+	})
+
+	t.Run("清单上记的那一条不在容器里", func(t *testing.T) {
+		root := t.TempDir()
+		meta := good
+		meta.Files = append(meta.Files, pkgfmt.Entry{Name: "gone.nf", Bytes: 1, SHA256: strings.Repeat("0", 64)})
+		container := writeContainer(t, root, "missing.nfpack", meta, map[string]string{"greet.nf": body})
+		if _, _, err := pkgfmt.Open(container); err == nil ||
+			!strings.Contains(err.Error(), "清单上记的 gone.nf 在容器里没有这一条") {
+			t.Fatalf("少了那一条没报出来：%v", err)
+		}
+	})
+
+	t.Run("打包之后改过容器里的一个字节", func(t *testing.T) {
+		exe := nfExe(t)
+		root := t.TempDir()
+		write(t, root, "nf.json", `{"name": "greet", "version": "1.0", "deps": {}}`)
+		write(t, root, "greet.nf", body)
+		if code, out := nfRunCodeOut(t, exe, "pack", filepath.Join(root, "greet.nf")); code != 0 {
+			t.Fatalf("打包该成：%s", out)
+		}
+		container := filepath.Join(root, "greet.nfpack")
+		raw, err := os.ReadFile(container)
+		if err != nil {
+			t.Fatal(err)
+		}
+		// 把源文件那处 hi 换成 yo：长度一样，清单上的字节数还对得上，但 zip 自己的 CRC 先拦住
+		placed := false
+		for i := 0; i+1 < len(raw); i++ {
+			if raw[i] == 'h' && raw[i+1] == 'i' {
+				raw[i], raw[i+1] = 'y', 'o'
+				placed = true
+				break
+			}
+		}
+		if !placed {
+			t.Fatal("容器里找不到那两处 hi，改法失效")
+		}
+		if err := os.WriteFile(container, raw, 0o644); err != nil {
+			t.Fatal(err)
+		}
+		if _, _, err := pkgfmt.Open(container); err == nil ||
+			!strings.Contains(err.Error(), "greet.nf 这一条与打进去的字节对不上") {
+			t.Fatalf("改过一个字节没报出是哪一条：%v", err)
+		}
+	})
+
+	t.Run("整份容器没有清单", func(t *testing.T) {
+		root := t.TempDir()
+		nosum := pkgfmt.Meta{Name: "greet", Version: "1.0"}
+		container := writeContainer(t, root, "nosum.nfpack", nosum, map[string]string{"greet.nf": body})
+		if _, _, err := pkgfmt.Open(container); err == nil ||
+			!strings.Contains(err.Error(), "这份容器没有校验值清单") {
+			t.Fatalf("没有校验值那一种没报出来：%v", err)
+		}
+	})
+}
+
+// noteOfFor 算出容器里那一条应该记的校验值（与 pkgfmt 内部同一个算法）。
+func noteOfFor(rel, text string) pkgfmt.Entry {
+	sum := sha256.Sum256([]byte(text))
+	return pkgfmt.Entry{Name: rel, Bytes: len(text), SHA256: hex.EncodeToString(sum[:])}
 }

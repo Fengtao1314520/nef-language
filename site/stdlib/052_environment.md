@@ -30,7 +30,7 @@ environment.set("DEMO", "1")
 environment.unset("DEMO")
 try {
     console.print(environment.get("DEMO"))
-} catch (code, msg) {
+} catch (code, msg, at) {
     console.print(code)      // 10061
 }
 environment.unset("DEMO")
@@ -43,7 +43,7 @@ console.print("还在跑")          // 还在跑
 method or_default(key:string, fallback:string):string {
     try {
         return environment.get(key)
-    } catch (code, msg) {
+    } catch (code, msg, at) {
         return fallback
     }
 }

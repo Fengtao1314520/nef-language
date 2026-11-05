@@ -66,7 +66,7 @@ const (
 //
 // 负数在造块之前就拒绝：`@alloc` 收到的是一个回绕后的大数，会一路走到 bump 分配那条路上，
 // 报的是"要不到内存"（10091 号）——那一句说的是这台机器给不出这么多，不是符号写错了。
-// 号取容器那一段的兜底 10030 号：下标、slice 那三条都在那一段里，这一条不必另立一段。
+// 号取容器那一段的默认错误码 10030 号：下标、slice 那三条都在那一段里，这一条不必另立一段。
 //
 // en: @bytes_new (rcx = byte count): returns rax = a new `bytes` handle, with the run zeroed
 // first. A negative count is rejected before allocating: @alloc would

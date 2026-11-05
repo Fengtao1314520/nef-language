@@ -25,7 +25,7 @@
 //   - Zh 与站上 `site/stdlib/` 那十四页表格里的"说明"同一句，两边不一致由测试当场指出；
 //   - En 是它的对应说法，不是逐字硬译，术语与站上英文记号一致；
 //   - Eg 是能编译过去的 nf 写法，逐条交给 `nf check`（`docs_test.go` 的 `TestEveryStdExampleCompiles`）。
-//     例子只要求编译过，不要求真跑：网络、进程、文件那几条真跑要搭沙盒。
+//     例子只要求编译过，不要求实际运行：网络、进程、文件那几条实际运行要搭沙盒。
 //
 // en: docs.go holds the three things a built-in action shows in the editor: one Chinese
 // sentence, one English sentence, one usage example. Why this table exists: actions such as
@@ -455,9 +455,14 @@ var stdDocs = map[string]StdDoc{
 
 	// —— json：解析 JSON
 	"json.at": {
-		Zh: "取出对象里该键对应的值。取出即读走：取过一次之后，那个位置就是 null。",
-		En: "Takes the value under a key in an object. It is a read-out: after one take, that position holds null.",
-		Eg: `let tree: Json = json.parse("{\"a\": 1}")` + "\n" + `let one: Json = json.at(tree, "a")`,
+		Zh: "读对象里该键对应的值。读了不拿走：那一个位置之后还留着，同一把键可以读第二遍。",
+		En: "Reads the value under a key in an object without taking it away: the position keeps its value and the same key can be read again.",
+		Eg: `let tree: Json = json.parse("{\"a\": 1}")` + "\n" + `console.print(json.kind(json.at(tree, "a")))`,
+	},
+	"json.take": {
+		Zh: "把对象里该键对应的值从树上摘下来交给调用方：那一个位置之后是 null，键还留着。要接给一个名字就写这一条。",
+		En: "Takes the value under a key off the tree and hands it to the caller: that position reads null afterwards while the key stays. Use this one to bind the value to a name.",
+		Eg: `let tree: Json = json.parse("{\"a\": 1}")` + "\n" + `let one: Json = json.take(tree, "a")`,
 	},
 	"json.count": {
 		Zh: "数组有多少个元素、对象有多少个成员；其他种类返回 0。",
@@ -475,9 +480,14 @@ var stdDocs = map[string]StdDoc{
 		Eg: `let tree: Json = json.parse("{\"a\": 1}")` + "\n" + `let seen: boolean = json.has(tree, "a")`,
 	},
 	"json.item": {
-		Zh: "数组里指定位置的元素。同样是读走。位置为负、或者不小于个数时，返回 null。",
-		En: "Takes the value at a position in an array, also a read-out. A negative index, or one at or past the count, gives null.",
-		Eg: `let tree: Json = json.parse("[1, 2]")` + "\n" + `let second: Json = json.item(tree, 1)`,
+		Zh: "读数组里指定位置的元素。读了不拿走：那一个位置之后还留着。位置为负、或者不小于个数时，返回 null。",
+		En: "Reads the element at a position in an array without taking it away: the position keeps its value. A negative index, or one at or past the count, gives null.",
+		Eg: `let tree: Json = json.parse("[1, 2]")` + "\n" + `console.print(json.kind(json.item(tree, 1)))`,
+	},
+	"json.take_item": {
+		Zh: "把数组里那个位置的元素从树上摘下来交给调用方：那一个位置之后是 null，个数不变。要接给一个名字就写这一条。",
+		En: "Takes the element at a position off the tree and hands it to the caller: that position reads null afterwards while the count stays. Use this one to bind the value to a name.",
+		Eg: `let tree: Json = json.parse("[1, 2]")` + "\n" + `let second: Json = json.take_item(tree, 1)`,
 	},
 	"json.keys": {
 		Zh: "返回对象的全部键，顺序依照原文。不是对象时返回空列表。返回的是拷贝，树里的键还在原来的位置。",
@@ -850,7 +860,7 @@ func (d StdDoc) raw() string {
 	return strings.Join(parts, "\n\n")
 }
 
-// StdDocRaw 交回一条内建动作的说明原文，按落点名找（`console.print`、`list.add`）。
+// StdDocRaw 返回一条内建动作的说明原文，按落点名找（`console.print`、`list.add`）。
 // 认不出返回空串——屏幕上就只留签名那一行，不凑话。
 //
 // en: StdDocRaw returns the documentation text of one built-in action, looked up by dotted name
@@ -888,7 +898,7 @@ var groupDocs = map[string]groupDoc{
 	"http":               {"HTTP 客户端，走系统的 winhttp。", "The HTTP client, on the system's winhttp."},
 }
 
-// GroupDoc 交回一个标准库组自己那两句话。
+// GroupDoc 返回一个标准库组自己那两句话。
 //
 // en: GroupDoc returns the two sentences about one standard-library group.
 func GroupDoc(group string) (zh, en string) {
@@ -921,7 +931,7 @@ func StdExample(dotName string) string {
 
 // StdDocFor 按"那一样东西 + 那一条成员"找说明原文。三种落点名的写法都试一遍：
 // 形状身上的（list 的 add、string 的 slice）、组名身上的（console 的 print）、
-// 光一个名字的（length）。自己写的类与包里的东西不在这张表里，交回空串。
+// 光一个名字的（length）。自己写的类与包里的东西不在这张表里，返回空串。
 //
 // en: StdDocFor finds the documentation text by "that thing + that member", trying all three
 // dotted-name forms: on a shape (list's add, string's slice), on a group name (console's

@@ -213,6 +213,29 @@ type NamedType struct {
 func (t *NamedType) typeNode()  {}
 func (t *NamedType) Where() Pos { return t.Pos }
 
+// FuncType 是 `fn(参数类型, …):返回类型`：函数值的类型。参数前可以写 `ref`，
+// 与声明那头的 `ref` 同一条含义（只读借用），所以一份函数类型要把"哪一个参数是借的"记下来。
+//
+// en: FuncType is `fn(param types…):return type` - the type of a function value. A parameter may
+// carry `ref`, meaning the same read-only borrow it means on a declaration, so a function type
+// records which parameters are borrowed.
+type FuncType struct {
+	Pos    Pos
+	Params []FuncParam
+	Ret    Type
+}
+
+// FuncParam 是函数类型里的一个参数：类型加上它是不是借用。
+//
+// en: FuncParam is one parameter of a function type: its type and whether it is borrowed.
+type FuncParam struct {
+	Typ Type
+	Ref bool
+}
+
+func (t *FuncType) typeNode()  {}
+func (t *FuncType) Where() Pos { return t.Pos }
+
 // Stmt 是一条语句。StmtPtr 只是让函数体可以用 []*StmtPtr 装指针，省得 AST 里到处写指针。
 //
 // en: Stmt is one statement. StmtPtr exists only so a function body can be a []*StmtPtr, which
@@ -334,16 +357,35 @@ type Return struct {
 func (s *Return) stmtNode()  {}
 func (s *Return) Where() Pos { return s.Pos }
 
-// Try 是 `try { } catch (code, msg) { }`，没有 finally。
+// Try 是 `try { } catch (code, msg, at, trace) { } finally { }`。接住那一段与收尾那一段各可以省掉，
+// 但两句都不写不是合法的 try。前三个名字都要写，第四个可以省——省了就是不要那一条调用链。
 //
-// en: Try is `try { } catch (code, msg) { }`, with no finally.
+// en: Try is `try { } catch (code, msg, at, trace) { } finally { }`. Either the catch or the
+// finally may be left out, but writing neither is not a legal try. The first three catch names
+// are required and the fourth may be omitted - omitting it means the call chain is not wanted.
 type Try struct {
 	Pos      Pos
 	Body     []Stmt
 	HasCatch bool
 	CodeName string
 	MsgName  string
-	Catch    []Stmt
+	// AtName 是接住那一步第三个名字：抛出那一句在哪个文件的第几行第几列，是一段文本。
+	AtName string
+	// TraceName 是第四个名字，可以空着不写：写了就是整条调用链的一份文本，
+	// 一行一层，与屏幕上那一段同一份内容。
+	//
+	// en: TraceName is the fourth catch name and may be empty: when written it is the whole call
+	// chain as one text, one line per frame, the same content the screen shows.
+	TraceName string
+	Catch     []Stmt
+	// HasFinally 与 Finally 是收尾那一段：四条出口（走完、`return`、抛出、跳出循环）
+	// 每一条都要先跑完它才把出口交出去。那四个名字在这一段里读不到。
+	//
+	// en: HasFinally and Finally are the cleanup stretch: each of the four exits (falling through,
+	// return, a throw, leaving a loop) runs it before handing the exit over. The four catch names
+	// are not readable here.
+	HasFinally bool
+	Finally    []Stmt
 }
 
 func (s *Try) stmtNode()  {}

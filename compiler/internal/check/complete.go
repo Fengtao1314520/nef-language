@@ -53,8 +53,8 @@ type Member struct {
 	Detail string // 补全列表右侧与悬停显示的一行，例：`trim(): string`、`count: int`
 	// Field 为真表示这一条是字段，不是函数或方法；类型名（要 new 才造得出值）也算在这一档里。
 	Field bool
-	// Doc 是"这一条的说明写在哪个节点上面"——包交出来的数走这一个（函数与方法那一半由
-	// `Facts.Funcs` 交回同一个节点）。字段、枚举成员与内建那一些没有这个位置，留空。
+	// Doc 是"这一条的说明写在哪个节点上面"——包导出的数走这一个（函数与方法那一半由
+	// `Facts.Funcs` 返回同一个节点）。字段、枚举成员与内建那一些没有这个位置，留空。
 	Doc any
 }
 
@@ -181,7 +181,7 @@ func PackageMembers(root string, f *Facts) []Member {
 		}
 		out = append(out, Member{Name: name, Detail: Declaration(name, d), Field: true})
 	}
-	// 包交出来的数：写法照"名字: 类型"那一行，例如 `LIMIT: int`。
+	// 包导出的数：写法照"名字: 类型"那一行，例如 `LIMIT: int`。
 	// `export shared` 那一半在包外读不到，因此不列出，避免补全之后仍然报错。
 	for key, tv := range f.TopValues {
 		if !strings.HasPrefix(key, prefix) || !tv.Export || tv.Shared {
@@ -289,6 +289,39 @@ func StdSignature(dotName string) string {
 	return ""
 }
 
+// StdParameters 返回一条内建动作每一个参数那一段文字，与 StdSignature 走同一张表、同一条写法。
+// 编辑器做参数提示时按这一张表指出光标在第几个参数上；认不出返回空。
+//
+// en: StdParameters returns the label of each parameter of a built-in action, reading the same
+// table and the same formatting as StdSignature. Parameter hints use it to say which parameter the
+// cursor sits on; an unknown name gives nil.
+func StdParameters(dotName string) []string {
+	if sg, ok := stdFuncs[dotName]; ok {
+		return ParamLabels(dotName, sg.params, sg.vararg)
+	}
+	i := strings.IndexByte(dotName, '.')
+	if i < 0 {
+		return nil
+	}
+	group, name := dotName[:i], dotName[i+1:]
+	k, ok := kindOfGroup(group)
+	if !ok {
+		return nil
+	}
+	t := Type{Kind: k, Name: group}
+	switch k {
+	case List, Set:
+		t.Args = []Type{placeholderType(group, 0)}
+	case Dict:
+		t.Args = []Type{placeholderType(group, 0), placeholderType(group, 1)}
+	}
+	mm := stdMember(t, name)
+	if mm.typ.Kind != FuncT {
+		return nil
+	}
+	return ParamLabels(dotName, mm.sig.Params, false)
+}
+
 // kindOfGroup 把形状名折回 Kind：落点名是"形状.名字"，
 // 悬停按它找到那一条成员，不需要逐个试八种形状（`add` 在 list 与 dict 上是两条不同的动作）。
 //
@@ -323,6 +356,24 @@ func MemberSignature(recv Type, name string) string {
 	return SigText(key, key, mm.sig.Params, mm.sig.Ret, false)
 }
 
+// MemberParameters 返回"这一只具体容器上那一条成员"的每一个参数那一段文字，
+// 与 MemberSignature 走同一条查找、同一张写法表。
+//
+// en: MemberParameters returns the label of each parameter of that member on a particular
+// container, using the same lookup and the same formatting table as MemberSignature.
+func MemberParameters(recv Type, name string) []string {
+	group := containerGroup(recv.Kind)
+	if group == "" {
+		return nil
+	}
+	mm := stdMember(recv, name)
+	if mm.typ.Kind != FuncT {
+		return nil
+	}
+	key := group + "." + name
+	return ParamLabels(key, mm.sig.Params, false)
+}
+
 // Signature 返回一个函数或方法的一行说明；键是规范名（方法是"类型名.方法名"，包里的带包根）。
 // 认不出返回空串，编辑器随即不显示。
 //
@@ -343,6 +394,27 @@ func (f *Facts) Signature(key string) string {
 		return SigText(head, head, sg.Params, sg.Ret, false)
 	}
 	return SigText(head, head, sg.Params, sg.Ret, false)
+}
+
+// SignatureParams 返回那一个函数或方法的每一个参数那一段文字，与 Signature 同一个头名、
+// 同一张写法表。编辑器做参数提示时要的是"第几个参数"，所以这里按位置给出每一条。
+//
+// en: SignatureParams returns the label of each parameter of that function or method, with the same
+// head and the same formatting table as Signature. Parameter hints need "which parameter", so the
+// labels come back in order.
+func (f *Facts) SignatureParams(key string) []string {
+	if f == nil {
+		return nil
+	}
+	sg, ok := f.Sigs[key]
+	if !ok {
+		return nil
+	}
+	head := SealedName(key)
+	if sg.Method {
+		head = bareName(sg.Owner) + "." + head
+	}
+	return ParamLabels(head, sg.Params, false)
 }
 
 // SealedName 返回一个规范名最后一截用于展示的名字：包里的成员带着包根

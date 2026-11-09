@@ -227,6 +227,11 @@ func TestFnValueRules(t *testing.T) {
 	expectErr(t, "method shout(s:string):int {\n    return length(s)\n}\nlet f:fn(string):int = shout\n", "把 shout 当值交出去不行：它的第 1 个参数是 string，这样的参数要么不参与归还，要么写成 ref")
 	// 返回的是要归还的那一类
 	expectErr(t, "method make(v:int):string {\n    return \"甲\"\n}\nlet f:fn(int):string = make\n", "把 make 当值交出去不行：它返回 string，这一版只接不参与归还的返回类型")
+	// 带类型参数的那一份声明按值交出去：那一只实例要填什么，值这一处没有凭据（类型参数只从实参推）。
+	// 这一处必须在算签名之前拒：不拒的话拿没填的签名往下走，返回那一句里会出现"错误"那一个
+	// 给编译器自己看的词（实测过：`twice 当值交出去不行：它返回 错误`）。借的是线程那一头同一句现成的话。
+	expectErr(t, "method twice<Element>(v:Element):Element {\n    return v\n}\nlet f:fn(int):int = twice\n", "twice 是泛型，先填尖括号里的类型再交出去")
+	expectErr(t, "method twice<Element>(v:Element):Element {\n    return v\n}\nmethod use(job:fn(int):int):int {\n    return job(3)\n}\nconsole.print(use(twice))\n", "twice 是泛型，先填尖括号里的类型再交出去")
 	// 容器、盒子、打印这三处
 	expectErr(t, two+"let box:list<fn(int):int> = []\n", "fn(int):int 进不了 list：函数值只待在名字、实参、返回值与字段里")
 	expectErr(t, two+"let f:fn(int):int = twice\nlet o:object = f as object\n", "fn(int):int 装不进盒子：盒子里那一个位置要靠类型字认回来，函数值没有")

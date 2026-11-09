@@ -134,6 +134,17 @@ func buildDestroy(l *L) {
 		{ir.KindProc, func() {
 			b.emit(&ir.Call{Fn: "@proc_close", Args: []ir.Val{v}, FT: []ir.T{ir.TInt}})
 		}},
+		// 线程句柄：收尾是等一次并把那条线程的运行期状态块归还（@thread_join，0＝已经等过
+		// 或本来就没起成，那一种它自己识别后不做处理）。等回来的那一个值在这一条路上没人接，
+		// 所以按尖括号里那一层的形状归还：文本直接 @free，其余沿形状表向内（cellVal 那一条）。
+		{ir.KindThread, func() {
+			r := b.t()
+			b.emit(&ir.Call{D: r, HasD: true, Fn: "@thread_join", Args: []ir.Val{v}, FT: []ir.T{ir.TInt}})
+			none := b.fresh()
+			b.jz(r, none) // 那条线程还没跑出结果（或者这个位置早就收过了）
+			b.cellVal(r, child(pdElem))
+			b.at(none)
+		}},
 		// 文本**不进这一张表**：从容器位置、字段、`d["k"]` 里读出来的串，那个位置仍是持有者
 		// （读走不算交出），而句柄同时躺在别人手里——顺着形状表往里拆会把别人手里那一块拆掉。
 		// 所以串只在"直接持有者"那一侧归还：降级那边给登记为持有者的 string

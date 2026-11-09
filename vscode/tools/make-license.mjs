@@ -1,7 +1,7 @@
 // make-license.mjs 在打包前把仓库根的 LICENSE、LICENSE-EXCEPTION 与 NOTICE 拷进扩展，打完再删掉。
 //
 // 带上它们的理由：`vsce package` 找不到 LICENSE 会警告，扩展详情页的许可栏也会空着。
-// NOTICE 是另一条理由：vsix 里嵌着一份 `nf.exe`，那是 Go 静态链接出来的产物，
+// NOTICE 是另一条理由：扩展带着 `vscode-languageclient` 这一份第三方依赖，
 // 根 NOTICE 里的第三方署名要随这份分发一起给出去。
 // 用完就删的理由：许可全文的唯一出处是仓库根那一份；扩展目录里留副本，
 // 时间一久就难以辨别哪一份是最新的。

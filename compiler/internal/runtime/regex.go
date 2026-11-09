@@ -29,9 +29,9 @@
 //   - **位置是字节偏移，每一步是一个码点**（按首字节解出它占几字节）。先把文本拆成码点
 //     数组再匹配，等于多要两份与文本同长的表，而匹配本身只需要"这个位置是哪个码点、占几字节"。
 //     每个记号还是吃一个码点，`.` 还是一个字符（含换行），切出来的区间必然落在码点边界上。
-//   - **程序与线程表放静态槽位，只增不减**：一次调用先按式子的码点数算出上界，装不下就整块
-//     换新（换新块时不必搬内容，这一刻还没有内容）。产物里没有第二个线程会同时操作这几块，
-//     用户代码里也没有任何东西能在匹配途中回调回来，所以这一套静态复用是安全的。
+//   - **程序与线程表放本线程状态块的那几格，只增不减**：一次调用先按式子的码点数算出上界，装不下就整块
+//     换新（换新块时不必搬内容，这一刻还没有内容）。产物里没有第二条线程会同时操作这几块，
+//     用户代码里也没有任何东西能在匹配途中回调回来，所以这一套复用是安全的。
 //
 // 一条指令占 56 字节、七个槽位：
 //
@@ -123,20 +123,20 @@ const (
 	fSz    = 56
 )
 
-// regexData 定义六个静态槽位与 10071 号要用的报错文本。
+// regexData 摆 10071 号要用的报错文本。那六个跨一次调用留值的位置——指令块、它装得下几条
+// 指令、这次编出来的指令占几字节、入口那条指令的地址、匹配时的栈、编译时的帧栈——
+// 现在在每一条线程自己的状态块里（stateCells 那张清单）。
 //
-// 静态槽位初值全 0：rxProgCap＝0 意味着首次调用一定要换新块；rxSeen 那些槽位靠每次匹配开头自己清。
+// 起点全 0：rxProgCap＝0 意味着首次调用一定要换新块；那几格靠每次匹配开头自己清。
 //
-// en: regexData is the six static slots and the sentences code 10071 needs. Static slots start
-// all zero: rxProgCap = 0 forces the very first call to take a new block, and the rxSeen slots
-// are cleared at the start of each match.
+// en: regexData lays out the sentences code 10071 needs. The six cells that hold a value across
+// a call - the instruction block, how many instructions it holds, how many bytes this compile
+// produced, the entry instruction's address, the match stack and the compile frame stack - now
+// live in each thread's state block (see stateCells).
+//
+// They all start at zero: rxProgCap = 0 forces the very first call to take a new block, and the
+// per-match slots are cleared at the start of each match.
 func regexData(put func(name string, bs []byte)) {
-	put("rxProg", make([]byte, 8))    // 指令块
-	put("rxProgCap", make([]byte, 8)) // 装得下几条指令
-	put("rxLen", make([]byte, 8))     // 这次编出来的那些指令占几字节
-	put("rxEntry", make([]byte, 8))   // 入口那条指令的地址
-	put("rxScr", make([]byte, 8))     // 线程表：dfs 栈＋两条轮换的表
-	put("rxPar", make([]byte, 8))     // 编译时的帧栈
 	put("sRxEmpty", strObject("regular_expression 的式子是空的"))
 	put("sRxBrace", strObject("regular_expression 这一版不支持 {m,n}：量词只有 *、+、?"))
 	put("sRxGroup", strObject("regular_expression 这一版不支持 (?...)，也不支持空的 ()：命名组、标志、先行断言都没有"))
@@ -191,7 +191,7 @@ func rxEnsure(b *rt) {
 	b.prologue()
 	b.put(eNeed, x64.RCX)
 	same := b.label()
-	b.loadRIP(x64.RAX, "rxProgCap")
+	b.loadCell(x64.RAX, "rxProgCap")
 	b.get(x64.RCX, eNeed)
 	a.Cmp(x64.RAX, x64.RCX)
 	a.Jcc(x64.AE, same)
@@ -202,7 +202,7 @@ func rxEnsure(b *rt) {
 	a.Imul(x64.RCX, x64.RDX)
 	a.MovImm(x64.RDX, tagRx)
 	b.call("@alloc")
-	b.storeRIP(x64.RAX, "rxProg")
+	b.storeCell(x64.RAX, "rxProg")
 
 	// 线程表：dfs 栈（2c＋4）＋cur（c＋2）＋next（c＋2）＝3c＋8 个槽位，按 4c＋12 要——
 	// dfs 那一侧留一倍余量：同一个槽可能被压两次（进过的判断在取出来的那一刻才做，
@@ -215,7 +215,7 @@ func rxEnsure(b *rt) {
 	a.Imul(x64.RCX, x64.RDX)
 	a.MovImm(x64.RDX, tagRx)
 	b.call("@alloc")
-	b.storeRIP(x64.RAX, "rxScr")
+	b.storeCell(x64.RAX, "rxScr")
 
 	// 编译时的帧栈：每层 56 字节，层数上界取 need／4——一个 `(` 至少占一个码点，
 	// 而 need＝6m＋16（m 是式子的码点数），这个上界比 m＋2 还宽
@@ -226,15 +226,15 @@ func rxEnsure(b *rt) {
 	a.Imul(x64.RCX, x64.RDX)
 	a.MovImm(x64.RDX, tagRx)
 	b.call("@alloc")
-	b.storeRIP(x64.RAX, "rxPar")
+	b.storeCell(x64.RAX, "rxPar")
 
 	b.get(x64.RCX, eNeed)
-	b.storeRIP(x64.RCX, "rxProgCap")
+	b.storeCell(x64.RCX, "rxProgCap")
 	a.Mark(same)
 	b.epilogue()
 }
 
-// @rx_compile(rcx=式子文本)：编进静态那块指令块，完成后设置 rxEntry／rxLen。
+// @rx_compile(rcx=式子文本)：编进这一条线程那一块指令块，完成后设置 rxEntry／rxLen。
 // 式子非法当场抛 10071 号，措辞见 regexData。
 //
 // 编译**不走递归**：一层嵌套一帧，帧放在 rxPar 的栈区里，所以不占 CPU 栈，也不存在
@@ -428,16 +428,16 @@ func rxCompile(b *rt) {
 	a.AddImm(x64.RAX, 16)
 	a.Mov(x64.RCX, x64.RAX)
 	b.call("@rx_ensure")
-	b.loadRIP(x64.RAX, "rxProg")
+	b.loadCell(x64.RAX, "rxProg")
 	b.put(kCur, x64.RAX)
 	b.put(kTmp1, x64.RAX)
-	b.loadRIP(x64.RAX, "rxProgCap")
+	b.loadCell(x64.RAX, "rxProgCap")
 	a.MovImm(x64.RCX, rxISz)
 	a.Imul(x64.RAX, x64.RCX)
 	b.get(x64.RCX, kTmp1)
 	a.Add(x64.RAX, x64.RCX)
 	b.put(kEnd, x64.RAX)
-	b.loadRIP(x64.RAX, "rxPar")
+	b.loadCell(x64.RAX, "rxPar")
 	b.put(kFrame, x64.RAX)
 	kon(kDepth, 0)
 	kon(kI, 0)
@@ -821,11 +821,11 @@ func rxCompile(b *rt) {
 	b.get(x64.RDX, kTmp2)
 	a.MovStore(x64.RDX, 0, x64.RAX)
 	b.get(x64.RAX, kTmp1)
-	b.storeRIP(x64.RAX, "rxEntry")
+	b.storeCell(x64.RAX, "rxEntry")
 	b.get(x64.RAX, kCur)
-	b.loadRIP(x64.RCX, "rxProg")
+	b.loadCell(x64.RCX, "rxProg")
 	a.Sub(x64.RAX, x64.RCX)
-	b.storeRIP(x64.RAX, "rxLen")
+	b.storeCell(x64.RAX, "rxLen")
 	b.epilogue()
 
 	// ---- last 的两个槽：叶子刚发出、组刚收完，都从这里写入 ----
@@ -948,7 +948,7 @@ func rxCompile(b *rt) {
 // @rx_at(rcx=从第几字节起, rdx=文本)：从这个位置起试一次，返回 rax=是否匹配、
 // rdx=结束在第几字节（空匹配也算数：那时 rdx＝rcx）。
 //
-// 式子从静态槽位 rxEntry 读取，所以必须在 @rx_compile 之后 call。
+// 式子从 rxEntry 那个位置读取，所以必须在 @rx_compile 之后 call。
 //
 // 线程表每前移一个位置重排一次：cur／next 两条表轮换，dfs 栈走"不吃字符的边"（split、jmp、
 // 锚）——同一个槽进入过就不再进入（指令里 +48 那个位置），每次匹配开头统一清一遍（块不大，
@@ -1056,9 +1056,9 @@ func rxAt(b *rt) {
 	a.Call(lClear)
 
 	// 线程表三块：dfs(2c＋4)｜cur(c＋2)｜next(c＋2)
-	b.loadRIP(x64.RAX, "rxScr")
+	b.loadCell(x64.RAX, "rxScr")
 	b.put(aDfs, x64.RAX)
-	b.loadRIP(x64.RDX, "rxProgCap")
+	b.loadCell(x64.RDX, "rxProgCap")
 	a.MovImm(x64.R8, 2)
 	a.Imul(x64.RDX, x64.R8)
 	a.AddImm(x64.RDX, 4)
@@ -1067,7 +1067,7 @@ func rxAt(b *rt) {
 	b.get(x64.RAX, aDfs)
 	a.Add(x64.RAX, x64.RDX)
 	b.put(aCur, x64.RAX)
-	b.loadRIP(x64.RDX, "rxProgCap")
+	b.loadCell(x64.RDX, "rxProgCap")
 	a.AddImm(x64.RDX, 2)
 	a.MovImm(x64.R8, 8)
 	a.Imul(x64.RDX, x64.R8)
@@ -1084,7 +1084,7 @@ func rxAt(b *rt) {
 	b.get(x64.RAX, aCur)
 	b.put(aList, x64.RAX)
 	kon(aListN, 0)
-	b.loadRIP(x64.RAX, "rxEntry")
+	b.loadCell(x64.RAX, "rxEntry")
 	b.put(aPC, x64.RAX)
 	a.Call(lAdd)
 	b.get(x64.RAX, aListN) // 起步这一轮闭包添了几条，cur 就是几条
@@ -1206,15 +1206,15 @@ func rxAt(b *rt) {
 	b.get(x64.RDX, aEnd)
 	b.epilogue()
 
-	// ---- 清进过的标记：只用静态那两个槽与寄存器，不碰帧槽 ----
+	// ---- 清进过的标记：只用那两格与寄存器，不碰帧槽 ----
 	a.Mark(lClear)
 	cTop := b.label()
 	cRet := b.label()
-	b.loadRIP(x64.RAX, "rxProg")
-	b.loadRIP(x64.RCX, "rxLen")
+	b.loadCell(x64.RAX, "rxProg")
+	b.loadCell(x64.RCX, "rxLen")
 	a.Add(x64.RAX, x64.RCX) // 尾后一字节
 	a.Mov(x64.RCX, x64.RAX)
-	b.loadRIP(x64.RAX, "rxProg")
+	b.loadCell(x64.RAX, "rxProg")
 	a.Mark(cTop)
 	a.Cmp(x64.RAX, x64.RCX)
 	a.Jcc(x64.AE, cRet)

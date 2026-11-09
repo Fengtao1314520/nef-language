@@ -339,6 +339,17 @@ func (p *parser) parseFunc(export, isMethod bool) (*ast.Func, error) {
 		return nil, err
 	}
 	fn.NameText = nameTok.Text
+	fn.NamePos = posOf(nameTok)
+	// 名字后面那一对尖括号是类型参数表：`class`、`struct`、顶层函数与类体内的方法四类都收，
+	// 接口里的方法声明那一处不收（那里的签名由 parseSignature 读，它不看尖括号）。
+	// The angle brackets after the name are the type parameter table: class, struct, top-level
+	// function and class-body method all take it; an interface's method declaration does not,
+	// since its signature is read by parseSignature, which never looks at brackets.
+	tps, err := p.parseTypeParams()
+	if err != nil {
+		return nil, err
+	}
+	fn.TypeParams = tps
 	if err := p.expectOp("("); err != nil {
 		return nil, err
 	}
@@ -402,6 +413,14 @@ func (p *parser) parseObject(export bool) (*ast.Object, error) {
 		return nil, err
 	}
 	obj.NameText = nameTok.Text
+	// `class Box<Content>` 与 `struct Pair<First, Second>`：类型参数在名字后面、`base` 前面。
+	// Type parameters sit after the name and before `base`: `class Box<Content>`,
+	// `struct Pair<First, Second>`.
+	tps, err := p.parseTypeParams()
+	if err != nil {
+		return nil, err
+	}
+	obj.TypeParams = tps
 	if p.eatName("base") {
 		b, err := p.parseType()
 		if err != nil {
@@ -464,6 +483,17 @@ func (p *parser) parseInterface(export bool) (*ast.Interface, error) {
 			tok := p.cur()
 			return nil, &Error{Line: tok.Line, Col: tok.Col,
 				Msg: "接口里的方法声明不写 method，只写签名"}
+		case p.cur().Kind == lexer.Name && p.peek(1).Kind == lexer.Op && p.peek(1).Text == "<":
+			// 名字后面直接跟尖括号的就是带类型参数的方法声明。接口里的方法声明不收类型参数，
+			// 所以要单独报这一句：不拦在这里，往下走会当字段读，报出来的是 `想要 ":"`，
+			// 那一句说不出"为什么不许"。
+			// A name followed by angle brackets is a declaration with type parameters. Interface
+			// method declarations take none, and this needs its own sentence: left to the field
+			// path the report says it wanted ":", which never explains why the brackets are not
+			// allowed.
+			tok := p.cur()
+			return nil, &Error{Line: tok.Line, Col: tok.Col,
+				Msg: "接口里的方法声明不能带类型参数"}
 		case p.isSignatureAhead():
 			m, err := p.parseSignature()
 			if err != nil {
@@ -516,6 +546,7 @@ func (p *parser) parseSignature() (*ast.Func, error) {
 		return nil, err
 	}
 	fn.NameText = nameTok.Text
+	fn.NamePos = posOf(nameTok)
 	if err := p.expectOp("("); err != nil {
 		return nil, err
 	}
@@ -646,6 +677,41 @@ func (p *parser) parseDecl(export bool) (*ast.Decl, error) {
 }
 
 // ---- 类型 ----
+
+// parseTypeParams 收声明名字后面那一对尖括号里的类型参数表：`class Box<Content>` 与
+// `method twice<Element>(v:Element)`。没有左尖括号就返回空表，普通声明的读法一字不变。
+// 表里每一项是一个名字：名字本身不限制长短与写法（`T` 与 `Content` 都收），撞上内建名字才算错，
+// 那一条由检查那一层拒。参数只能是类型，所以这里收不下嵌套的尖括号，
+// `class Box<list<int>>` 那种写法会在记号那一步就报出来。
+//
+// en: parseTypeParams reads the angle-bracket list after a declaration name: `class Box<Content>`
+// and `method twice<Element>(v:Element)`. Without a `<` it returns an empty table, so the way an
+// ordinary declaration is read does not change by one byte. Each entry is a name; the spelling is
+// unrestricted (`T` and `Content` both parse) and only a collision with a built-in name is wrong,
+// which the checker refuses. Entries are types, so nested brackets do not fit here -
+// `class Box<list<int>>` is refused at the mark itself.
+func (p *parser) parseTypeParams() ([]*ast.TypeParam, error) {
+	if !p.opIs("<") {
+		return nil, nil
+	}
+	p.advance()
+	var out []*ast.TypeParam
+	for {
+		tok, err := p.expectName()
+		if err != nil {
+			return out, err
+		}
+		out = append(out, &ast.TypeParam{Pos: posOf(tok), Name: tok.Text})
+		if p.eatOp(",") {
+			continue
+		}
+		break
+	}
+	if err := p.expectCloseAngle(); err != nil {
+		return out, err
+	}
+	return out, nil
+}
 
 func (p *parser) parseType() (ast.Type, error) {
 	// `fn(参数类型, …):返回类型` 是函数值的类型；不写返回类型就是没有返回值，与声明那一侧同一条。
@@ -1278,9 +1344,24 @@ func (p *parser) parsePostfix() (ast.Expr, error) {
 					return nil, err
 				}
 				left = &ast.Call{Pos: m.Pos, Callee: m, Args: args}
-			} else {
-				left = m
+				continue
 			}
+			// 方法自己带类型参数时写法与顶层函数同一条：`cell.take<string>(v)`。
+			// 同样只在"尖括号配成一对、后面接着 `(`"时才算这一种。
+			// A method with its own type parameters spells it the way a top-level function
+			// does: `cell.take<string>(v)`, and again only when the brackets close and a `(`
+			// follows.
+			if p.opIs("<") {
+				if targs, ok := p.tryTypeArgsAhead(); ok && p.opIs("(") {
+					args, err := p.parseArgs()
+					if err != nil {
+						return nil, err
+					}
+					left = &ast.Call{Pos: m.Pos, Callee: m, TypeArgs: targs, Args: args}
+					continue
+				}
+			}
+			left = m
 		case p.opIs("["):
 			op := p.advance()
 			at, err := p.parseExpr()
@@ -1479,6 +1560,27 @@ func (p *parser) parseNameStart() (ast.Expr, error) {
 			return nil, err
 		}
 		n := &ast.New{Pos: posOf(t), Type: nameTok.Text}
+		// `new Box<int>(v: 3)`：名字后面那一对尖括号里填的是实例的实参类型。
+		// 记号与类型位置那一段（parseType 收 `list<int>`）同一条，`>>` 也照样拆得开。
+		// `new Box<int>(v: 3)`: the angle brackets after the name hold the instance's argument
+		// types, the same mark parseType uses for `list<int>`, with `>>` split the same way.
+		if p.opIs("<") {
+			p.advance()
+			for {
+				arg, err := p.parseType()
+				if err != nil {
+					return nil, err
+				}
+				n.TypeArgs = append(n.TypeArgs, arg)
+				if p.eatOp(",") {
+					continue
+				}
+				break
+			}
+			if err := p.expectCloseAngle(); err != nil {
+				return nil, err
+			}
+		}
 		if err := p.expectOp("("); err != nil {
 			return nil, err
 		}
@@ -1507,27 +1609,89 @@ func (p *parser) parseNameStart() (ast.Expr, error) {
 	// `{` 紧跟在一个具名类型后面，就是 struct 字面量。
 	// 判据：花括号里必须是 `}` 或 `名字 : 值`，否则那个 `{` 是语句块开头（switch 的分支按此区分）。
 	if p.opIs("{") && p.structLitAhead() {
-		lit := &ast.StructLit{Pos: posOf(t), Type: t.Text}
-		p.advance()
-		p.skipTerminators()
-		for !p.opIs("}") {
-			f, err := p.parseNamedValue()
-			if err != nil {
-				return nil, err
+		return p.parseStructLit(posOf(t), t.Text, nil)
+	}
+	// 名字后面紧跟 `<`：那是调用处或字面量处写的类型实参（`twice<int>(1)`、`Pnt<int>{x: 1}`）。
+	// 只有"一对完整的尖括号后面接着 `(` 或 `{`"才算这一种；否则那一个 `<` 还是比较运算符，
+	// 记号位置原样退回，`a < b` 那种写法一个字不变。
+	// A `<` right after a name is a type-argument list at a call or a literal
+	// (`twice<int>(1)`, `Pnt<int>{x: 1}`). Only a complete pair of brackets followed by `(` or
+	// `{` counts; otherwise that `<` stays the comparison operator, the token position is put
+	// back and `a < b` does not change by one byte.
+	if p.opIs("<") {
+		if args, ok := p.tryTypeArgsAhead(); ok {
+			if p.opIs("(") {
+				callArgs, err := p.parseArgs()
+				if err != nil {
+					return nil, err
+				}
+				return &ast.Call{Pos: posOf(t), Callee: &ast.Name{Pos: posOf(t), Text: t.Text},
+					TypeArgs: args, Args: callArgs}, nil
 			}
-			lit.Fields = append(lit.Fields, f)
-			p.skipLines()
-			if !p.eatOp(",") {
-				break
-			}
-			p.skipTerminators()
+			return p.parseStructLit(posOf(t), t.Text, args)
 		}
-		if err := p.expectOp("}"); err != nil {
-			return nil, err
-		}
-		return lit, nil
 	}
 	return &ast.Name{Pos: posOf(t), Text: t.Text}, nil
+}
+
+// parseStructLit 读 `Point{x: 1, y: 2}` 与 `Pnt<int>{x: 1}` 那一段的花括号；
+// 尖括号里那几段类型由调用方递进来（没有就是普通 struct）。
+//
+// en: parseStructLit reads the braces of `Point{x: 1, y: 2}` and `Pnt<int>{x: 1}`. The types
+// inside the brackets come from the caller; without them it is an ordinary struct.
+func (p *parser) parseStructLit(at ast.Pos, typeName string, args []ast.Type) (ast.Expr, error) {
+	lit := &ast.StructLit{Pos: at, Type: typeName, TypeArgs: args}
+	p.advance()
+	p.skipTerminators()
+	for !p.opIs("}") {
+		f, err := p.parseNamedValue()
+		if err != nil {
+			return nil, err
+		}
+		lit.Fields = append(lit.Fields, f)
+		p.skipLines()
+		if !p.eatOp(",") {
+			break
+		}
+		p.skipTerminators()
+	}
+	if err := p.expectOp("}"); err != nil {
+		return nil, err
+	}
+	return lit, nil
+}
+
+// tryTypeArgsAhead 试读一对尖括号里的类型列表。读得下去（一对完整的尖括号，后面接着 `(` 或 `{`）
+// 才把记号停在尖括号之后；读不下去就把位置退回 `<` 那一个记号上，那一个 `<` 归比较运算符。
+//
+// en: tryTypeArgsAhead attempts to read a bracketed type list. Only a complete pair followed by
+// `(` or `{` counts - then the position stops after the brackets; otherwise it rewinds to the
+// `<` itself, which belongs to the comparison operator.
+func (p *parser) tryTypeArgsAhead() ([]ast.Type, bool) {
+	save := p.i
+	p.advance() // <
+	var out []ast.Type
+	for {
+		t, err := p.parseType()
+		if err != nil {
+			p.i = save
+			return nil, false
+		}
+		out = append(out, t)
+		if p.eatOp(",") {
+			continue
+		}
+		break
+	}
+	if err := p.expectCloseAngle(); err != nil {
+		p.i = save
+		return nil, false
+	}
+	if !p.opIs("(") && !p.opIs("{") {
+		p.i = save
+		return nil, false
+	}
+	return out, true
 }
 
 // structLitAhead 检查花括号里是否为 `}` 或 `名字 : 值`——是才算 struct 字面量，

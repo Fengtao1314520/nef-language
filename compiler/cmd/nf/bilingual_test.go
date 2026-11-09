@@ -6,7 +6,7 @@
 //
 //	compiler/ 里贴在顶层声明与文件头上的那一段中文注释，同一下面要有一段以 `// en: ` 起头的英文；
 //	webtest/libs 那两个包里 export 出去的声明，注释里要有 en:，两份门面上的还要有 例：那一段；
-//	samples/ 那八份示例程序的文件头要有 en:（这一份文件本身就是用法示例，不再另要示例）。
+//	samples/ 那十份示例程序的文件头要有 en:（这一份文件本身就是用法示例，不再另要示例）。
 //
 // Go 那一条按目录开：一个目录全做完了才进 bilingualDone，进去之后漏一处就失败。
 // 表里还没进去的目录只统计、不判，为的是让进度看得见而不是把没做完的事藏起来。
@@ -289,7 +289,7 @@ func TestWebTestExportsAreBilingual(t *testing.T) {
 	t.Logf("webtest 两个包里 %d 条对外声明都配了英文，两份门面上的还配了示例", total)
 }
 
-// TestSampleHeadersAreBilingual 查八份示例程序的文件头。
+// TestSampleHeadersAreBilingual 查十份示例程序的文件头。
 func TestSampleHeadersAreBilingual(t *testing.T) {
 	dir := filepath.Join(repoRoot(t), "samples")
 	fs, err := filepath.Glob(filepath.Join(dir, "*.nf"))

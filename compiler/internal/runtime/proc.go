@@ -87,7 +87,8 @@ const (
 
 // procData 摆表、那两套结构、退出码那个位置，与四句给用户看的话。
 //
-// STARTUPINFOW 只填头一个位置 `cb`（我给它这一套多大），其余九十八个字节留着静态区的 0：
+// STARTUPINFOW 只填头一个位置 `cb`（我给它这一套多大），其余九十八个字节一直是 0
+// （procSI 在每一条线程的状态块里，那一块开局就是 0，而这一段除了 `cb` 不再写别的位置）：
 // `dwFlags` 是 0 就是"标准流三根都不接、窗口位置与大小都归系统定"。
 // PROCESS_INFORMATION 是 24 个字节（进程句柄、线程句柄、两个号码），这里摆 32 个字节够用。
 //
@@ -99,9 +100,6 @@ const (
 // identifiers); 32 are laid out here, which is enough.
 func procData(put func(name string, bs []byte)) {
 	put("procTable", make([]byte, procSlots*8))
-	put("procSI", make([]byte, 128))
-	put("procPI", make([]byte, 32))
-	put("procExit", make([]byte, 8)) // GetExitCodeProcess 写低四格，高四格一直是 0
 	put("sProcStart", strObject("起不来那个程序"))
 	put("sProcWait", strObject("等不到那个程序"))
 	put("sProcExit", strObject("问不到那个程序的退出码"))
@@ -149,7 +147,7 @@ func procFail(b *rt) {
 		b.get(x64.RAX, fPart)
 		b.put(fText, x64.RAX)
 	}
-	from := func(name string) func() { return func() { b.leaRIP(x64.RDX, name) } }
+	from := func(name string) func() { return func() { b.leaCell(x64.RDX, name) } }
 
 	noNum := b.label()
 	b.get(x64.RAX, fNum)
@@ -186,7 +184,7 @@ func procFailLastError(b *rt, slot int, msgName string, code int64) {
 	a := b.a
 	a.MovStore(x64.RBP, int32(-8*(slot+1)), x64.RAX)
 	a.MovZX32(x64.RCX, x64.RBP, int32(-8*(slot+1)))
-	b.leaRIP(x64.RDX, msgName)
+	b.leaCell(x64.RDX, msgName)
 	a.MovImm(x64.R8, code)
 	b.call("@proc_fail")
 }
@@ -213,14 +211,14 @@ func procIndex(b *rt, bad x64.Label) {
 	a.Jcc(x64.A, bad) // 无符号比：负的那一个数在这里就是"比格数大"
 	a.AddImm(x64.RSI, -1)
 	a.ShlImm(x64.RSI, 3)
-	b.leaRIP(x64.RAX, "procTable")
+	b.leaCell(x64.RAX, "procTable")
 	a.Add(x64.RSI, x64.RAX)
 }
 
 // @proc_start(rcx=那一串命令行)：返回 rax=句柄（1 起的表项）。
 //
 // 命令行翻成宽字符摆进 `wPath`（与文件、网络那几条同一块缓冲，一次调用只用它一回），
-// 这一串是可写的：`CreateProcessW` 明说它可能改这一串，静态区本来就可写，不必另拷一份。
+// 这一串是可写的：`CreateProcessW` 明说它可能改这一串，那块缓冲本来就可写，不必另拷一份。
 // 空的命令行与装不下的那一种在翻那一步就看出来了（@to_wide 返回 0），当场 10111 号，不挂号码。
 //
 // en: @proc_start (rcx = the command line): returns rax = the handle (a table entry numbered
@@ -241,17 +239,17 @@ func procStart(b *rt) {
 	b.put(zCmd, x64.RCX)
 
 	badCmd := b.label() // 空的或装不下：翻不成宽字符
-	b.leaRIP(x64.RDX, "wPath")
+	b.leaCell(x64.RDX, "wPath")
 	b.get(x64.RCX, zCmd)
 	b.call("@to_wide")
 	a.Test(x64.RAX, x64.RAX)
 	a.Jcc(x64.E, badCmd)
 
-	b.leaRIP(x64.RAX, "procSI")
+	b.leaCell(x64.RAX, "procSI")
 	a.MovImmMem(x64.RAX, 0, procStartupInfoSize) // cb＝我交给它这一套多大
-	b.leaRIP(x64.RAX, "procSI")
+	b.leaCell(x64.RAX, "procSI")
 	a.MovStore(x64.RBP, arg9, x64.RAX)
-	b.leaRIP(x64.RAX, "procPI")
+	b.leaCell(x64.RAX, "procPI")
 	a.MovStore(x64.RBP, arg10, x64.RAX)
 	a.Xor(x64.RAX, x64.RAX)
 	a.MovStore(x64.RBP, arg5, x64.RAX) // 标准流三根不继承：子进程的话由它自己的那一头收
@@ -259,7 +257,7 @@ func procStart(b *rt) {
 	a.MovStore(x64.RBP, arg7, x64.RAX) // 环境块：0＝沿用这一趟的
 	a.MovStore(x64.RBP, arg8, x64.RAX) // 工作目录：0＝站在哪儿起就在哪儿起
 	a.Xor(x64.RCX, x64.RCX)            // 程序名不单独给：命令行头一段就是它
-	b.leaRIP(x64.RDX, "wPath")         // 命令行：上面刚翻好，原样交给系统
+	b.leaCell(x64.RDX, "wPath")        // 命令行：上面刚翻好，原样交给系统
 	a.Xor(x64.R8, x64.R8)              // 线程安全属性：默认
 	a.Xor(x64.R9, x64.R9)              // 进程安全属性：默认
 	b.impCall("CreateProcessW")        // 十个参数：后六个在帧的那一侧（arg5～arg10）
@@ -268,7 +266,12 @@ func procStart(b *rt) {
 	a.Jcc(x64.E, startFail)
 
 	// 起成了：往表里找一个位置句柄摆进去。找不着就是手上挂的太多了
-	b.leaRIP(x64.RAX, "procTable")
+	//
+	// 扫描与占格是一条：第二条线程同时在扫的话，两边都看见同一格是 0，后写的那一边把前一边
+	// 那一个句柄盖掉——前一个进程的手上号码就成了没人认领的（不重复归还，但那个位置丢了）。
+	// 所以这一段的锁从头拿到"句柄摆进那个位置"为止；CloseHandle 那一把线程句柄在放锁之后。
+	b.srwTake("procLock")
+	b.leaCell(x64.RAX, "procTable")
 	b.put(zBase, x64.RAX)
 	a.Xor(x64.RAX, x64.RAX)
 	b.put(zI, x64.RAX)
@@ -290,9 +293,11 @@ func procStart(b *rt) {
 	a.Jmp(top)
 
 	a.Mark(free)
-	b.leaRIP(x64.RAX, "procPI")
+	b.leaCell(x64.RAX, "procPI")
 	a.MovLoad(x64.RDX, x64.RAX, 0)
 	a.MovStore(x64.RSI, 0, x64.RDX) // 进程那个句柄摆进这个位置
+	b.srwGive("procLock")           // 占到这个位置了，往后这个位置归这一次调用
+	b.leaCell(x64.RAX, "procPI")    // 重取：放锁那一次调用把 rax 擦掉了（段 4 记的同一条规矩）
 	a.MovLoad(x64.RCX, x64.RAX, 8)  // 线程那一把：这一版不等它，当场关掉
 	b.impCall("CloseHandle")
 	b.get(x64.RAX, zI)
@@ -300,8 +305,9 @@ func procStart(b *rt) {
 	b.epilogue()
 
 	a.Mark(full)
-	a.MovImm(x64.RCX, 0) // 这一处不是系统给的答复，只有那一句
-	b.leaRIP(x64.RDX, "sProcFull")
+	b.srwGive("procLock") // 放锁再抛：那一句被人接住时这一段还要接着跑，锁不能带出这一次调用
+	a.MovImm(x64.RCX, 0)  // 这一处不是系统给的答复，只有那一句
+	b.leaCell(x64.RDX, "sProcFull")
 	a.MovImm(x64.R8, codeProcFull)
 	b.call("@proc_fail")
 
@@ -311,7 +317,7 @@ func procStart(b *rt) {
 
 	a.Mark(badCmd)
 	a.MovImm(x64.RCX, 0)
-	b.leaRIP(x64.RDX, "sProcStart")
+	b.leaCell(x64.RDX, "sProcStart")
 	a.MovImm(x64.R8, codeProcStart)
 	b.call("@proc_fail")
 	b.epilogue()
@@ -325,6 +331,10 @@ func procStart(b *rt) {
 //
 // 0、负数、比表的格数大的那一个数都是 10092 号（对着空句柄取成员或调用方法那一族）；
 // 表里那个位置已经是 0（收过了）是 10110 号那一句"等不到那个程序"，不挂号码。
+//
+// 这一条不拿 procLock：它只读那个位置，读到的要么是句柄要么是 0。同一个号码不会同时握在两条
+// 线程手上（`Process` 交不进线程，见 internal/check/thread.go 那一张白名单），所以等的时候
+// 不会有人正把它抹成 0；而等的这一头要停在 WaitForSingleObject 里，拿着锁等会把起进程那一条堵住。
 //
 // en: @proc_wait (rcx = handle): returns rax = that program's exit code. It waits on the
 // PROCESS handle until it finishes (INFINITE): with no threads in this tier, "finished" means
@@ -363,13 +373,13 @@ func procWait(b *rt) {
 	a.Jcc(x64.NE, notWaited)
 
 	b.get(x64.RCX, wHp)
-	b.leaRIP(x64.RDX, "procExit")
+	b.leaCell(x64.RDX, "procExit")
 	b.impCall("GetExitCodeProcess")
 	a.Test(x64.RAX, x64.RAX)
 	noCode := b.label()
 	a.Jcc(x64.E, noCode)
-	b.leaRIP(x64.RAX, "procExit")
-	a.MovLoad(x64.RAX, x64.RAX, 0) // 高四格一直是静态区的 0，读八个字节就是那一个退出码
+	b.leaCell(x64.RAX, "procExit")
+	a.MovLoad(x64.RAX, x64.RAX, 0) // 高四格一直是 0，读八个字节就是那一个退出码
 	b.epilogue()
 
 	a.Mark(notWaited)
@@ -382,7 +392,7 @@ func procWait(b *rt) {
 
 	a.Mark(gone)
 	a.MovImm(x64.RCX, 0)
-	b.leaRIP(x64.RDX, "sProcWait")
+	b.leaCell(x64.RDX, "sProcWait")
 	a.MovImm(x64.R8, codeProcAsk)
 	b.call("@proc_fail")
 
@@ -413,14 +423,19 @@ func procClose(b *rt) {
 	b.prologue()
 	b.put(0, x64.RCX)
 
-	bad := b.label()
-	done := b.label()
+	// 查表、动手、抹格是一条：起进程那一头拿着同一把锁扫描并占格，两边交错才会出现
+	// "前一边抹掉后一边刚占的那个位置"。放锁的三个出口都在抛出之前——接住那一句之后这一段
+	// 还要接着跑，锁不能带出这一次调用。
+	bad := b.label()  // 那一个数不是我给出去的
+	done := b.label() // 不做事，直接结束
+	out := b.label()  // 先放锁再走上面那一句
 	a.Test(x64.RCX, x64.RCX)
-	a.Jcc(x64.LE, done) // 空句柄：不必再查表
-	procIndex(b, bad)
+	a.Jcc(x64.LE, done) // 空句柄：不必查表，也不必拿锁
+	b.srwTake("procLock")
+	procIndex(b, out)
 	a.MovLoad(x64.RDX, x64.RSI, 0)
 	a.Test(x64.RDX, x64.RDX)
-	a.Jcc(x64.E, done) // 那个位置早收过了
+	a.Jcc(x64.E, out) // 那个位置早收过了
 	b.put(zHp, x64.RDX)
 
 	b.get(x64.RCX, zHp)
@@ -430,9 +445,16 @@ func procClose(b *rt) {
 	b.impCall("CloseHandle")
 
 	b.get(x64.RCX, 0)
-	procIndex(b, bad) // 重算一次：上面两次调用覆盖了 rsi
+	procIndex(b, out) // 重算一次：上面两次调用覆盖了 rsi
 	a.Xor(x64.RAX, x64.RAX)
 	a.MovStore(x64.RSI, 0, x64.RAX)
+	b.srwGive("procLock")
+	a.Jmp(done)
+
+	a.Mark(out)
+	b.srwGive("procLock")
+	a.Jmp(bad)
+
 	a.Mark(done)
 	b.epilogue()
 

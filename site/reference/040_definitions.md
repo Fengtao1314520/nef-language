@@ -108,10 +108,67 @@ let b:Circle = new Circle(r: 2.0, name: "大圆")
 console.print(b.name, b.area())                   // 大圆 12.56636
 ```
 
-## 未提供的写法
+## 带类型参数的定义
 
-泛型的自定义类型和泛型方法（`struct Pair<T>`、`method f<T>(...)`）都不支持；需要把几个值成对放在一起，就定义一个 `struct`。只有三个内建容器带类型参数。
+`class`、`struct`、函数与 `class` 里的方法都能带类型参数：记号是名称后面一对尖括号，多个参数用逗号分开。名称随便起，`Item`、`Element`、`T` 都可以。
+
+```nf
+class Basket<Item> {
+    v:Item
+    count:int
+
+    method take():Item { return v }
+}
+
+struct Pair<First, Second> {
+    left:First
+    right:Second
+}
+
+method twice<Element>(v:Element):Element { return v }
+
+let numbers:Basket<int> = new Basket<int>(v: 3, count: 1)
+let words:Basket<string> = new Basket<string>(v: "甲", count: 1)
+console.print(numbers, words, numbers.take(), words.take())    // Basket<int> { v: 3, count: 1 } Basket<string> { v: "甲", count: 1 } 3 甲
+
+let p:Pair<int, string> = Pair<int, string>{left: 1, right: "乙"}
+console.print(p.left, p.right, twice(21), twice<string>("丙"))    // 1 乙 21 丙
+```
+
+程序用到哪一种类型，编译器就为那一种生成一份代码：`Basket<int>` 与 `Basket<string>` 是两份互不相干的实现，字段、打印与释放各走各的。类型参数在运行期不存在，也不参与任何判断，所以这样的定义不会让程序多一次运行期的查找。
+
+| 事项 | 规则 |
+| --- | --- |
+| 类型标注 | 写全名称：`let x:Basket<int> = ...`。`Basket` 自己不是一种类型，写在类型的位置上报 `Basket 需要 1 个尖括号参数，实际 0 个` |
+| 造值 | `class` 写 `new Basket<int>(v: 3, count: 1)`，`struct` 写 `Pair<int, string>{left: 1, right: "乙"}`；字段仍然必须列全 |
+| 调用 | 尖括号可以省：`twice(21)` 由实参推出 `Element` 是 `int`。参数位置上出现不了的那个类型参数才必须写出来 |
+| 判等与转换 | `Basket<int>` 与 `Basket<string>` 是两个类型，之间不自动转换；`is` 与 `as` 认的也是写全的名称 |
+| 能填什么 | 判据与容器相同：`Json`、`Socket`、`Listener`、`Process` 与函数值填不进去，报的句子也与容器同一份，例如 `Json 进不了 Basket：先把它拆成自己要的值，或者存那段文本`。声明那里不检查类型参数能做什么，用到说不通的动作时才报错 |
+
+```nf-bad
+class Box<Content> {
+    v:Content
+}
+
+let b:Box = new Box(v: 3)    // 报：Box 需要 1 个尖括号参数，实际 0 个
+```
+
+```nf-bad
+method noneOf<Element>(k:int):int { return k }
+
+console.print(noneOf(1))    // 报：从这些实参推不出 noneOf 的类型参数 Element
+```
+
+```nf-bad
+interface Display {
+    show<Item>(v:Item):Item    // 报：接口里的方法声明不能带类型参数
+}
+```
+
+## 未提供的写法
 
 定义不能嵌在定义里，四种定义与 `type` 别名都写在文件顶层。接口里的方法声明不带函数体，也不带默认值。
 
 字段与方法都属于 `class` 的实例，没有 `static` 一类的类级成员。枚举成员只写名称与一个可选的整数，枚举不能定义方法。字段就是字段，没有 `get` 与 `set` 这类属性访问器，读写都直接写字段名。
+
+泛型这一族有三处窄处：`interface` 里的方法声明不带类型参数，`type` 别名不带尖括号，`new` 后面只写一个名称，所以 `new 包.类型(...)` 这种写法不支持——包里的实例要拿值，得走包导出的函数。

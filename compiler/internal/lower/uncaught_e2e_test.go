@@ -129,26 +129,23 @@ func TestUncaughtThrowRunsTopLevelAccount(t *testing.T) {
 	if idxOf(main, func(in ir.Inst) bool { _, ok := in.(*ir.Catch); return ok }) != errline-1 {
 		t.Fatal("兜底那一段的开头不是 Catch（错误码与消息要先落进两个槽位，后面要调用）")
 	}
-	// 护栏：release_top 进门时设立"正在释放"标记，默认处理那一段在调用它之前读的是**同一个槽**。
-	flag, ok := release.Body[0].(*ir.Mov)
-	if !ok || flag.S != ir.K(1) {
-		t.Fatalf("nef.release_top 开头不是\"立一块正在还的标记\"：%v", release.Body[0])
-	}
-	g, isG := flag.D.(ir.G)
-	if !isG {
-		t.Fatalf("那块标记不在静态槽上：%v", flag.D)
+	// 护栏：release_top 进门摆下"正在释放"标记，默认处理那一段在调用它之前读的是**同一格**。
+	// 段 5 起那个位置在每一条线程的状态块里，摆它与读它的都是那一条运行期例程 @release_begin：
+	// 它把之前那一个值返回来，同时把那个位置摆成 1，两条路共用同一条动作。
+	if !isCall(release.Body[0], "@release_begin") {
+		t.Fatalf("nef.release_top 开头不是\"摆一块正在还的标记\"：%v", release.Body[0])
 	}
 	read := -1
 	for i := errline + 1; i < len(main.Body); i++ {
-		if m, ok := main.Body[i].(*ir.Mov); ok && m.S == g {
+		if c, ok := main.Body[i].(*ir.Call); ok && c.Fn == "@release_begin" && c.HasD {
 			read = i
 			break
 		}
 	}
 	if read < 0 {
-		t.Fatalf("兜底那一段没读那块标记 %v——护栏不在", g)
+		t.Fatal("兜底那一段没读那块标记——护栏不在")
 	}
-	// 护栏之后的那一步：不在释放中就先释放，然后退出码 1。这一段是这条规则的全部要点，必须固定。
+	// 护栏之后的那一步：不在释放中就先释放，然后按"只结束这一条线程"那一条退出。
 	rel2 := -1
 	for i := read + 1; i < len(main.Body); i++ {
 		if isCall(main.Body[i], "nef.release_top") {
@@ -159,8 +156,13 @@ func TestUncaughtThrowRunsTopLevelAccount(t *testing.T) {
 	if rel2 < 0 {
 		t.Fatal("兜底那一段没叫 nef.release_top——没人接的抛出又绕过顶层那份记录了")
 	}
-	if idxOfLast(main, func(in ir.Inst) bool { return isCall(in, "@exit") }) <= rel2 {
-		t.Fatal("兜底那一段的 @exit(1) 要排在该还的账之后")
+	threadExit := idxOfLast(main, func(in ir.Inst) bool { return isCall(in, "@thread_exit") })
+	if threadExit <= rel2 {
+		t.Fatal("兜底那一段的 @thread_exit(1) 要排在该还的账之后")
+	}
+	// 第六句：那一段结束的是这一条线程，不是整个进程；@exit 只留在正常走完那一条路上。
+	if idxOfLast(main, func(in ir.Inst) bool { return isCall(in, "@exit") }) > threadExit {
+		t.Fatal("@exit 不该排在 @thread_exit 之后：没人接住那一条走的是结束本线程那一条例程")
 	}
 	// 调用 release_top 的那条排在读标记之后（读标记正是为了决定调用与否），且全函数只挂一条处理器记录：
 	// 再次进入这一段时处理器链上已无记录，配合链空时"打印后即返回"，递归最多一层。
@@ -195,6 +197,9 @@ func idxOfLast(fn *ir.Func, hit func(ir.Inst) bool) int {
 //
 // 三条收尾的堆内存占用**完全一致是设计结果**（`NEF_HEAP` 读的是向堆累计申请的总字节数，归还空闲链不减少它），
 // 所以这里核对"打印了什么、退出码是多少"，另加一条：抛出那条路径不许把顶层的块释放第二次。
+//
+// 那一共 288 字节里有 136 是开局那一步要的这一条线程的状态块（128 的数据加 8 字节的块头），
+// 剩下 152 是三条收尾共同的那几块；2026-11-07 之前记的是 152，加的就是这一块。
 func TestThreeEndingsAligned(t *testing.T) {
 	normal := `
 class Bag {

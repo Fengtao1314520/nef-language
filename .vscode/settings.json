@@ -1,5 +1,6 @@
 {
   "files.associations": {
     "*.nf": "nf"
-  }
+  },
+  "nf.path": "F:/GitLib/NF_Language/nf.exe"
 }

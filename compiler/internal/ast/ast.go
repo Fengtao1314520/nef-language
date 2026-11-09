@@ -69,13 +69,15 @@ type Def interface {
 // en: Func is `method Name(parameters):return { body }`; written at top level it is a function,
 // written inside a class body it is a method.
 type Func struct {
-	Pos      Pos
-	Export   bool
-	NameText string
-	Params   []*Param
-	Ret      Type // nil 表示没有返回值
-	Body     []Stmt
-	IsMethod bool // 在 class 体内
+	Pos        Pos
+	Export     bool
+	NameText   string
+	NamePos    Pos          // 名字那一个记号的位置；Pos 指的是 method 那个关键字，报错与行号都按 Pos 算
+	TypeParams []*TypeParam // 名字后面那一对尖括号；普通函数这里是空
+	Params     []*Param
+	Ret        Type // nil 表示没有返回值
+	Body       []Stmt
+	IsMethod   bool // 在 class 体内
 }
 
 type Param struct {
@@ -91,17 +93,31 @@ func (f *Func) Where() Pos     { return f.Pos }
 func (f *Func) Exported() bool { return f.Export }
 func (f *Func) Name() string   { return f.NameText }
 
+// TypeParam 是声明名字后面那一对尖括号里的一个类型参数：`class Box<Content>` 里那一个 `Content`。
+// 名字不限制长短与写法（`T`、`Item`、`Element` 都收），所以这里没有额外的形状要求。
+//
+// en: TypeParam is one type parameter inside the angle brackets that follow a declaration name:
+// the `Content` in `class Box<Content>`. Names are unrestricted (`T`, `Item`, `Element` all
+// parse), so this node carries no extra shape requirement.
+type TypeParam struct {
+	Pos  Pos
+	Name string
+}
+
+func (t *TypeParam) Where() Pos { return t.Pos }
+
 // Struct 与 Class 共用一个节点，由 Kind 区分。
 //
 // en: Struct and Class share one node, told apart by Kind.
 type Object struct {
-	Pos      Pos
-	Kind     string // "struct" 或 "class"
-	Export   bool
-	NameText string
-	Base     Expr // base 后面的接口名，nil 表示没有
-	Fields   []*Field
-	Methods  []*Func // struct 一律为空
+	Pos        Pos
+	Kind       string // "struct" 或 "class"
+	Export     bool
+	NameText   string
+	TypeParams []*TypeParam // 名字后面那一对尖括号；普通类型这里是空
+	Base       Expr         // base 后面的接口名，nil 表示没有
+	Fields     []*Field
+	Methods    []*Func // struct 一律为空
 }
 
 type Field struct {
@@ -461,6 +477,11 @@ type Call struct {
 	Pos    Pos
 	Callee Expr // Name 或 Field
 	Args   []Expr
+	// TypeArgs 是写在调用处尖括号里的类型：`twice<int>(1)`、`cell.take<string>(v)`。
+	// 没写就是空，那一种由实参推出来（检查那一步按实参的类型配一份对照表）。
+	// TypeArgs holds the types written in the call's angle brackets - `twice<int>(1)`,
+	// `cell.take<string>(v)`. Empty means they are inferred from the arguments.
+	TypeArgs []Type
 }
 
 func (e *Call) exprNode()  {}
@@ -491,6 +512,9 @@ type StructLit struct {
 	Pos    Pos
 	Type   string
 	Fields []*StructLitField
+	// TypeArgs 是 `Pnt<int>{x: 1}` 那一对尖括号里的类型；普通 struct 这里是空。
+	// TypeArgs holds the types of `Pnt<int>{x: 1}` and stays empty for an ordinary struct.
+	TypeArgs []Type
 }
 
 type StructLitField struct {
@@ -502,13 +526,22 @@ type StructLitField struct {
 func (e *StructLit) exprNode()  {}
 func (e *StructLit) Where() Pos { return e.Pos }
 
-// New 是 `new C()` 或 `new C(r: 2.0)`。
+// New 是 `new C()`、`new C(r: 2.0)`，或者带类型实参的 `new Box<int>(v: 3)`。
 //
-// en: New is `new C()` or `new C(r: 2.0)`.
+// en: New is `new C()`, `new C(r: 2.0)`, or the type-argument form
+// `new Box<int>(v: 3)`.
 type New struct {
-	Pos    Pos
-	Type   string
-	Fields []*StructLitField // 空表示全零
+	Pos  Pos
+	Type string
+	// TypeArgs 是 `new Box<int>(v: 3)` 尖括号里那几段类型；普通 class 这里一律是空。
+	// 造一只实例时必须能把实参写在被造的那一个名字后面，与类型位置上的 `list<int>`
+	// 走同一个记号；只留 Type 那一个名字的话，这一句就没地方写它们。
+	// TypeArgs holds the types inside the angle brackets of `new Box<int>(v: 3)` and stays
+	// empty for an ordinary class. Building an instance has to put the arguments after the
+	// name being built, the same mark `list<int>` uses in a type position; with only Type there
+	// is nowhere to write them.
+	TypeArgs []Type
+	Fields   []*StructLitField // 空表示全零
 }
 
 func (e *New) exprNode()  {}

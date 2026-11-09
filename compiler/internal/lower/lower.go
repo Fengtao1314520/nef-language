@@ -222,14 +222,25 @@ func Run(prog *check.Program, f *check.Facts) (*ir.Prog, error) {
 	// 其中**自己写的函数**调用后面那一份文件里的方法时，若等落函数体那一趟才记，被调方的条目
 	// 还没写上，报出来的是"某个名字还没排到静态槽"（`webtest/cases/login.nf` 的 `before_each`
 	// 调 `page.expect_title("登录")` 即此类调用）；顶层代码最后降级，直接调用不受影响。
+	// 泛型的模板自己不落：`class Stack<Item>` 那一份声明的方法体里没有配过实参的类型结论，
+	// 发出来的只会是"这一处的类型没记上"。按实例各生成那一份副本才落（下面那两轮实例的循环）。
+	// A template lowers nothing of its own: the method body of `class Stack<Item>` never got
+	// conclusions for an unattached parameter, so emitting it only reaches "this place has no
+	// recorded type". The per-instance copies are what lower (the two instance loops below).
 	for _, file := range l.files {
 		g := l.fileGlobals(file)
 		for _, d := range file.Defs {
 			switch x := d.(type) {
 			case *ast.Func:
+				if len(x.TypeParams) > 0 {
+					continue
+				}
 				l.funcFile[l.symKey(file, x.NameText)] = file.Path
 				l.funcGlobals[l.symKey(file, x.NameText)] = g
 			case *ast.Object:
+				if len(x.TypeParams) > 0 {
+					continue
+				}
 				owner := l.symKey(file, x.NameText)
 				for _, m := range x.Methods {
 					l.funcFile[owner+"."+m.NameText] = file.Path
@@ -238,22 +249,81 @@ func Run(prog *check.Program, f *check.Facts) (*ir.Prog, error) {
 			}
 		}
 	}
+	// 泛型的实例方法与上面那些一样要先登记再落体：一份 `class Box<Content>` 用两种实参就是
+	// 两个名字（`Box<int>.push` 与 `Box<string>.push`），互相调用时晚登记的那个会找不到静态槽。
+	// 名字按排好的顺序走，同一份程序两次编译出来的函数次序才一致。
+	// Instance methods register before any body lowers, exactly like the source methods above:
+	// one `class Box<Content>` used with two arguments is two names
+	// (`Box<int>.push` and `Box<string>.push`), and a body calling one whose entry was written
+	// later would not find its static slot. Sorting the names keeps the function order the same
+	// across two builds of the same program.
+	for _, name := range l.instanceNames() {
+		inst := l.f.Instances[name]
+		g := l.fileGlobals(inst.File)
+		for _, m := range inst.Methods {
+			l.funcFile[name+"."+m.NameText] = inst.File.Path
+			l.funcGlobals[name+"."+m.NameText] = g
+		}
+	}
+	// 带类型参数的函数与方法按实参各生成的那一份：名字里带着实参（`twice<int>`、
+	// `Cell<int>.take<int>`），前端算好签名时就把那一段写进了名字，这里照同一个键登记。
+	// The per-argument-list copies of generic functions and methods: their names carry the
+	// arguments (`twice<int>`, `Cell<int>.take<int>`), which the front end already folded into
+	// the signature key, so registration follows the same key here.
+	for _, name := range l.instFuncNames() {
+		inst := l.f.InstFuncs[name]
+		l.funcFile[name] = inst.File.Path
+		l.funcGlobals[name] = l.fileGlobals(inst.File)
+	}
 	for _, file := range l.files {
 		g := l.fileGlobals(file)
 		for _, d := range file.Defs {
 			switch x := d.(type) {
 			case *ast.Func:
+				if len(x.TypeParams) > 0 {
+					continue // 模板不落体，与上面那一轮同一条
+				}
 				if err := l.function(file, "", x, g); err != nil {
 					errs = append(errs, err.Error())
 				}
 			case *ast.Object:
 				// class 的方法体也在这儿落：接口里的方法声明没有体，轮不到它
+				if len(x.TypeParams) > 0 {
+					continue // 模板不落体，实例那一份副本在下面两轮里落
+				}
 				for _, m := range x.Methods {
 					if err := l.function(file, l.symKey(file, x.NameText), m, g); err != nil {
 						errs = append(errs, err.Error())
 					}
 				}
 			}
+		}
+	}
+	// 泛型的实例各落一份：owner 用实例的规范名（`Box<int>`），方法体是那一只实例自己的副本，
+	// 所以两份实例发出来的是两个 IR 函数，不是一个函数被写了两次
+	// （`internal/ir/ir.go` 的 `Prog.Func` 同名即复用，`internal/codegen/emit.go`
+	// 同名标号后写覆盖先写，两处都不报错——名字里带上实参就是为了让它们撞不上）。
+	// Generic instances each get their own copy: the owner is the instance's canonical name
+	// (`Box<int>`) and the body is that instance's own copy, so two instances become two IR
+	// functions rather than one function written twice. Prog.Func in internal/ir/ir.go reuses
+	// a name it has seen, and emit.go in internal/codegen lets the later label overwrite the
+	// earlier one - neither complains, which is exactly why the arguments belong in the name.
+	for _, name := range l.instanceNames() {
+		inst := l.f.Instances[name]
+		g := l.fileGlobals(inst.File)
+		for _, m := range inst.Methods {
+			if err := l.function(inst.File, name, m, g); err != nil {
+				errs = append(errs, err.Error())
+			}
+		}
+	}
+	// 上面登记过的那一份份可调用实例在这里落体：owner 是方法的所属类实例名，顶层函数是空。
+	// The callable instances registered above get their bodies here: owner is the class instance
+	// for a method and empty for a top-level function.
+	for _, name := range l.instFuncNames() {
+		inst := l.f.InstFuncs[name]
+		if err := l.function(inst.File, inst.Owner, inst.Fn, l.fileGlobals(inst.File)); err != nil {
+			errs = append(errs, err.Error())
 		}
 	}
 	// 每个文件的顶层各成一个函数，nef.main 按执行顺序挨个调
@@ -304,10 +374,10 @@ func Run(prog *check.Program, f *check.Facts) (*ir.Prog, error) {
 	// 这一段单独成一个函数的原因是 `exit` 也要调用它（"已经建好的值照常释放"）：
 	// exit 可以在任何深度上被调用，帧链无法回退，所以顶层这一段必须做成任何位置都能调用的独立函数。
 	release := l.p.Func(releaseTopFn)
-	// 这一个函数一进门就设置一个"正在释放"的标记（静态槽，用户拿不到名字）：默认处理那一段要根据它
-	// 决定是否再调用一遍 release_top——这是防止递归进入的护栏。
-	releasing := l.hidden()
-	release.Emit(&ir.Mov{D: releasing, S: ir.K(1), T: ir.TInt})
+	// 这一个函数一进门就摆一个"正在释放"的标记：默认处理那一段要根据它决定是否再调用一遍
+	// release_top——这是防止递归进入的护栏。段 5 起那个位置在每一条线程的状态块里，摆它的是
+	// `@release_begin` 这一条例程（它顺带返回摆之前那一个值，调用点不接就等于只要摆标记）。
+	release.Emit(&ir.Call{Fn: "@release_begin", FT: []ir.T{}})
 	(&fc{l: l, f: release, name: releaseTopFn}).destroyAll(l.topOwns)
 	release.Emit(&ir.Ret{})
 	// 正常走完时先摘掉默认处理点，再释放顶层持有的值（处理点是堆上的一块，不摘就留在链上）。
@@ -327,19 +397,27 @@ func Run(prog *check.Program, f *check.Facts) (*ir.Prog, error) {
 	errMsg := main.Temp()
 	main.Emit(&ir.Catch{D: errCode, E: errMsg})
 	main.Emit(&ir.Call{Fn: "@put_errline", Args: []ir.Val{errCode, errMsg},
-		FT: []ir.T{ir.TInt, ir.TInt}})
+		FT: []ir.T{ir.TInt}})
 	// 那一句下面接调用链：一路没人接住的抛出就在这里结束，链要在这一号程序退出去之前打出来。
 	main.Emit(&ir.Call{Fn: "@trace_print", FT: []ir.T{}})
 	busy := main.Temp()
 	releaseNow := main.Fresh()
 	skipRelease := main.Fresh()
-	main.Emit(&ir.Mov{D: busy, S: releasing, T: ir.TInt})
+	// @release_begin 返回的是摆之前那一个值：0＝这一趟是这条线程第一次收尾，去释放顶层持有的值；
+	// 1＝释放途中又抛了一次，只打印、只结束，不再调用第二遍。它同时把那个位置摆成 1，
+	// 所以两条路都不用再自己写一次。
+	main.Emit(&ir.Call{D: busy, HasD: true, Fn: "@release_begin", FT: []ir.T{}, RT: ir.TInt})
 	main.Emit(&ir.Jz{V: busy, To: releaseNow}) // 标记未设置＝这一趟是第一次收尾，去释放顶层持有的值
-	main.Emit(&ir.Jump{To: skipRelease})       // 标记已设置＝释放途中又抛了一次，只打印、只退出，不再调用第二遍
+	main.Emit(&ir.Jump{To: skipRelease})       // 标记已设置＝释放途中又抛了一次，只打印、只结束，不再调用第二遍
 	main.Emit(&ir.Lbl{At: releaseNow})
 	main.Emit(&ir.Call{Fn: releaseTopFn, FT: []ir.T{}})
 	main.Emit(&ir.Lbl{At: skipRelease})
-	main.Emit(&ir.Call{Fn: "@exit", Args: []ir.Val{ir.K(1)}, FT: []ir.T{ir.TInt}})
+	// 第六句"一条线程未接住的抛出只结束那一条"：这里叫的是 @thread_exit，不是 @exit。
+	// 今天程序只有一条线程，线程条数数到 0 就把收尾整个交给 @exit，屏幕上与退出码和从前一字不差；
+	// 第二条线程跑起来之后，主线程这一次结束不再带走还在跑的那一条。
+	// 第二个入参是那一次抛出的错误号，留在这一条线程的状态块里给段 6 的 `wait()` 读。
+	main.Emit(&ir.Call{Fn: "@thread_exit", Args: []ir.Val{ir.K(1), errCode},
+		FT: []ir.T{ir.TInt, ir.TInt}})
 	main.Emit(&ir.Ret{})
 
 	// 形状表里"类型字→形状"那一张要等全程序降完才填得出来（哪些类型被装过盒子，
@@ -402,6 +480,22 @@ func (l *L) buildTags() {
 			}
 		}
 	}
+	// 泛型的实例不是源码里写出来的定义：一份文件只写一次 `class Box<Content>`，
+	// `Box<int>` 与 `Box<string>` 是前端交过来的两条记录（Facts.Instances）。
+	// 这里补登记，否则 `descOf` 一到实例就报"没有类型字，无法打印"。这张表本身顺序随机，
+	// 下面那一次 sort.Strings 才是编号的依据。
+	// A generic instance is no definition written in the source: the file says
+	// `class Box<Content>` once, and `Box<int>` plus `Box<string>` are records the front end
+	// hands over (Facts.Instances). Registering them here is what stops descOf from reporting
+	// "no type word, cannot print" the moment an instance appears. The map's own order is
+	// random; the sort below is what decides the numbers.
+	for n, inst := range l.f.Instances {
+		if !seen[n] {
+			seen[n] = true
+			names = append(names, n)
+		}
+		l.objKind[n] = inst.Kind
+	}
 	// 内建的那两个类型 `Calendar` 与 `Response`：源码里写不出来，号与形状照样要登记——
 	// 盒子识别它们、打印机与析构器按形状表处理它们，都靠这两行把名字排进同一张表。
 	if !seen["Calendar"] {
@@ -419,6 +513,36 @@ func (l *L) buildTags() {
 	for i, n := range names {
 		l.tags[n] = firstNamedTag + int64(i)
 	}
+}
+
+// instanceNames 交出泛型实例的那一份份名字，按名字排好。
+// 前端那张表是映射，走的顺序不定；这一处要的正是定的顺序：登记与落体两轮都按它走，
+// 同一份程序编译两次得到的函数次序才一样。
+//
+// en: instanceNames lists the generic instances in name order. The front end stores them in a
+// map, whose order varies; what matters here is a fixed order, since both the registration pass
+// and the lowering pass follow it, so two builds of one program get the same function order.
+func (l *L) instanceNames() []string {
+	out := make([]string, 0, len(l.f.Instances))
+	for n := range l.f.Instances {
+		out = append(out, n)
+	}
+	sort.Strings(out)
+	return out
+}
+
+// instFuncNames 交出带类型参数的函数与方法按实参生成的那一份份名字，按名字排好。
+// 理由与 instanceNames 同一条：前端那张表是映射，登记与落体两轮都得走定的顺序。
+//
+// en: instFuncNames lists the instantiated callables in name order, for the same reason
+// instanceNames does: the front end's map has no order, and both passes must follow one.
+func (l *L) instFuncNames() []string {
+	out := make([]string, 0, len(l.f.InstFuncs))
+	for n := range l.f.InstFuncs {
+		out = append(out, n)
+	}
+	sort.Strings(out)
+	return out
 }
 
 // tagOf 返回一个类型在盒子上的编号。
@@ -1003,7 +1127,8 @@ func containerAction(name string) bool {
 		"hashset.union", "hashset.intersect", "hashset.difference",
 		"bytes.slice", "bytes.to_base64",
 		"socket.send", "socket.recv_into", "socket.close", "listener.accept", "listener.close",
-		"process.wait", "process.close":
+		"process.wait", "process.close",
+		"thread.wait", "thread.id":
 		return true
 	}
 	return false
@@ -1335,6 +1460,19 @@ func (c *fc) stdContainer(x *ast.Call, ref check.CallRef, t check.Type) (ir.Val,
 		c.f.Emit(&ir.Call{Fn: closerOf(rt), Args: []ir.Val{recv}, FT: []ir.T{ir.TInt}})
 		c.f.Emit(&ir.Mov{D: recv, S: ir.K(0), T: ir.TInt})
 		return nil, t, nil
+	case "thread.id":
+		// 句柄身上那一个数就是表项，直接交出它：不叫任何例程，也不改动那个位置。
+		return recv, t, nil
+	case "thread.wait":
+		// 等它跑完并把那个函数返回的值取回来。等过之后那个名字作废（发一条把槽抹成 0）：
+		// 这一档没有 `close()`，`wait()` 就是那个收集点，抹空之后名字走到作用域尽头时
+		// 自动等那一次看见 0，不做处理。
+		// 落在字段上那一种抹不到字段本身，与 socket.close 那一处同一条局限。
+		d := c.f.Temp()
+		c.f.Emit(&ir.Call{D: d, HasD: true, Fn: "@thread_wait", Args: []ir.Val{recv},
+			FT: []ir.T{ir.TInt}, RT: ir.TInt})
+		c.f.Emit(&ir.Mov{D: recv, S: ir.K(0), T: ir.TInt})
+		return d, t, nil
 	case "process.wait":
 		// 一直等到那个程序运行结束，返回它的退出码。等待用的是进程侧的那一枚句柄，
 		// 名字里存的那一个数是运行期那一张表的表项——两枚句柄装不进一个名字，见 proc.go 文件头。
@@ -1836,11 +1974,35 @@ func (l *L) function(file *ast.File, owner string, fn *ast.Func, globals map[str
 		f.Params++
 		f.PT = append(f.PT, ir.TInt)
 	}
-	for _, p := range fn.Params {
+	for i, p := range fn.Params {
 		v := f.Temp()
-		c.bind(p.NameText, v, dbgOfAst(p.Typ))
+		// 实例那一份方法副本里，参数写的还是类型参数那一个名字（`Item`）：种类不能按写出来的名字算，
+		// 要按前端摊好的那一份签名取（`Facts.Sigs`，键是实例名.方法名）。普通类型与顶层函数
+		// 走的还是 `c.rtOf(p.Typ)` 那一条，产物一字不变。
+		// 取不到签名就是前端漏记了，那是编译器的错，不是用户写得出来的一句话，
+		// 所以这里停下来而不是悄悄按整数发出去——浮点参数落在通用寄存器上，
+		// 屏幕上是 0.0 与一串看不出所以然的极小数。
+		// In an instance's copy of a method the parameter is still written with the type
+		// parameter's name (`Item`), so its kind cannot come from the written name; it comes
+		// from the signature the front end flattened (Facts.Sigs, keyed instance.method).
+		// Ordinary types and top-level functions keep c.rtOf(p.Typ), so existing products do not
+		// change by one byte. A missing signature means the front end forgot to record it, which
+		// is a compiler fault rather than something a user can write, so the build stops here
+		// instead of quietly emitting an integer: a float argument landing in a general-purpose
+		// register prints as 0.0 and as a tiny number nobody can read.
+		pt := c.rtOf(p.Typ)
+		shape := dbgOfAst(p.Typ)
+		if strings.Contains(name, "<") {
+			sig, ok := l.f.Sigs[name]
+			if !ok || i >= len(sig.Params) {
+				panic("实例方法的签名没记上：" + name)
+			}
+			pt = c.rt(sig.Params[i].Typ)
+			shape = dbgOf(sig.Params[i].Typ)
+		}
+		c.bind(p.NameText, v, shape)
 		f.Params++
-		f.PT = append(f.PT, c.rtOf(p.Typ))
+		f.PT = append(f.PT, pt)
 		// 参数有没有默认值在被调方一侧不产生影响：缺失的那个实参由调用点补上（见 argsOf）
 	}
 	for _, s := range fn.Body {
@@ -2249,18 +2411,24 @@ func (c *fc) close() {
 // so cleanup goes neither through @free nor nef.destroy but through the routine named by
 // closerOf.
 func isHandle(t check.Type) bool {
-	return t.Kind == check.Socket || t.Kind == check.Listener || t.Kind == check.Process
+	return check.IsSystemHandle(t.Kind)
 }
 
 // closerOf 返回那一类句柄到作用域尽头要调用的例程名（不是句柄就返回空字符串）。
 //
 // 两套句柄的收尾动作不同：套接字与监听都是 `closesocket`，而子进程这一类要的是
 // "不等候就结束该进程，再把两枚句柄都关闭"，由 @proc_close 完成。
+// 线程句柄不在这一张表里：它的收尾除了等一次，还要把那条线程返回的那一个值按它自己的形状
+// 归还，而那一步要知道形状——走形状表那一条（`nef.destroy` 里 KindThread 那一支），
+// 名字与字段两处共用同一段码。
 //
 // en: closerOf returns the routine to call for that class of handle when the scope ends (an
-// empty string when it is not a handle). The two families end differently: sockets and
-// listeners both take `closesocket`, while the child-process tier needs "kill it without
-// waiting, then close both handles", which is @proc_close.
+// empty string when it is not a handle). The two families end differently: sockets and listeners
+// both take `closesocket`, while the child-process tier needs "kill it without waiting, then
+// close both handles", which is @proc_close. The thread handle is not in this table: its
+// clean-up waits once and must also return the value that thread handed back according to that
+// value's own shape, which needs the shape table - so it travels the nef.destroy path (the
+// KindThread case), one stretch of code shared by names and fields.
 func closerOf(t check.Type) string {
 	switch t.Kind {
 	case check.Socket, check.Listener:
@@ -2315,9 +2483,11 @@ func (c *fc) destroyAll(list []own) {
 // reaches here.
 func (c *fc) releaseVal(v ir.Val, t check.Type) error {
 	switch {
-	case isHandle(t):
+	case isHandle(t) && t.Kind != check.Thread:
 		// 句柄那一类不归形状表管：字段覆盖与被覆盖下来的那一个，叫一次它自己那一条收尾
 		// （套接字与监听是 @net_close，子进程是 @proc_close）。
+		// 线程句柄走下面那一条：等过一次之后还要按那条线程返回的值的形状归还它，
+		// 那一步需要形状表（destroy.go 的 KindThread 那一支）。
 		c.f.Emit(&ir.Call{Fn: closerOf(t), Args: []ir.Val{v}, FT: []ir.T{ir.TInt}})
 		return nil
 	case t.Kind == check.Str:
@@ -2820,7 +2990,7 @@ func (c *fc) takeTop(slot ir.Val, x *ast.Decl, t check.Type, copied bool) {
 // names would hold one block - returning it twice would dismantle somebody else's property.
 func reclaimable(t check.Type) bool {
 	switch t.Kind {
-	case check.Class, check.Struct, check.List, check.Dict, check.Set, check.Str, check.Json, check.Bytes, check.Socket, check.Listener, check.Process:
+	case check.Class, check.Struct, check.List, check.Dict, check.Set, check.Str, check.Json, check.Bytes, check.Socket, check.Listener, check.Process, check.Thread:
 		return true
 	}
 	return false
@@ -4611,6 +4781,61 @@ func (c *fc) netAction(x *ast.Call, ref check.CallRef, t check.Type) (ir.Val, ch
 	return d, t, nil
 }
 
+// threadAction 落 `thread.start(被起的函数, 那一个实参)`。
+//
+// 与 netAction 那三条的分别是两处：
+//
+//	第一个位置要的是那一个函数的入口地址。写出来的函数名由检查那一侧记进 FuncRefs，
+//	`c.expr` 因此给出的是 `ir.Fn(规范名)`，发码时是一条 `lea`；`fn` 名字给出的就是它自己那一个
+//	位置里存的地址。两种都是 64 位的一个数，运行期不区分。
+//	第二个位置是**交出去**的，不是只读借用：交进去之后原来那个名字当场作废（检查那一侧
+//	已经把这一笔记进 Moved），所以这一段要把中间那几步产生的值从"这一句尽头归还"那本账里
+//	挑出去——不挑出去就有两个持有者：这一句的清理代码拆一次，那条线程结束时又拆一次。
+//
+// 句柄本身按 `claim` 登记，收尾例程是 `@thread_join`（见 closerOf）：名字走到作用域尽头时
+// 自动等一次，并归还那条线程的运行期状态块。
+//
+// en: threadAction lowers thread.start(function, argument). It differs from the three above in two
+// places. The first position wants the entry address of that function: the checker records a
+// written function name in FuncRefs, so c.expr yields ir.Fn(canonical name), which the emit step
+// turns into one lea, while an fn name yields the address sitting in its own slot - either way a
+// 64-bit number the runtime does not distinguish. The second position is given away, not borrowed
+// read-only: the original name is void from that moment (the checker has booked it in Moved), so
+// this stretch lifts the values produced along the way out of the "returned at the end of this
+// sentence" ledger - otherwise there would be two holders, one dismantling at the sentence's end
+// and another when that thread finishes. The handle itself is registered through claim, with
+// @thread_join as its closer (see closerOf): the name's end of scope waits once and releases that
+// thread's runtime state block.
+func (c *fc) threadAction(x *ast.Call, ref check.CallRef, t check.Type) (ir.Val, check.Type, error) {
+	target, vt, err := c.expr(x.Args[0])
+	if err != nil {
+		return nil, t, err
+	}
+	if target == nil {
+		return nil, t, fmt.Errorf("这里需要一个值，但 %s 不返回任何东西", describe(x.Args[0]))
+	}
+	if vt.Kind != check.FuncVal && vt.Kind != check.FuncT {
+		return nil, t, fmt.Errorf("thread.start 的第一个位置要的是函数，给的是 %s", vt)
+	}
+	back := c.noBorrow()
+	arg, at, err := c.expr(x.Args[1])
+	if err != nil {
+		back()
+		return nil, t, err
+	}
+	back()
+	if arg == nil {
+		return nil, t, fmt.Errorf("这里需要一个值，但 %s 不返回任何东西", describe(x.Args[1]))
+	}
+	if !at.ByValue() {
+		c.guardNotNull(arg)
+	}
+	d := c.f.Temp()
+	c.f.Emit(&ir.Call{D: d, HasD: true, Fn: "@thread_start", Args: []ir.Val{target, arg},
+		FT: []ir.T{ir.TInt, ir.TInt}, RT: ir.TInt})
+	return d, t, nil
+}
+
 // httpAction 落那两条：`http.get(网址, 超时毫秒)` 与 `http.post(网址, 字节块, 超时毫秒)`。
 //
 // 一次请求由运行期那五条排成一条直路（那张表写在 `internal/runtime/http.go` 头上）。顺序是有
@@ -4789,6 +5014,11 @@ func (c *fc) stdAction(x *ast.Call, ref check.CallRef, t check.Type) (ir.Val, ch
 			FT:   []ir.T{ir.TInt, ir.TInt}, RT: ir.TInt})
 		c.f.Emit(&ir.Call{Fn: "@time_parts", Args: []ir.Val{sec, d}, FT: []ir.T{ir.TInt, ir.TInt}})
 		return d, t, nil
+	case "thread.start":
+		// `thread.start(被起的函数, 那一个实参)`：返回的是线程句柄，形状与上面那三条同档
+		//（手上那一个数是运行期那张表的表项），但第二个入参是**交出去**的，不是只读借用——
+		// 见 threadAction。
+		return c.threadAction(x, ref, t)
 	case "net.connect", "net.listen", "process.start":
 		// 三条组函数 `net.connect`、`net.listen` 与 `process.start`：入参都是整数与文本，返回的都是操作系统给的那一类句柄。
 		// 端口越界与解析不到都由运行期报（10104／10103），起不成那个程序也是（10111），

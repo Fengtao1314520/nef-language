@@ -46,10 +46,8 @@ type DataLayout struct {
 	Global map[ir.G]int
 	String map[ir.S]int
 	Desc   map[ir.D]int
-	// StackFloor 是"这一号程序的栈底"那个位置：入口开局算好它（Linker.StackFloorSet），
-	// 之后每一帧开场比一次（Linker.StackGuard）。摆在这半截的最尾，因为它既不是
-	// 程序的变量也不是字面量，形状表也不涉及它。
-	StackFloor int
+	// StackFloor 这个位置不在这里了：栈底现在写在每一条线程自己的状态块里
+	// （runtime.StStackFloor），入口那一步算好它、每一帧开场比一次它。
 	// DbgHost 是宿主回调地址那个位置在这半截里的位置：只有 debug 构建才有，不开的时候是 -1，
 	// 数据段一个字节也不多。发射那一步每条检查点都 `mov rax,[rip+DbgHost]; call rax`，
 	// 起程序的那一侧在跑之前把 syscall.NewCallback 的地址写进这个位置（cmd/nf 的调试那一路）。
@@ -131,12 +129,10 @@ func BuildData(p *ir.Prog) *DataLayout {
 		}
 	}
 	d.Desc = buildDescs(p, &d.User, d.String)
-	// 栈底那个位置摆在这半截的最尾：它不是程序的变量、不是字面量、也不是形状，
-	// 任何一帧都可以在入口算好它之前先比较（那个位置初值是 0，比一次也不会跳）。
-	d.StackFloor = len(d.User)
-	d.User = append(d.User, make([]byte, 8)...)
-	// 宿主指针那个位置排在栈底之后：只有 debug 构建才有它，摆最后是为了不开的时候
-	// 前面那一段的偏移一个都不动（形状表里的差值都按位置算）。
+	// 栈底那个位置不在这一截里了：它现在在每一条线程自己的状态块里（runtime.StStackFloor），
+	// 入口那一步算好、每一帧开场比一次，比的是 `[r12+号]` 而不是 `[rip+号]`。
+	// 宿主指针那一个位置仍然排在最尾（dbg_test 钉着这一条）：调用链表排在它之前，
+	// 表是空的（整个程序没有一次用户函数调用）时前面那一段的偏移一个都不动。
 	d.buildTrace(p)
 	// 宿主指针那个位置排在最尾（dbg_test 钉着这一条）：调用链表排在它之前，
 	// 表是空的（整个程序没有一次用户函数调用）时前面那一段的偏移一个都不动。

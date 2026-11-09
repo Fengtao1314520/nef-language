@@ -57,19 +57,17 @@ const (
 	codeBadPath = 10051
 )
 
-// 文本与文件这一支的静态缓冲。行缓冲前面留了 16 字节的占位头，
+// 文本与文件这一支的静态缓冲：只剩标准输入那一个句柄。路径、宽字符与行缓冲那四块
+// 现在在每一条线程自己的状态块里（stateCells 那张清单），行缓冲前面留了 16 字节的占位头，
 // 好让 @read_line 收完整行之后直接叫 @str_sub 造对象，不必再写一遍复制。
 //
-// en: The static buffers of the text-and-file branch. The line buffer is fronted by a
-// placeholder 16-byte header so that @read_line, once a line is complete, can call @str_sub to
-// build the
-// object directly instead of writing the copy again.
+// en: The static data of the text-and-file branch: only the standard-input handle is left. The
+// four buffers - path, wide characters and the two line buffers - now sit in each thread's own
+// state block (see stateCells). The line buffer is fronted by a placeholder 16-byte header so
+// that @read_line, once a line is complete, can call @str_sub to build the object directly
+// instead of writing the copy again.
 func fileData(put func(name string, bs []byte)) {
-	put("wPath", make([]byte, wideCap*2+2))
-	put("rdBuf", make([]byte, strHead+lineCap))
 	put("hstdin", make([]byte, 8))
-	put("aWide", make([]byte, wideCap*2+2))
-	put("aBuf", make([]byte, strHead+lineCap))
 }
 
 // @to_wide(rcx=文本对象, rdx=目标缓冲)：UTF-8 翻成宽字符，末尾补一个 0，
@@ -289,7 +287,7 @@ func fileRead(b *rt) {
 	a := b.a
 	b.prologue()
 	b.put(4, x64.RCX)
-	b.leaRIP(x64.RDX, "wPath")
+	b.leaCell(x64.RDX, "wPath")
 	b.get(x64.RCX, 4)
 	b.call("@to_wide")
 	a.Test(x64.RAX, x64.RAX)
@@ -297,7 +295,7 @@ func fileRead(b *rt) {
 	a.Jcc(x64.E, badPath)
 
 	// CreateFileW(路径, 只读, 全共享, 无安全属性, 只开现有的, 普通属性, 无模板)
-	b.leaRIP(x64.RCX, "wPath")
+	b.leaCell(x64.RCX, "wPath")
 	a.MovImm(x64.RDX, genericRead)
 	a.MovImm(x64.R8, shareAll)
 	a.Xor(x64.R9, x64.R9)
@@ -461,14 +459,14 @@ func fileReadBytes(b *rt) {
 	a := b.a
 	b.prologue()
 	b.put(xPath, x64.RCX)
-	b.leaRIP(x64.RDX, "wPath")
+	b.leaCell(x64.RDX, "wPath")
 	b.get(x64.RCX, xPath)
 	b.call("@to_wide")
 	a.Test(x64.RAX, x64.RAX)
 	a.Jcc(x64.E, badPath)
 
 	// CreateFileW(路径, 只读, 全共享, 无安全属性, 只开现有的, 普通属性, 无模板)
-	b.leaRIP(x64.RCX, "wPath")
+	b.leaCell(x64.RCX, "wPath")
 	a.MovImm(x64.RDX, genericRead)
 	a.MovImm(x64.R8, shareAll)
 	a.Xor(x64.R9, x64.R9)
@@ -557,13 +555,13 @@ func readLine(b *rt) {
 	b.put(xN, x64.RAX)
 
 	// 标准输入句柄拿一次就缓存
-	b.loadRIP(x64.RAX, "hstdin")
+	b.loadCell(x64.RAX, "hstdin")
 	have := b.label()
 	a.Test(x64.RAX, x64.RAX)
 	a.Jcc(x64.NE, have)
 	a.MovImm(x64.RCX, stdInHandle)
 	b.impCall("GetStdHandle")
-	b.storeRIP(x64.RAX, "hstdin")
+	b.storeCell(x64.RAX, "hstdin")
 	a.Mark(have)
 
 	top := b.label()
@@ -574,9 +572,9 @@ func readLine(b *rt) {
 	b.get(x64.RAX, xN)
 	a.CmpImm(x64.RAX, lineCap)
 	a.Jcc(x64.AE, out)
-	b.leaRIP(x64.RCX, "hstdin")
+	b.leaCell(x64.RCX, "hstdin")
 	a.MovLoad(x64.RCX, x64.RCX, 0)
-	b.leaRIP(x64.RDX, "rdBuf")
+	b.leaCell(x64.RDX, "rdBuf")
 	a.AddImm(x64.RDX, strHead)
 	b.get(x64.R8, xN)
 	a.Add(x64.RDX, x64.R8)
@@ -592,7 +590,7 @@ func readLine(b *rt) {
 	a.AddImm(x64.RAX, 1)
 	b.put(xN, x64.RAX)
 	// 遇到换行就停止，换行本身不进结果
-	b.leaRIP(x64.RAX, "rdBuf")
+	b.leaCell(x64.RAX, "rdBuf")
 	a.AddImm(x64.RAX, strHead)
 	b.get(x64.RDX, xN)
 	a.AddImm(x64.RDX, -1)
@@ -606,7 +604,7 @@ func readLine(b *rt) {
 	b.get(x64.RAX, xN)
 	a.AddImm(x64.RAX, -1)
 	b.put(xN, x64.RAX)
-	b.leaRIP(x64.RAX, "rdBuf")
+	b.leaCell(x64.RAX, "rdBuf")
 	a.AddImm(x64.RAX, strHead)
 	b.get(x64.RDX, xN)
 	a.AddImm(x64.RDX, -1)
@@ -624,7 +622,7 @@ func readLine(b *rt) {
 	a.Mark(out)
 	a.Jmp(done)
 	a.Mark(done)
-	b.leaRIP(x64.RCX, "rdBuf")
+	b.leaCell(x64.RCX, "rdBuf")
 	a.Xor(x64.RDX, x64.RDX)
 	b.get(x64.R8, xN)
 	b.call("@str_sub")
@@ -665,7 +663,7 @@ func args(b *rt) {
 	b.put(xOut, x64.RAX)
 	// 在内存里直接跑的时候宿主已经把参数摆成宽字符放在 cmdW 那个位置里：
 	// 那才是"这个程序的命令行"，机器上真正的命令行带着 `run 文件.nf`，不能用。
-	b.loadRIP(x64.RAX, "cmdW")
+	b.loadCell(x64.RAX, "cmdW")
 	a.Test(x64.RAX, x64.RAX)
 	fromHost := b.label()
 	a.Jcc(x64.NE, fromHost)
@@ -679,7 +677,7 @@ func args(b *rt) {
 	putWide := func() {
 		b.get(x64.RAX, xWL)
 		a.ShlImm(x64.RAX, 1)
-		b.leaRIP(x64.RDI, "aWide")
+		b.leaCell(x64.RDI, "aWide")
 		a.Add(x64.RDI, x64.RAX)
 		a.MovStore8(x64.RDI, 0, x64.R8)
 		a.Mov(x64.RAX, x64.R8)
@@ -848,9 +846,9 @@ func args(b *rt) {
 	a.Jcc(x64.E, skip) // 第一个 token 是脚本名自己，不收进list
 	a.MovImm(x64.RCX, cpUTF8)
 	a.Xor(x64.RDX, x64.RDX)
-	b.leaRIP(x64.R8, "aWide")
+	b.leaCell(x64.R8, "aWide")
 	b.get(x64.R9, xWL)
-	b.leaRIP(x64.RAX, "aBuf")
+	b.leaCell(x64.RAX, "aBuf")
 	a.AddImm(x64.RAX, strHead)
 	a.MovStore(x64.RBP, arg5, x64.RAX)
 	a.MovImm(x64.RAX, lineCap)
@@ -859,7 +857,7 @@ func args(b *rt) {
 	a.MovStore(x64.RBP, arg7, x64.RAX)
 	a.MovStore(x64.RBP, arg8, x64.RAX)
 	b.impCall("WideCharToMultiByte")
-	b.leaRIP(x64.RCX, "aBuf")
+	b.leaCell(x64.RCX, "aBuf")
 	a.Xor(x64.RDX, x64.RDX)
 	a.Mov(x64.R8, x64.RAX)
 	b.call("@str_sub")

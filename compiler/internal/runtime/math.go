@@ -314,7 +314,7 @@ func roundBody(b *rt, isFloor, plusHalf bool) {
 	b.get(x64.RAX, qBits)
 	a.MovsdFromGPR(0, x64.RAX)
 	if plusHalf {
-		b.loadRIP(x64.RAX, "fHalf")
+		b.loadCell(x64.RAX, "fHalf")
 		a.MovsdFromGPR(1, x64.RAX)
 		a.Addsd(0, 1)
 		a.MovsdToGPR(x64.RAX, 0)
@@ -377,7 +377,8 @@ func intRound(b *rt) { roundBody(b, true, true) }
 
 // @i_random(rcx=起, rdx=止)：返回 rax=「起 ≤ 它 < 止」里的一个整数（区间不含止，与 `until` 同一条规则）。
 //
-// 种子只取一次，存在静态槽位里：首次调用时向高精度计数器取当前 tick。那条计数器是
+// 种子只取一次，存在这一条线程状态块的那个位置（`rndSeed`）里：首次调用时向高精度计数器取当前
+// tick。那条计数器是
 // `@time_elapsed` 也在用的 kernel32 名字，但这里**不需要频率**——只要它每次启动程序取值不同，
 // 两次调用之间又一直在走。若取回来的值恰好是 0，就替换成一个无理数常数：xorshift 的状态
 // 不能是 0（0 推进一百次还是 0，那就成了"永远返回同一个数"的伪随机）。
@@ -429,7 +430,7 @@ func iRandom(b *rt) {
 	a.Cmp(x64.RAX, x64.RCX)
 	a.Jcc(x64.GE, empty)
 
-	b.loadRIP(x64.RAX, "rndSeed")
+	b.loadCell(x64.RAX, "rndSeed")
 	a.Test(x64.RAX, x64.RAX)
 	a.Jcc(x64.NE, stepped)
 	a.LeaMem(x64.RCX, x64.RBP, int32(-8*(rTick+1)))
@@ -439,10 +440,10 @@ func iRandom(b *rt) {
 	a.Jcc(x64.NE, fresh)
 	a.MovImm(x64.RAX, -0x61c8864680b583ab) // 0x9E3779B97F4A7C15：黄金比例的 64 位
 	a.Mark(fresh)
-	b.storeRIP(x64.RAX, "rndSeed")
+	b.storeCell(x64.RAX, "rndSeed")
 
 	a.Mark(stepped)
-	b.loadRIP(x64.RAX, "rndSeed")
+	b.loadCell(x64.RAX, "rndSeed")
 	a.Mov(x64.RCX, x64.RAX)
 	a.ShlImm(x64.RCX, 13)
 	a.Xor(x64.RAX, x64.RCX)
@@ -452,7 +453,7 @@ func iRandom(b *rt) {
 	a.Mov(x64.RCX, x64.RAX)
 	a.ShlImm(x64.RCX, 17)
 	a.Xor(x64.RAX, x64.RCX)
-	b.storeRIP(x64.RAX, "rndSeed")
+	b.storeCell(x64.RAX, "rndSeed")
 	a.MovImm(x64.RCX, 0x2545F4914F6CDD1D)
 	a.Imul(x64.RAX, x64.RCX)
 
@@ -585,7 +586,7 @@ func fRandomFloat(b *rt) {
 	a := b.a
 	b.prologue()
 	// 种子未初始化时先用计数器取一次（与 @i_random 同一条路径）
-	b.loadRIP(x64.RAX, "rndSeed")
+	b.loadCell(x64.RAX, "rndSeed")
 	a.Test(x64.RAX, x64.RAX)
 	stepped := b.label()
 	a.Jcc(x64.NE, stepped)
@@ -597,10 +598,10 @@ func fRandomFloat(b *rt) {
 	a.Jcc(x64.NE, fresh)
 	a.MovImm(x64.RAX, -0x61c8864680b583ab) // 0x9E3779B97F4A7C15：黄金比例的 64 位
 	a.Mark(fresh)
-	b.storeRIP(x64.RAX, "rndSeed")
+	b.storeCell(x64.RAX, "rndSeed")
 
 	a.Mark(stepped)
-	b.loadRIP(x64.RAX, "rndSeed")
+	b.loadCell(x64.RAX, "rndSeed")
 	a.Mov(x64.RCX, x64.RAX)
 	a.ShlImm(x64.RCX, 13)
 	a.Xor(x64.RAX, x64.RCX)
@@ -610,7 +611,7 @@ func fRandomFloat(b *rt) {
 	a.Mov(x64.RCX, x64.RAX)
 	a.ShlImm(x64.RCX, 17)
 	a.Xor(x64.RAX, x64.RCX)
-	b.storeRIP(x64.RCX, "rndSeed")
+	b.storeCell(x64.RCX, "rndSeed")
 	a.MovImm(x64.RCX, 0x2545F4914F6CDD1D)
 	a.Imul(x64.RAX, x64.RCX)
 
@@ -719,7 +720,7 @@ func setSeed(b *rt) {
 	a.Jcc(x64.NE, fresh)
 	a.MovImm(x64.RCX, -0x61c8864680b583ab) // 0x9E3779B97F4A7C15：黄金比例的 64 位
 	a.Mark(fresh)
-	b.storeRIP(x64.RCX, "rndSeed")
+	b.storeCell(x64.RCX, "rndSeed")
 	b.epilogue()
 }
 

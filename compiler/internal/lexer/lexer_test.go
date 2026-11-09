@@ -139,13 +139,13 @@ func TestKeywordsAndReservedAreListed(t *testing.T) {
 	for _, w := range []string{"boolean", "int", "float", "byte", "unicode", "string", "object",
 		"list", "dict", "hashset", "Calendar", "length", "exit", "console", "text", "number", "math", "time",
 		"file", "path", "environment", "regular_expression", "json", "Json", "bytes", "Socket", "Listener",
-		"Response", "net", "http", "args", "Process", "process"} {
+		"Response", "net", "http", "args", "Process", "process", "Thread", "thread"} {
 		if !Reserved[w] {
 			t.Errorf("保留名单漏了 %s", w)
 		}
 	}
-	if len(Reserved) != 33 {
-		t.Errorf("内建名字一共该是 33 个，实际 %d", len(Reserved))
+	if len(Reserved) != 35 {
+		t.Errorf("内建名字一共该是 35 个，实际 %d", len(Reserved))
 	}
 }
 

@@ -81,6 +81,38 @@ for (i:int in 0 until 20000) {
 	}
 }
 
+// TestStringPadAboveTopBandThenThrow 走一遍补位那一段翻倍凑长度的路，结果比堆上最大那一档
+// 还大，然后来一句没人接住的抛出。
+//
+// 2026-11-07 之前这一处是把进程让操作系统终止：还回去的那一块比最大那一档大时，档号排到了
+// freeHeads 那一张之外，而紧挨在它后面的静态格子就是处理器链的头，于是抛出照着改过的头去跳。
+// 现在要的是那一句正常打出来、退出码 1。600000 个码点这一种宽度挑的是"刚跨过 512 KiB 那一档"
+// 的最小形状，跑一遍不到一百毫秒，不靠本机内存多大。
+// 块头那个位置记不下的宽度（4 GiB 以上）不放在这一条里：走到那一步要真拿出约 2 GiB，
+// 它在 internal/runtime 那一侧按一次分配钉住（TestAllocAboveHeaderSizeReportsOutOfMemory）。
+//
+// en: TestStringPadAboveTopBandThenThrow walks the doubling that builds the padding run, asks
+// for a result larger than the heap's biggest band, then throws with nobody catching it. Before
+// 2026-11-07 the operating system ended the process: returning a block above the biggest band
+// advanced the band number past the freeHeads table, whose neighbouring static cell is the head
+// of the handler chain, so the throw jumped to the rewritten head. What is wanted now is that
+// one line printed and exit code 1. A width of 600000 code points is the smallest shape that
+// crosses the 512 KiB band, it runs in well under a second, and it does not depend on how much
+// memory the machine has. Widths above what the block header can record (over 4 GiB) are not
+// here: reaching them means really putting up about 2 GiB, so that one is pinned by a single
+// allocation on the internal/runtime side (TestAllocAboveHeaderSizeReportsOutOfMemory).
+func TestStringPadAboveTopBandThenThrow(t *testing.T) {
+	got, code := run(t, `
+let s:string = "7"
+let t:string = s.pad_start(600000, "0")
+console.print(length(t))
+throw (7, "补位之后抛出")
+`)
+	if code != 1 || !strings.Contains(got, "600000\n") || !strings.Contains(got, "出错了（7）：补位之后抛出") {
+		t.Fatalf("比最大那一档还大的补位之后抛出该正常打那一句：got %q 码 %d", got, code)
+	}
+}
+
 // TestDictGet 键存在时与 d[键] 是同一种读法（读走）；键不存在时返回传入的默认值。
 // 默认值是交出去的：没命中键的那一份归调用方，命中键时没用上的那一份当场析构。
 func TestDictGet(t *testing.T) {

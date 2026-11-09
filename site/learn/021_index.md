@@ -54,9 +54,9 @@ nf hello.nf
 - **[错误信息索引](/tools/060_errors)** — 查询编译器报错信息的含义
 - **[标准库](/stdlib/044_index)** — 内置类型和函数的说明
 
-## 八份完整程序
+## 十份完整程序
 
-`samples/` 目录里有八份能直接运行的程序。每一份只用这门语言本身和标准库，学完一课就能挑一份跑。
+`samples/` 目录里有十份能直接运行的程序。每一份只用这门语言本身和标准库，学完一课就能挑一份跑。
 
 | 程序 | 讲什么 | 怎么跑 |
 | --- | --- | --- |
@@ -66,8 +66,10 @@ nf hello.nf
 | `rpn.nf` | 逆波兰式子求值：`class` 的字段与方法、`switch` 的分支不贯穿、除 0 抛出的错误被 `catch` 接住 | `nf samples/rpn.nf` |
 | `wordfreq.nf` | 一段文本数词频，按第一次出现的顺序报出来：`split`、`slice`、`dict` 的按键读写 | `nf samples/wordfreq.nf` |
 | `stock.nf` | 一张库存表，每一项存一个 `struct`：字面量要把字段列全，读出来是整份拷贝 | `nf samples/stock.nf` |
-| `echo.nf` | 回显服务器：`net.listen`、`accept`、`recv_into`、`send`。没有线程，所以一次只服务一个连接 | `nf samples/echo.nf 9000`，再从另一个窗口连过去 |
+| `echo.nf` | 回显服务器：`net.listen`、`accept`、`recv_into`、`send`。这一份不起线程，所以一次只服务一个连接 | `nf samples/echo.nf 9000`，再从另一个窗口连过去 |
 | `trace.nf` | 三层调用里抛出，把整条调用链打出来：`throw`、`catch` 的第四个名字 `trace`、没人接住时跟在"出错了…"那一行下面的那一段链 | `nf samples/trace.nf`，最后那一次抛出没人接住，所以它按 `1` 结束 |
+| `thread.nf` | 五件事分给五条线程各算一件：`thread.start` 的三种实参、`Thread<T>` 的 `T` 跟着被起的那个函数走、`wait()` 取回返回值、`class` 句柄交出去之后那个名字作废、一条线程里再起一条 | `nf samples/thread.nf` |
+| `generic.nf` | 一份声明按用到的类型各生成一份：泛型 `class`、泛型 `struct`、泛型顶层函数、两只实例是两只类型 | `nf samples/generic.nf` |
 
 最短的一份是 `shopping.nf`，去掉注释之后是这样：
 

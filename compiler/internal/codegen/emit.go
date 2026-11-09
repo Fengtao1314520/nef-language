@@ -21,6 +21,7 @@ import (
 	"strings"
 
 	"neflang.org/nf/internal/ir"
+	"neflang.org/nf/internal/runtime"
 	"neflang.org/nf/internal/x64"
 )
 
@@ -61,6 +62,15 @@ func Emit(p *ir.Prog, l *Linker, d *DataLayout) (int, error) {
 	// 运行期那一大块接在用户代码之后（assemble 里 base 就是这一个位置），所以"用户代码之后的
 	// 第一个字节"就在这儿打一个标号：抛出那一步分清帧链上哪一层还在用户代码里要用它。
 	e.codeEnd = l.Label()
+	// 这一份程序有没有起过线程：起过才在开局把 @thread_begin 的入口地址抄进运行期那个位置。
+	// 没起过就不抄——不带的程序产物与从前一字不动，也不必为一个用不到的地址多三条指令。
+	for _, f := range p.Funcs {
+		for _, in := range f.Body {
+			if c, ok := in.(*ir.Call); ok && c.Fn == "@thread_start" {
+				e.usesThread = true
+			}
+		}
+	}
 	for _, f := range p.Funcs {
 		if strings.HasPrefix(f.Name, "@") {
 			return 0, fmt.Errorf("函数名 %q 以 @ 开头，那是运行期例程的命名空间", f.Name)
@@ -113,6 +123,9 @@ type em struct {
 	codeEnd x64.Label
 	// trace 是已经填进调用链表的项数：与 BuildData 那一路的计数同一个顺序。
 	trace int
+	// usesThread 是这一份程序里有没有一处 @thread_start：有才在开局把那条线程进门走的第一段
+	// 代码的地址抄进运行期那个位置（见 threadInit）。
+	usesThread bool
 }
 
 // traceInit 在开局那一步写三个位置：用户代码的起点地址、调用链表的位置、表里的项数。
@@ -159,6 +172,30 @@ func (e *em) dbgInit() {
 	e.l.StoreRtData("dbgHost", x64.RAX)
 }
 
+// threadInit 在开局那一步再摆一处位置，只在这一份程序真起过线程那一趟写：
+// 那条线程进门走的第一段代码（@thread_begin）在代码段里从哪儿开始。
+//
+// 为什么由发射这一侧写而不是运行期自己算：运行期编完之后才知道每条例程落在代码段哪一格，
+// 而 CreateThread 要的是一个运行时的绝对地址——只有这儿已经把所有标号定位好了。
+// 同一件事在默认处理那一个落点上已经做过一次（见上面 PushHandler 那一处）。
+// 没起线程的程序一个字节也不写：那个位置读出来是 0，而它只被 @thread_start 读，那一条也只有
+// 起过线程才会走到。
+//
+// en: threadInit places one more position at start-up, and only when this program really starts
+// a thread: where the first code a new thread runs (@thread_begin) begins in the code section. Why
+// the emit step writes it rather than the runtime working it out: only after assembly does anyone
+// know where each routine landed, and CreateThread wants a runtime address - which is exactly
+// what is already resolved here. The default handler's landing does the same thing (see the
+// PushHandler case above). A program that never starts a thread writes not one byte: that cell
+// reads zero, and only @thread_start reads it, which only a program that starts threads reaches.
+func (e *em) threadInit() {
+	if !e.usesThread {
+		return
+	}
+	e.a.LeaLabel(x64.RAX, e.l.RtLabel("@thread_begin"))
+	e.l.StoreRtData("threadEntry", x64.RAX)
+}
+
 // maxOutOf 扫一遍函数体里的调用，数出第五个及以后的实参最多要几格。
 //
 // en: maxOutOf scans the function body and returns the largest number of arguments beyond the
@@ -185,14 +222,15 @@ func (e *em) function(f *ir.Func, id int32, entry bool) error {
 	e.cur = id
 	e.slots = f.Slots
 	e.maxOut = maxOutOf(f)
-	Prologue(e.a, f.Slots, e.maxOut)
 	if entry {
-		// 栈底要在第一帧之前就算好：往后每一帧开场都比它一次。
-		e.l.StackFloorSet(e.d.StackFloor)
+		e.l.EntryStart(f.Slots, e.maxOut)
 		e.traceInit()
 		e.dbgInit()
+		e.threadInit()
+	} else {
+		Prologue(e.a, f.Slots, e.maxOut)
 	}
-	e.l.StackGuard(e.d.StackFloor)
+	e.l.StackGuard()
 	// 实参还在 rcx／rdx／r8／r9 与 xmm0～3 里，第一步就搬进本帧的槽。
 	// 静态槽与字面量地址不能当被调方的参数落点，所以这里只可能写回帧槽。
 	for i := 0; i < f.Params; i++ {
@@ -335,7 +373,8 @@ func (e *em) inst(f *ir.Func, in ir.Inst) error {
 		if x.Default {
 			// 顶上那一条默认处理的落点也抄一份给运行期：抛出那一步问"有没有人接住"要把它排除掉。
 			// rcx 里的值一条指令也不动，下面照样是 @push_handler 的那一个入参。
-			e.l.StoreRtData("defaultHandler", x64.RCX)
+			// 段 5 起那个位置在每一条线程的状态块里（两条线程的默认落点是两个地址），所以走 StoreState。
+			e.l.StoreState(x64.RCX, runtime.StateAt("defaultHandler"))
 		}
 		e.a.Call(e.l.RtLabel("@push_handler"))
 
@@ -356,7 +395,7 @@ func (e *em) inst(f *ir.Func, in ir.Inst) error {
 		if err := e.into(x64.RCX, x.S); err != nil {
 			return err
 		}
-		e.l.StoreRtData("throwAt", x64.RCX)
+		e.l.StoreState(x64.RCX, runtime.StThrowAt)
 
 	case *ir.Catch:
 		// @throw 把码留在 rax、话留在 rdx、位置留在 r9，这里把它们摆进接住块的局部量

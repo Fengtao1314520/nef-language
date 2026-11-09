@@ -1,12 +1,12 @@
 # 标准库总览
 
-标准库分成十四组，在任何文件里都能直接调用：不需要 `import`，也无法被 `export`。
+标准库分成十五组，在任何文件里都能直接调用：不需要 `import`，也无法被 `export`。
 
-写成 `组名.动作` 的一共 95 个，另外还有一个全局的 `length`。
+写成 `组名.动作` 的一共 98 个，另外还有一个全局的 `length`。
 
 三个容器的成员（`add`、`remove`、`sort`、`insert_at` 等），以及文本的十八个点号成员（`split`、`index_of`、`trim_start`、`to_bytes` 等），都不在这 95 个名字里，各页的成员表会逐条列出。
 
-字节块的 `slice` 与 `to_base64`、套接字的 `send`、`recv_into`、`close`、监听的 `accept` 与 `close`、进程的 `wait` 与 `close` 同样不在其中。
+字节块的 `slice` 与 `to_base64`、套接字的 `send`、`recv_into`、`close`、监听的 `accept` 与 `close`、进程的 `wait` 与 `close`、线程的 `wait` 与 `id` 同样不在其中。
 
 | 组 | 作用 | 详细页 |
 | --- | --- | --- |
@@ -24,6 +24,7 @@
 | `json` | 解析一段 JSON：拆成树、取值、说明错误出现在哪一行 | [解析 JSON](/stdlib/056_json) |
 | `net` | TCP：建立连接、打开端口等待接入、收发字节、关闭 | [TCP 套接字](/stdlib/057_net) |
 | `http` | 获取一个网页：GET、POST，返回状态码、响应头与正文 | [HTTP 客户端](/stdlib/058_http) |
+| `thread` | 起一条线程跑一个函数：等它跑完取回返回值，名字走到尽头自动等一次 | [线程](/stdlib/067_thread) |
 
 一组一页，每页列出该组的成员表、示例与容易出错的写法。
 
@@ -65,7 +66,7 @@
 
 组名都是完整单词：`console`、`text`、`number`、`environment`、`regular_expression`、`json`。
 
-这十四个组名都是保留字，不能用作变量名、字段名、函数名、类型名。连同类型名与 `length`、`exit`、`args` 在内的完整名单写在[语法速查](/reference/034_syntax)。
+这十五个组名都是保留字，不能用作变量名、字段名、函数名、类型名。连同类型名与 `length`、`exit`、`args` 在内的完整名单写在[语法速查](/reference/034_syntax)。
 
 ## 错误如何表现
 

@@ -84,7 +84,7 @@ func fileWriteAppend(b *rt, access, disposition int64) {
 	badPath := b.label()
 	a.Jcc(x64.E, badPath)
 
-	b.leaRIP(x64.RCX, "aWide")
+	b.leaCell(x64.RCX, "aWide")
 	a.MovImm(x64.RDX, access)
 	a.MovImm(x64.R8, shareAll)
 	a.Xor(x64.R9, x64.R9)
@@ -179,7 +179,7 @@ func fileWriteBytes(b *rt) {
 	a.Test(x64.RAX, x64.RAX)
 	a.Jcc(x64.E, badPath)
 
-	b.leaRIP(x64.RCX, "aWide")
+	b.leaCell(x64.RCX, "aWide")
 	a.MovImm(x64.RDX, genericWrite)
 	a.MovImm(x64.R8, shareAll)
 	a.Xor(x64.R9, x64.R9)
@@ -241,7 +241,7 @@ func fileRemove(b *rt) {
 	a.Test(x64.RAX, x64.RAX)
 	badPath := b.label()
 	a.Jcc(x64.E, badPath)
-	b.leaRIP(x64.RCX, "aWide")
+	b.leaCell(x64.RCX, "aWide")
 	b.impCall("DeleteFileW")
 	zeroExtend32(b, 1) // BOOL 是 DWORD 宽度，只取低半部分有效
 	b.get(x64.RAX, 1)

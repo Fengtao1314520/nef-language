@@ -720,6 +720,7 @@ const (
 	KindBytes    // bytes：一块连续内存，打印逐字节输出十进制，析构即释放这一块
 	KindHandle   // 操作系统句柄（Socket 与 Listener）：打印输出类型名，收尾调用 closesocket
 	KindProc     // 子进程（Process）：打印方式相同，收尾调用 @proc_close——未等待时直接结束该进程
+	KindThread   // 线程句柄（Thread<int>）：打印方式相同，收尾调用 @thread_join——到作用域尽头自动等它跑完并归还那份状态块
 )
 
 // Field 是 struct／class 的一个字段：名字、在块里的偏移、它自己的形状。

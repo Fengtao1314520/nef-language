@@ -39,6 +39,7 @@ var siteParamShapes = map[string][]string{
 	"056_json.md":               {"json", "dict"},
 	"057_net.md":                {"net", "socket", "listener", "bytes"},
 	"058_http.md":               {"http"},
+	"067_thread.md":             {"thread"},
 }
 
 // siteArgNames 认括号里那一段是不是"参数名"的样子：小写字母、数字与下划线，

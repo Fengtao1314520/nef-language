@@ -248,7 +248,7 @@ func (c *Checker) assignStmt(a *ast.Assign) {
 		c.fail(a.Where(), "%s 是方法，不能被赋值", target.NameText)
 		return
 	case *ast.Name:
-		v, ok := c.lookup(target.Text)
+		v, depth, ok := c.lookupAt(target.Text)
 		if !ok {
 			c.fail(target.Where(), "没有 %s 这个名字", target.Text)
 			return
@@ -263,6 +263,15 @@ func (c *Checker) assignStmt(a *ast.Assign) {
 		if c.isConstName(target.Text) {
 			c.fail(target.Where(), "%s 是 const，声明之后不可改", target.Text)
 			return
+		}
+		if c.facts != nil {
+			// 赋值左边这一次使用与读它走同一份记录：编辑器的"找引用"靠它认出写入这一处。
+			//
+			// en: This use on the left of an assignment is recorded like a read: the editor's
+			// find-references recognises the write site through it.
+			decl, _ := v.node.(*ast.Decl)
+			param, _ := v.node.(*ast.Param)
+			c.facts.Binds[target] = Bind{By: v.by, Global: depth == 0, Decl: decl, Param: param, Typ: v.typ, At: v.pos}
 		}
 		c.exprExpected(a.Value, v.typ)
 		c.takeFrom(a.Value, v.typ)

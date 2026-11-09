@@ -66,7 +66,9 @@ const (
 	tebStackBase = runtime.TebStackBase
 	// stackSlack 是触到边界之前先让出来的一段：检查在离栈底还差这一截时就停，
 	// 于是 @die_stack 那一帧、输出错误信息那一路调用、以及 WriteFile 自己用的栈都还在保留里。
-	stackSlack = 0x10000
+	// 号数在运行期那一份里（`runtime.StackSlack`）：算栈底那一步（`link.go` 的 StackFloorSet）
+	// 减的是同一截，两处必须同一条算式。
+	stackSlack = runtime.StackSlack
 )
 
 // outArgBytes 是这一帧要替第五个及以后的实参留出的字节数。
@@ -179,4 +181,20 @@ func EntryPrologue(a *x64.Asm, slots, maxOut int) {
 	a.AndImm(x64.RSP, -16) // 先归到 16 字节边界，不管进来是什么形状
 	a.AddImm(x64.RSP, -8)  // 摆成"刚被 call 进来"那个位置
 	Prologue(a, slots, maxOut)
+}
+
+// EntryStart 是进程入口真正开场的那四段：按 EntryPrologue 那两条把 rsp 摆正并立帧，
+// 然后备好这一条线程那一份运行期状态（R12 从此是它的起点），最后算出栈底写进那一块里。
+// 顺序不能换：状态块要在栈底那个位置写下去之前备好，而两者都要在第一帧的比较之前办好
+// （每一帧开场比的就是那个位置）。
+//
+// en: EntryStart is what really opens the process entry: EntryPrologue's two lines align rsp and
+// raise the frame, then this thread's runtime state block is prepared (R12 is its start from
+// then on), and finally the stack floor is computed and written into that block. The order is
+// fixed: the block must exist before the stack-floor cell is written, and both come before the
+// first frame's comparison - every frame opens by comparing exactly that cell.
+func (l *Linker) EntryStart(slots, maxOut int) {
+	EntryPrologue(l.a, slots, maxOut)
+	l.StateInit()
+	l.StackFloorSet()
 }

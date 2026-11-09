@@ -1,5 +1,5 @@
-// extension.ts 做两件事：把 `.nf` 文件交给 `nf lsp`（报错、补全、悬停），以及把 `nf dap`
-// 注册成调试适配器。
+// extension.ts 做两件事：把 `.nf` 文件交给 `nf lsp`（报错、补全、悬停、转到定义、找引用、
+// 重命名、格式化、参数提示、大纲、折叠与语义着色），以及把 `nf dap` 注册成调试适配器。
 //
 // 语法高亮、注释符号与括号配对不经过这段代码：它们在 package.json 与
 // language-configuration.json 里声明，由 VS Code 自己做。

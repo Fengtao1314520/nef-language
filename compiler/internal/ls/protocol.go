@@ -86,6 +86,76 @@ type capabilities struct {
 	SemanticTokensProvider *semanticTokensOptions `json:"semanticTokensProvider,omitempty"`
 	// SignatureHelpProvider 给出触发键：打到左括号与逗号就要问"这一格填什么"。
 	SignatureHelpProvider *signatureHelpOptions `json:"signatureHelpProvider,omitempty"`
+	// ReferencesProvider、RenameProvider 与 DocumentFormattingProvider：找引用（Shift+F12）、
+	// 重命名（F2）与格式化文档（Shift+Alt+F），同样是声明了编辑器才会发那几种请求。
+	// 重命名带 prepareProvider：编辑器先问"这个名字能不能改"，能改才弹出输入框。
+	//
+	// en: ReferencesProvider, RenameProvider and DocumentFormattingProvider: find-references
+	// (Shift+F12), rename (F2) and format-document (Shift+Alt+F); the editor sends those requests
+	// only once they are declared. Rename carries prepareProvider: the editor first asks whether
+	// the name can be renamed and opens the input box only when it can.
+	ReferencesProvider         bool           `json:"referencesProvider,omitempty"`
+	RenameProvider             *renameOptions `json:"renameProvider,omitempty"`
+	DocumentFormattingProvider bool           `json:"documentFormattingProvider,omitempty"`
+}
+
+// renameOptions 是重命名那一条的声明。
+//
+// en: renameOptions declares the rename capability.
+type renameOptions struct {
+	PrepareProvider bool `json:"prepareProvider"`
+}
+
+// TextEdit 是把一段范围换成新文字的一条改动。
+//
+// en: TextEdit is one edit replacing a range with new text.
+type TextEdit struct {
+	Range   Range  `json:"range"`
+	NewText string `json:"newText"`
+}
+
+// WorkspaceEdit 是一次跨几份文件的改动：键是文件的 URI。
+//
+// en: WorkspaceEdit is one change across several files: keys are file URIs.
+type WorkspaceEdit struct {
+	Changes map[string][]TextEdit `json:"changes"`
+}
+
+// referenceParams 是找引用的参数：光标处那一份文件与位置，加上声明那一处算不算。
+//
+// en: referenceParams are find-references parameters: the file and position under the cursor,
+// plus whether the declaration itself counts.
+type referenceParams struct {
+	TextDocument struct {
+		URI string `json:"uri"`
+	} `json:"textDocument"`
+	Position Position `json:"position"`
+	Context  struct {
+		IncludeDeclaration bool `json:"includeDeclaration"`
+	} `json:"context"`
+}
+
+// renameParams 是重命名的参数：光标处那一份文件与位置，加上要换成的新名字。
+//
+// en: renameParams are rename parameters: the file and position under the cursor, plus the new
+// name to change to.
+type renameParams struct {
+	TextDocument struct {
+		URI string `json:"uri"`
+	} `json:"textDocument"`
+	Position Position `json:"position"`
+	NewName  string   `json:"newName"`
+}
+
+// formattingParams 是格式化文档的参数：哪一份文件，加上缩进的两个选项。
+//
+// en: formattingParams are format-document parameters: which file, plus the two indentation
+// options.
+type formattingParams struct {
+	TextDocument struct {
+		URI string `json:"uri"`
+	} `json:"textDocument"`
+	Options FormattingOptions `json:"options"`
 }
 
 // semanticTokensOptions 是语义着色那一条的声明。图例必须在 initialize 里给全：

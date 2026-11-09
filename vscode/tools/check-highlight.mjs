@@ -55,15 +55,51 @@ function expectScope(text, scope) {
   }
 }
 
+// expectEveryScope 要求这一个文字出现的每一处都在同一档：定义那一个名字与调用它的那一处
+// 分开着色，屏幕上就是两个不相干的东西。切出来的那一段带着前面的空白，比的时候先去掉——
+// 空白不是文字的一部分，留着就会把"名字前面有一个空格"这一处漏掉。
+//
+// en: expectEveryScope wants every occurrence of this text in one scope: a definition and its call
+// sites coloured apart read as two unrelated things on screen. A slice carries the whitespace in
+// front of it, so compare without it - the space is not part of the name, and leaving it in lets an
+// occurrence with a space in front slip past.
+function expectEveryScope(text, scope) {
+  assertions++
+  const hits = flat.filter((t) => t.text.trim() === text)
+  if (hits.length === 0) {
+    fail.push(`探针里找不到 ${JSON.stringify(text)} 这一段，高亮没切出来`)
+    return
+  }
+  const off = hits.filter((t) => !t.scopes.includes(scope))
+  if (off.length > 0) {
+    fail.push(`${JSON.stringify(text)} 有 ${off.length} 处不在 ${scope}：${off.map((t) => t.scopes.join('|')).join(' 或 ')}`)
+  }
+}
+
 const probe = [
   'struct Bag {',
   '    v:int',
+  '}',
+  'class Cell<Item> {',
+  '    v:Item',
+  '',
+  '    method take<E>(k:E):E {',
+  '        return k',
+  '    }',
+  '}',
+  'method twice<Element>(v:Element):Element {',
+  '    return v',
   '}',
   'method half(n: int): int {',
   '    let xs: list<int> = [1, 2_000, 0x1F]',
   '    const s: string = "甲\\n乙"',
   '    let c: unicode = 97',
   '    let one: Bag = new Bag { v: 3 }',
+  '    let box: Cell<int> = new Cell<int>(v: 3)',
+  '    let two: Cell<int> = Cell<int> { v: 4 }',
+  '    let k:int = box.take<string>("乙")',
+  '    let again:int = half(1) + half(two.v)',
+  '    let word:string = twice<string>("丙")',
   '    if n == 0 || !true { return 0 }',
   '    while n <= 3 { n++ }',
   '    let h: dict<string, int> = { "键": 1 }',
@@ -145,6 +181,16 @@ expectScope('\\n', 'constant.character.escape.nf')
 expectScope('块注释', 'comment.block.nf')
 expectScope('跨两行', 'comment.block.nf')
 expectScope('尾巴', 'comment.block.nf')
+// 泛型那一族：类型参数（`Item`、`E`）与实例名（`Cell`）都是类型名那一档，
+// `new` 后面那一个、标注后面那一个都照样认得。调用点中间夹了一对尖括号时
+// （`box.take<string>(`、`twice<string>(`），名字定义处与调用处要在同一档里，
+// 不能一处算函数、另一处算字段。
+expectScope('Item', 'entity.name.type.nf')
+expectScope('E', 'entity.name.type.nf')
+expectScope('Cell', 'entity.name.type.nf')
+expectEveryScope('take', 'entity.name.function.nf')
+expectEveryScope('twice', 'entity.name.function.nf')
+expectScope('box', 'variable.other.readwrite.nf')
 
 // 十二个组名逐个校验（`bytes` 除外，理由见上一条）：像把 `regex` 改成
 // `regular_expression` 这一类改名，这里也得报失败。

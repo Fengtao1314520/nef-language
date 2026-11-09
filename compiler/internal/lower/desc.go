@@ -143,8 +143,12 @@ func (l *L) descOf(t check.Type) (ir.D, error) {
 		} else {
 			d().Kind = ir.KindClass
 		}
-		// 打印出来的是原名：包根只用于编译器区分同名类型，不出现在打印输出里。
-		d().Tag, d().Name = tag, l.msg(check.BareName(t.Name))
+		// 打印出来的是给人看的那一串：包根只用于编译器区分同名类型，不出现在打印输出里；
+		// 泛型实例在这里带上尖括号里填的那些实参（`Box<int>`）。
+		// What prints is the reader-facing string: the package root only tells the compiler's
+		// same-named types apart and never reaches the output; a generic instance carries its
+		// arguments here (`Box<int>`).
+		d().Tag, d().Name = tag, l.msg(t.String())
 		for _, fi := range l.f.Fields[t.Name] {
 			fd, err := l.descOf(fi.Typ)
 			if err != nil {
@@ -176,6 +180,20 @@ func (l *L) descOf(t check.Type) (ir.D, error) {
 		// 析构器的那张表因此不必在运行期再判断"这是哪一类句柄"。
 		d().Kind = ir.KindProc
 		d().Name = l.msg("Process")
+	case check.Thread:
+		// 线程句柄：打印方式与上面两类完全相同（交出的就是写出来的那一个类型名，带上尖括号里
+		// 那一层），收尾那一步除了等一次还要按**返回的那一个值的形状**归还它，所以这一条描述
+		// 带着元素那一份（与 list 的元素同一个摆法）。
+		d().Kind = ir.KindThread
+		d().Name = l.msg(t.String())
+		if len(t.Args) != 1 {
+			return 0, fmt.Errorf("%s 说不清它返回的那一层形状，无法打印", t)
+		}
+		e, err := l.descOf(t.Args[0])
+		if err != nil {
+			return 0, err
+		}
+		d().Elem = e
 	case check.Obj:
 		// 盒子里是哪一个类型，只有运行期看块头上那 8 字节知道，所以这条描述指向
 		// "类型字→形状"那一张表（整程序一张，Run 收尾时填）。

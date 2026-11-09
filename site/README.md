@@ -67,7 +67,7 @@ npm run verify    # check + ledger + rhythm + structure + typography + names + b
 index.md              首页
 learn/    021–032     教程：第 0 课加 11 课
 reference/ 033–043    语法与语义参考，034 是语法速查，043 是术语表
-stdlib/   044–058     标准库：总览一页，十四组每组一页（`number` 与 `math` 合成一页）
+stdlib/   044–058、067 标准库：总览一页，十五组每组一页（`number` 与 `math` 合成一页）
 tools/    059–061     命令行工具、错误信息索引、编辑器与调试
 libs/     062–063     用 Nef 编写的外部库：web_test 与 test_run
 about/    064–066     设计取舍、许可与商标、版本与兼容

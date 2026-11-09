@@ -36,6 +36,16 @@ func (c *Checker) checkDef(d ast.Def) {
 		if !def.IsMethod {
 			k := c.key(def.NameText)
 			fi := c.funcs[k]
+			if len(def.TypeParams) > 0 {
+				// 带类型参数的顶层函数在这一趟只登记名字：参数与体都要等某一只实例生成时才解得开
+				// （`Element` 那一个名字配上实参之后才认得出是哪一只类型）。
+				// 名字表里那一笔保持没摊开，调用处生成实例时按那一份模板去复制。
+				// A top-level function with type parameters registers its name only in this pass:
+				// both its parameters and its body need an instance before `Element` names a type.
+				// The entry stays unflattened; the call site copies the template when it builds
+				// one.
+				return
+			}
 			fi.ret = c.retOf(def)
 			fi.params = c.paramsOf(def)
 			// 摊开一次就登记结果：别的文件后来引用这个函数时不再摊第二遍——第二次摊开是在
@@ -150,7 +160,7 @@ func (c *Checker) checkRefParam(t Type, pos ast.Pos) {
 		return
 	}
 	switch t.Kind {
-	case Socket, Listener, Process:
+	case Socket, Listener, Process, Thread:
 		c.fail(pos, "%s 是系统给的句柄，不许写 ref：被调方关一次，调用方那个名字就成了空句柄", t)
 	}
 }
@@ -297,6 +307,29 @@ func (c *Checker) checkObject(o *ast.Object) {
 	if o.Kind == "struct" && len(o.Methods) > 0 {
 		c.fail(o.Methods[0].Where(), "struct 里不写方法")
 	}
+	if len(o.TypeParams) > 0 {
+		// 泛型的模板在这一趟只查名字：类型参数本身不限制写法，撞上内建名字与保留名才算错，
+		// 两个参数同名也算错——后写的那一个会把前一个顶掉，摊字段时解出的是错的类型，
+		// 这一处不能留给运行期。字段类型与方法体都要等某一只实例生成时才查得动：
+		// `Content` 那一个名字配上实参之后才认得出是哪一只类型。
+		//
+		// en: a generic template checks names only in this pass. A parameter's spelling is
+		// unrestricted, but colliding with a built-in or reserved name is wrong, and so is
+		// repeating one: the second would quietly replace the first while fields are flattened,
+		// resolving to the wrong type - not something to leave to runtime. Field types and
+		// method bodies must wait for an instance, since `Content` names a type only once an
+		// argument is attached.
+		seenParam := map[string]ast.Pos{}
+		for _, tp := range o.TypeParams {
+			c.checkName(tp.Name, tp.Where())
+			if _, dup := seenParam[tp.Name]; dup {
+				c.fail(tp.Where(), "%s 已经定义过了", tp.Name)
+				continue
+			}
+			seenParam[tp.Name] = tp.Where()
+		}
+		return
+	}
 	// 字段类型：接口名不行；不能指回自己
 	for _, f := range o.Fields {
 		t := c.resolveType(f.Typ, f.Where())
@@ -338,6 +371,14 @@ func (c *Checker) checkObject(o *ast.Object) {
 	}
 	// 方法体
 	for _, m := range o.Methods {
+		if len(m.TypeParams) > 0 {
+			// 方法自己带类型参数：体里那些参数类型要等调用处把实参配上才解得开，
+			// 那时候生成的是"这一份类实例 ＋ 这一份方法实参"的副本（generic.go 的 instantiateCallable）。
+			// A method with its own type parameters: its parameters resolve only once the call
+			// site supplies arguments, at which point the copy generated is that class instance
+			// plus that argument list (instantiateCallable in generic.go).
+			continue
+		}
 		fi := funcInfo{file: c.file, fn: m, ret: c.retOf(m), params: c.paramsOf(m), method: true, owner: ownKey, key: ownKey + "." + m.NameText}
 		c.checkFuncBody(fi)
 	}

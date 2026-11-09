@@ -62,6 +62,7 @@ const (
 	waitInfinite         = 0xFFFFFFFF
 	currentProcess       = ^uintptr(0) // GetCurrentProcess 返回的那个伪句柄
 	hostSpare            = 1 << 20     // 接在映像尾部之后，用来放参数串
+	createSuspended      = 0x4         // CREATE_SUSPENDED：起起来先停在入口，拿到线程号再放行
 )
 
 var (
@@ -70,6 +71,7 @@ var (
 	procLoadLibrary      = kernel32.NewProc("LoadLibraryW")
 	procGetProcAddress   = kernel32.NewProc("GetProcAddress")
 	procCreateThread     = kernel32.NewProc("CreateThread")
+	procResumeThread     = kernel32.NewProc("ResumeThread")
 	procWaitForSingle    = kernel32.NewProc("WaitForSingleObject")
 	procWriteProcessMemo = kernel32.NewProc("WriteProcessMemory")
 )

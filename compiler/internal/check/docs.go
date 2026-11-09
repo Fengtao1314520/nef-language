@@ -591,6 +591,23 @@ var stdDocs = map[string]StdDoc{
 		Eg: `let child: Process = process.start("cmd /c ver")` + "\n" + `child.close()`,
 	},
 
+	// —— thread：线程
+	"thread.start": {
+		Zh: "起一条线程跑那一个函数，返回一张句柄（`Thread<int>`、`Thread<string>` 这一种，尖括号里是被起的那个函数的返回类型）。第一个入参要么是一个写出来的顶层函数名，要么是一个 `fn` 名字；那一个函数只收一个参数、必须有返回值，第二个入参就是交给它的那一个值。交进去的那个值按\"交出\"处理：原来那个名字当场作废。能交过去的类型只有不参与递归析构的那几样——值类型、文本与 `class` 句柄；容器、`bytes`、`Json`、盒子、系统句柄与函数值（第一个入参那一格除外）都在编译期拦下，理由是它们的归还点还没按线程各一份定下来。同时挂着的线程到一百二十八条时报 10095 号，系统起不出这条线程报 10096 号并带上系统号码。",
+		En: "Starts a thread running that function and hands back a handle (Thread<int>, Thread<string> - the argument in brackets is the started function's return type). The first parameter is either a written top-level function name or an fn name; that function takes exactly one parameter and must return a value, and the second parameter is what it receives. The value handed in counts as given away: the old name is void from that moment. Only types whose release does not recurse may cross - the value types, text and class handles; containers, bytes, Json, boxes, system handles and function values (the first parameter aside) are refused at compile time because their release point has not been settled per thread. A hundred and twenty-eight live threads give 10095; when the system cannot start the thread the code is 10096 with the system's number attached.",
+		Eg: "method worker(n:int):int {\n    return n * 2\n}\nlet t: Thread<int> = thread.start(worker, 21)\nconsole.print(t.wait())",
+	},
+	"thread.wait": {
+		Zh: "等那条线程跑完，返回它那个函数返回的值。等到的是\"那条线程出错结束了\"（它的抛出没人接住）时当场抛 10094 号那一句——那一条线程自己那一句\"出错了…\"与它的调用链已经先打过了。等过一次之后这个名字就是空句柄，再等一次是 10092 号。名字走到作用域尽头时不需要写这一句：语言自动等一次并归还那条线程的运行期状态，那一次自动等不抛 10094。",
+		En: "Waits for the thread to finish and returns the value its function produced. When the thread ended on an uncaught throw, this raises code 10094 - that thread's own error line and call chain were printed first. After one wait the name is an empty handle, and waiting again gives 10092. Nothing needs writing when the name reaches the end of its scope: the language waits once and releases that thread's runtime state, and that automatic wait does not raise 10094.",
+		Eg: "method worker(n:int):int {\n    return n * 2\n}\nlet t: Thread<int> = thread.start(worker, 21)\nlet half: int = t.wait()",
+	},
+	"thread.id": {
+		Zh: "返回那张线程表上的位置。它只是给人看的编号（排查、打印时用），不能拿来等那条线程——等它只走 `wait()`。",
+		En: "Returns this thread's position in the thread table. It is a number for people to read (debugging, printing), not something to wait with - waiting goes through wait().",
+		Eg: "method worker(n:int):int {\n    return n\n}\nlet t: Thread<int> = thread.start(worker, 1)\nconsole.print(t.id())",
+	},
+
 	// —— list：列表
 	"list.add": {
 		Zh: "在末尾添加一个元素。",
@@ -891,6 +908,7 @@ var groupDocs = map[string]groupDoc{
 	"path":               {"只处理路径那一段文本，不访问系统。", "Manipulating path text only, without touching the system."},
 	"environment":        {"环境变量与当前目录。", "Environment variables and the current directory."},
 	"process":            {"启动一个程序、等它结束、关掉这个把手。", "Starting a program, waiting for it and releasing the handle."},
+	"thread":             {"起一条线程跑一个函数、等它跑完取回结果。", "Starting a thread to run a function, waiting for it and taking the result back."},
 	"time":               {"当前时间、运行了多久、等待、拆成日历与时区差。", "Current time, elapsed time, sleeping, calendar breakdown and the UTC offset."},
 	"regular_expression": {"匹配、查找、替换与切分。", "Matching, finding, replacing and splitting."},
 	"json":               {"解析 JSON、读那棵树、取各类型的值。", "Parsing JSON and reading that tree."},

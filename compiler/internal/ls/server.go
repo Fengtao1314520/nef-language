@@ -18,15 +18,15 @@
 // 或者把那一侧关掉（`nf lsp`）。
 //
 // 只处理这一截用得上的方法。无法识别的请求按 JSON-RPC 回 -32601，无法识别的通知直接丢：
-// 编辑器会发一大串这边根本没有的方法（画参考、格式化、拖拽），回它一条"没有这个方法"
+// 编辑器会发一大串这边根本没有的方法（代码动作、代码透镜、拖拽），回它一条"没有这个方法"
 // 比断掉那条对话好。
 //
 // en: server.go is the loop: read one message, answer what needs answering, push diagnostics
 // when they changed, until the editor says exit or closes that end (`nf lsp`).
 // Only the methods this slice uses are handled: an unrecognised request gets JSON-RPC -32601,
 // an unrecognised notification is dropped outright. Editors send a long list of methods this
-// server does not have (references, formatting, rename), and one "no such method" reply is
-// better than killing the conversation.
+// server does not have (code actions, code lenses, drag and drop), and one "no such method"
+// reply is better than killing the conversation.
 package ls
 
 import (
@@ -104,6 +104,9 @@ func (s *server) handle(m request) (stop bool) {
 				FoldingRangeProvider:   true,
 				SemanticTokensProvider: &semanticTokensOptions{Legend: semanticLegend(), Full: true},
 				SignatureHelpProvider:  &signatureHelpOptions{TriggerCharacters: []string{"(", ","}},
+				ReferencesProvider:     true,
+				RenameProvider:         &renameOptions{PrepareProvider: true},
+				DocumentFormattingProvider: true,
 			},
 			ServerInfo: serverInfo{Name: "nf"},
 		})
@@ -243,6 +246,60 @@ func (s *server) handle(m request) (stop bool) {
 			return false
 		}
 		s.conn.Reply(m.ID, SignatureHelpInfo(pathFromURI(p.TextDocument.URI), text, p.Position))
+	case "textDocument/references":
+		var p referenceParams
+		if json.Unmarshal(m.Params, &p) != nil {
+			s.badParams(m)
+			return false
+		}
+		text, ok := s.docs[p.TextDocument.URI]
+		if !ok {
+			s.conn.Reply(m.ID, nil)
+			return false
+		}
+		s.conn.Reply(m.ID, References(pathFromURI(p.TextDocument.URI), text, p.Position, p.Context.IncludeDeclaration))
+	case "textDocument/prepareRename":
+		path, text, _, ok := s.docOf(m)
+		if !ok {
+			s.conn.Reply(m.ID, nil)
+			return false
+		}
+		var p positionParams
+		json.Unmarshal(m.Params, &p)
+		s.conn.Reply(m.ID, PrepareRename(path, text, p.Position))
+	case "textDocument/rename":
+		var p renameParams
+		if json.Unmarshal(m.Params, &p) != nil {
+			s.badParams(m)
+			return false
+		}
+		text, ok := s.docs[p.TextDocument.URI]
+		if !ok {
+			s.conn.ReplyError(m.ID, ErrRequestFailed, "这一份文件没有打开过")
+			return false
+		}
+		edit, msg := Rename(pathFromURI(p.TextDocument.URI), text, p.Position, p.NewName)
+		if msg != "" {
+			s.conn.ReplyError(m.ID, ErrRequestFailed, msg)
+			return false
+		}
+		s.conn.Reply(m.ID, edit)
+	case "textDocument/formatting":
+		var p formattingParams
+		if json.Unmarshal(m.Params, &p) != nil {
+			s.badParams(m)
+			return false
+		}
+		text, ok := s.docs[p.TextDocument.URI]
+		if !ok {
+			s.conn.Reply(m.ID, []TextEdit{})
+			return false
+		}
+		edits := Formatting(pathFromURI(p.TextDocument.URI), text, p.Options)
+		if edits == nil {
+			edits = []TextEdit{}
+		}
+		s.conn.Reply(m.ID, edits)
 	default:
 		if m.ID != nil {
 			s.conn.ReplyError(m.ID, ErrMethodNotFound, "nf 的服务器没有这个方法："+m.Method)

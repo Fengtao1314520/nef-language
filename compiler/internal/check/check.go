@@ -90,6 +90,11 @@ const (
 	// 语言里那一个名字装不下两把，所以手上那个数是运行期那一张表的表项。
 	// 名字走到头调用一次 `@proc_close`：没等它结束就把进程终止、句柄关闭。规则与上面两类相同。
 	Process
+	// Thread 是一条跑着的线程：要记的不止一个数（系统给的句柄、它返回的那一个 64 位值、
+	// 它自己那块运行期状态的起点），所以手上那个数也是运行期那张表的表项。
+	// 它带一个尖括号参数，那一个是被起的那个函数的返回类型：`Thread<int>`，`wait()` 返回 `int`。
+	// 名字走到头自动等它跑完并归还那一块（`@thread_join`），语言里没有"不等了"的写法。
+	Thread
 	// FuncVal 是函数值的类型：`fn(int,ref string):int`。Args 里第一个是返回类型（没有返回值时
 	// 是 NoRet），往后依次是参数类型；参数是借用时那一项的 Kind 是 Borrow。
 	// 它是 8 个字节的一个入口地址，按值拷贝、不是句柄、不进容器、不装箱、也打印不出来。
@@ -134,6 +139,8 @@ func (k Kind) String() string {
 		return "Listener"
 	case Process:
 		return "Process"
+	case Thread:
+		return "Thread"
 	case NoRet:
 		return "无返回值"
 	case FuncVal:
@@ -164,7 +171,23 @@ func (t Type) String() string {
 		return "dict<" + t.Args[0].String() + ", " + t.Args[1].String() + ">"
 	case Set:
 		return "hashset<" + t.Args[0].String() + ">"
+	case Thread:
+		// 与容器同一读法：句柄身上那个类型要说得清是哪一只（`Thread<int>` 与 `Thread<string>`
+		// 的 `wait()` 返回的东西不一样）。stdFuncs 那张表里占位的那一条没有 Args（真正的返回
+		// 类型由 threadStart 现场算），那一串只写基名。
+		if len(t.Args) == 0 {
+			return "Thread"
+		}
+		return "Thread<" + t.Args[0].String() + ">"
 	case Struct, Class, Iface, Enum:
+		if len(t.Args) > 0 {
+			// 泛型实例给人看的那一串：`Box<int>`，里面每一层实参也按读者看到的写法排——
+			// 打印与报错都要说得出是哪一只实例。机器比的还是 Key()，那一个串里带着包根。
+			// The reader-facing string of a generic instance: `Box<int>`, with every argument
+			// rendered as readers see it, so both printing and error text say which instance is
+			// meant. The machine still compares Key(), which keeps the package root in it.
+			return instanceDisplay(t.Name, t.Args)
+		}
 		return bareName(t.Name)
 	case FuncVal:
 		return t.funcText()
@@ -257,12 +280,39 @@ func (t Type) Key() string {
 		return "dict<" + t.Args[0].Key() + ", " + t.Args[1].Key() + ">"
 	case Set:
 		return "hashset<" + t.Args[0].Key() + ">"
+	case Thread:
+		// 机器比的那一串也要带上那一个返回类型：`Thread<int>` 与 `Thread<string>` 是两条形状，
+		// 漏掉这一支的话两者挤进同一条形状，按一方的形状去打印、按另一方去归还。
+		// 表里那条占位的没有 Args（只用于列名字），那一串就是基名。
+		if len(t.Args) == 0 {
+			return "Thread"
+		}
+		return "Thread<" + t.Args[0].Key() + ">"
 	default:
 		if t.Name != "" {
 			return t.Name
 		}
 		return t.Kind.String()
 	}
+}
+
+// isSystemHandle 判这是不是"操作系统给的那一类"：手上那一个数是运行期某张表的表项，
+// 归还它是调用一次系统动作或一次等待，不是把一块内存还进空闲链表。
+// 这一档的共同点决定了它们在哪几处要一起拒绝：进不了容器与盒子、当不了键、不许写 ref、
+// 也拆不出盒子。新增这一类句柄时只改这一处，那五处都问它。
+//
+// en: IsSystemHandle asks whether this is one of "the kinds the operating system hands out": the
+// number in hand is an entry in some runtime table, and releasing it means one system call or one
+// wait, not putting a block back on the free list. That shared trait is what decides where they
+// must all be refused - they cannot enter a container or a box, cannot be a key, may not be
+// marked ref, and cannot come out of a box. Adding a new one of these changes only this place;
+// those five all ask it.
+func IsSystemHandle(k Kind) bool {
+	switch k {
+	case Socket, Listener, Process, Thread:
+		return true
+	}
+	return false
 }
 
 // 包限定名用的分隔符。`/` 是路径里的字节，词法上永远进不了一个名字（名字只许字母数字下划线），
@@ -341,6 +391,7 @@ func (t Type) ByValue() bool {
 // bytes 也在列内：它是引用类型，块在堆上，名字没有指向任何对象时就是 null。
 // Socket 与 Listener 也在：连接尚未建立、或者 `close()` 之后，那个名字就是空句柄。
 // Process 也在：那个进程尚未启动、或者 `close()` 之后，那个名字同样是空句柄。
+// Thread 也在：那一条线程还没起、或者已经等过（`wait()` 就是那个收集点），那个名字也是空句柄。
 //
 // en: Nullable decides whether this type can hold `null` (only reference types may be null).
 // Json is on the list: json.parse returns null when the whole text does not parse. bytes is on
@@ -350,7 +401,7 @@ func (t Type) ByValue() bool {
 // likewise an empty handle.
 func (t Type) Nullable() bool {
 	switch t.Kind {
-	case Str, Obj, Class, Iface, List, Dict, Set, Json, Bytes, Socket, Listener, Process:
+	case Str, Obj, Class, Iface, List, Dict, Set, Json, Bytes, Socket, Listener, Process, Thread:
 		return true
 	}
 	return false
@@ -448,6 +499,22 @@ type Facts struct {
 	// 包里的带包根）。编辑器那一侧的补全与悬停使用这一张表；标准库那些不在这里，
 	// 它们在 stdFuncs 与 stdMember 那两处。
 	Sigs map[string]Signature
+	// TmplSigs 是写出来那一份声明自己的签名，按节点认：泛型模板里的方法（`class Cell<T>` 的
+	// `get():T`）与自带一层类型参数的方法（`take<E>(k:E):E`）。这两种在 Sigs 里没有摊平的那一条
+	// ——模板不摊字段与方法，自带类型参数的要等调用处配上实参——所以光标停在定义那一行时
+	// 问的是这一张：类型参数写它自己的名字，不写文件里某一次调用碰巧落到的那一种。
+	// 不进 Sigs 是因为名字那一栏按 Sigs 列条，同一个方法名会既有模板那一条又有实例那一条，
+	// 两条的说明不一样，列出来哪一条就成了随机的。
+	//
+	// en: TmplSigs holds the signature of a declaration as written, keyed by node: methods inside a
+	// generic template (`get():T` in `class Cell<T>`) and methods carrying their own layer of type
+	// parameters (`take<E>(k:E):E`). Neither has a flattened entry in Sigs - a template flattens no
+	// fields or methods, and one with its own parameters waits for the call site's arguments - so
+	// the definition line asks this table: a type parameter keeps its own name instead of whichever
+	// type some call in the file happened to reach. It stays out of Sigs because the name column
+	// lists entries from there, and the same method name would carry both a template line and an
+	// instance line with different descriptions, making the one shown random.
+	TmplSigs map[*ast.Func]Signature
 	// Declared 是这一趟里登记的每一个类型名（含 `type 甲 = 乙` 那种别名）：规范名 → 种类与
 	// 有没有 export。编辑器补一个包后面那一段、悬停停在一个类型名上使用这一张表。
 	Declared map[string]Declared
@@ -457,6 +524,25 @@ type Facts struct {
 	// 编辑器补 `wt.` 后面那一段时使用这一张表。
 	Packages map[string]string
 	Fields   map[string][]FieldInfo // 类型名 → 摊平后的字段表（含偏移）
+	// Instances 记的是泛型的每一份实例：实例的规范名（`libs/a/Box<int>` 这一串）→ 它是
+	// struct 还是 class、模板住在那一份文件、按声明顺序排好的方法副本。
+	// 后端排类型字与落函数时都要用这三样（`lower.go` 的 buildTags 与那两趟函数循环只看
+	// 源码里写出来的定义，实例不是定义）。
+	//
+	// en: Instances records every generic instance: its canonical name (`libs/a/Box<int>`) maps
+	// to whether it is a struct or a class, which file holds the template, and the method copies
+	// in declaration order. The backend needs all three when laying out type words and emitting
+	// functions - buildTags and the two function loops in lower.go walk only the definitions
+	// written in the source, and an instance is not a definition.
+	Instances map[string]Instance
+	// InstFuncs 记的是带类型参数的函数与方法按一种实参生成的那一份（键是 `twice<int>`、
+	// `Cell<int>.take<int>` 这一串）。后端按这一个键发函数体，理由与 Instances 同一条：
+	// 那几份不是源码里写出来的定义。
+	//
+	// en: InstFuncs records each generic function or method instantiated for one argument list,
+	// keyed `twice<int>` or `Cell<int>.take<int>`. The backend lowers bodies under that key for
+	// the same reason as Instances: none of them is a definition written in the source.
+	InstFuncs map[string]InstFunc
 	// TopValues 是每一份文件顶层那些 `const` 与 `export shared`：键与 Sigs 同一种写法
 	// （包里的带包根，工程自己的文件就是原名）。包外面按点号取一个导出的数读的是这张表，
 	// 编辑器列一个包能点出什么时也查它。
@@ -579,6 +665,15 @@ type Bind struct {
 	Decl   *ast.Decl
 	Param  *ast.Param
 	Typ    Type
+	// At 是登记这个名字时给的位置（declareKind 的那一个 at）：catch 的名字没有声明节点，
+	// 编辑器的"找引用"靠它把一次使用认回声明那一处。泛型实例是复制出来的节点，
+	// 指针与模板不同而位置相同，按位置认两边都落得到。
+	//
+	// en: At is the position given when the name was registered (declareKind's at): a catch name
+	// has no declaration node, and the editor's find-references uses this to trace a use back to
+	// its declaration. Generic instances are copied nodes - different pointers, same positions -
+	// so matching by position lands on both the template and the copies.
+	At ast.Pos
 }
 
 // CallKind 是一次调用的落点类别。
@@ -650,6 +745,36 @@ type TopValue struct {
 	Decl   *ast.Decl
 }
 
+// Instance 是泛型的一份实例交给后端的三样东西。
+//
+// Methods 交的是声明的那一份副本，不是原文：两份实例共用同一个方法节点时，
+// 检查器那六张按语法节点存档的表就会让后一份读到前一份的类型结论。
+//
+// en: Instance carries the three things a generic instance hands to the backend. Methods holds
+// the copy made for this instance, not the original: with two instances sharing one method
+// node, the checker's six tables keyed by syntax node would make the second instance read the
+// first one's type conclusions.
+type Instance struct {
+	Kind    Kind
+	File    *ast.File
+	Methods []*ast.Func
+}
+
+// InstFunc 是一份带类型参数的函数或方法按一种实参生成的那一份，交给后端去发码。
+//
+// Owner 是方法所属的类实例名（顶层函数为空）；后端发出来的函数名要与此处记的键一致，
+// 所以副本的名字里带着实参那一段（`twice<int>`、`Cell<int>.take<int>`）。
+//
+// en: InstFunc is one generic function or method instantiated for one argument list and handed
+// to the backend for lowering. Owner is the class instance a method belongs to (empty for a
+// top-level function); the emitted function name must match the key recorded here, which is why
+// the copy's own name carries the arguments (`twice<int>`, `Cell<int>.take<int>`).
+type InstFunc struct {
+	File  *ast.File
+	Fn    *ast.Func
+	Owner string
+}
+
 func newFacts() *Facts {
 	return &Facts{
 		Types:        map[ast.Expr]Type{},
@@ -659,10 +784,13 @@ func newFacts() *Facts {
 		Tests:        map[*ast.Test]Type{},
 		Funcs:        map[string]*ast.Func{},
 		Sigs:         map[string]Signature{},
+		TmplSigs:     map[*ast.Func]Signature{},
 		Declared:     map[string]Declared{},
 		Imported:     map[string]ImportedName{},
 		Packages:     map[string]string{},
 		Fields:       map[string][]FieldInfo{},
+		Instances:    map[string]Instance{},
+		InstFuncs:    map[string]InstFunc{},
 		TopValues:    map[string]TopValue{},
 		PkgValues:    map[ast.Expr]*ast.Decl{},
 		FuncRefs:     map[ast.Expr]string{},
@@ -701,7 +829,8 @@ func RunWithFacts(p *Program, wantFacts bool) ([]Error, *Facts) {
 		borrowRead: map[ast.Expr]bool{}, shared: map[string]bool{},
 		imported: map[string]ImportedName{}, usedImp: map[string]bool{}, usedGroup: map[string]bool{},
 		covered: map[*ast.Switch]bool{}, fieldOf: map[ast.Expr]Type{}, facts: facts,
-		topVals: map[string]TopValue{}}
+		callables: map[string]funcInfo{},
+		topVals:   map[string]TopValue{}}
 	if facts != nil {
 		// 后端要的那一份结论在，读位置的登记就写进那张表：检查这一侧与后端读同一张，不留两份。
 		c.borrowRead = facts.BorrowRead
@@ -725,34 +854,16 @@ func RunWithFacts(p *Program, wantFacts bool) ([]Error, *Facts) {
 		// 本文件的类型别名先解一遍：环、右边写错，都要报在定义它的那一份文件里，
 		// 而且它右边用上的 import 名字要记在这一份文件的账上。
 		c.resolveTypeAliasDefs(f)
-		c.openScope() // 顶层就是一层作用域
-		// 引来的名字必须先登记，再查本文件的定义：函数体里用一个 `export const`
-		// 是最常见的跨文件写法，晚一步登记，函数体里就查不到那个名字，
-		// 报出来的是"这里要的是 int，给的是 k"这种无法定位根源的话。
-		for _, nm := range c.importedList() {
-			if c.facts != nil {
-				c.facts.Imported[NameKey(c.file.Path, nm.Name)] = nm
-			}
-			if nm.Val.Kind != 0 {
-				by := nm.By
-				if by == BindGlobalLet {
-					by = BindGlobalConst // 导入进来的可变态只有 const 与 shared，let 导不出来
-				}
-				c.declareKind(nm.Name, nm.Val, nm.At, nil, by)
-				continue
-			}
-			if nm.Kind != FuncT {
-				continue // 类型名（struct/class/interface/enum）由 collect 那一趟登记
-			}
-			c.declare(nm.Name, Type{Kind: FuncT, Name: nm.Name}, nm.At)
-		}
-		c.hoistTopDecls(f)
+		c.bindFileTop(f)
 		for _, d := range f.Defs {
 			c.checkDef(d)
 		}
 		for _, s := range f.Stmts {
 			c.stmt(s)
 		}
+		// 实例的方法体排在"import 了却没用到"那两句之前：模板住在本文件的实例，
+		// 它的方法体里用到的 import 名字要算用上——晚一步就报成没用过。
+		c.drainPending(f.Path)
 		// 门面那一条排在查完本文件之后：它的签名这时都已经可以完整解析。
 		if c.prog.Facades[f.Path] {
 			c.checkFacadeLeaks(f)
@@ -769,6 +880,9 @@ func RunWithFacts(p *Program, wantFacts bool) ([]Error, *Facts) {
 			}
 		}
 	}
+	// 排在后面生成的那些实例（模板住在已经查完的那一份文件里）在这一处收干净。
+	// Instances minted after their template's file had passed get drained here.
+	c.drainPending("")
 	c.noteConsumed()
 	// 编辑器那一张签名表排在最后一趟汇总：走到这里，顶层函数在 checkDef 那一趟摊过了、
 	// 方法在对象那一趟摊过了、跨文件引进来的在 funcSig 里摊过了，三份来源都进了 c.funcs，
@@ -778,26 +892,69 @@ func RunWithFacts(p *Program, wantFacts bool) ([]Error, *Facts) {
 			if fi.fn == nil {
 				continue
 			}
+			if len(fi.fn.TypeParams) > 0 {
+				// 带类型参数的函数：编辑器那一栏要看到的是 `twice(v: Element): Element`。
+				// 参数与返回按一份占位的对照表解一遍，只写进 Facts.Sigs 这一张给编辑器读的表；
+				// c.funcs 里那一笔仍然是没摊开的，后端与交出那一族读的都是它。
+				// A function with type parameters: the editor should read `twice(v: Element):
+				// Element`. Parameters and the return resolve once against a display-only
+				// mapping, and the result goes only into Facts.Sigs - the table the editor
+				// reads. The entry in c.funcs stays unflattened, which is what the backend and
+				// the ownership rules consult.
+				c.facts.Sigs[k] = c.displaySignature(fi, fi.fn.TypeParams)
+				continue
+			}
 			c.facts.Sigs[k] = Signature{Params: fi.params, Ret: fi.ret, Method: fi.method, Owner: fi.owner}
 		}
 		for k, ti := range c.types {
-			d := Declared{Kind: "type", Export: ti.obj != nil && ti.obj.Export}
-			switch {
-			case ti.obj != nil && ti.obj.Kind == "class":
-				d.Kind = "class"
-			case ti.obj != nil:
-				d.Kind = "struct"
-			case ti.iface != nil:
-				d.Kind, d.Export = "interface", ti.iface.Export
-			case ti.enum != nil:
-				d.Kind, d.Export = "enum", ti.enum.Export
+			// 实例的方法签名照样进 Facts.Sigs（编辑器点号后面要列得出方法），
+			// 但不进 Declared：`Counter<int>` 不是谁写得出来的名字，那一对尖括号是编译器排的键。
+			// 泛型模板本身进 Declared，`Counter` 补全与悬停都认得。
+			// An instance's methods still enter Facts.Sigs - the editor lists them after a dot -
+			// while instances stay out of Declared: `Counter<int>` is not a name anyone can write,
+			// those brackets are a key the compiler produced. The template itself stays in
+			// Declared, so `Counter` still completes and hovers.
+			if ti.env == nil {
+				d := Declared{Kind: "type", Export: ti.obj != nil && ti.obj.Export}
+				switch {
+				case ti.obj != nil && ti.obj.Kind == "class":
+					d.Kind = "class"
+				case ti.obj != nil:
+					d.Kind = "struct"
+				case ti.iface != nil:
+					d.Kind, d.Export = "interface", ti.iface.Export
+				case ti.enum != nil:
+					d.Kind, d.Export = "enum", ti.enum.Export
+				}
+				c.facts.Declared[k] = d
 			}
-			c.facts.Declared[k] = d
 			// 方法摊在类型那一张表上（layout 那一趟算的，含从 base 继承来的那几条），
 			// 顶层函数才有 c.funcs 那一条路：这里按"类型名.方法名"汇总一份，键的写法与
 			// pkgExported 查找用的一致。
 			for _, ms := range ti.methods {
 				c.facts.Sigs[k+"."+ms.Name] = Signature{Params: ms.Params, Ret: ms.Ret, Method: true, Owner: k}
+			}
+			// 写出来那一份声明自己的签名另记一张：模板不摊方法，自带类型参数的那一条要等
+			// 调用处配上实参，两种在 Sigs 里都没有能照着写的一行。实例那一份是复制出来的节点，
+			// 定义那一行指的是源码里这一个，所以只记源码里的声明。
+			// The signature of a declaration as written goes on a separate table: a template
+			// flattens no methods, and one carrying its own type parameters waits for the call
+			// site's arguments, so neither has a line in Sigs anyone could copy. An instance holds
+			// copied nodes while the definition line points at the one in the source, so only
+			// declarations written in the source are recorded.
+			if ti.env == nil {
+				written := ti.objMethods()
+				if ti.iface != nil {
+					written = ti.iface.Methods
+				}
+				for _, m := range written {
+					if len(m.TypeParams) == 0 && !genericTemplate(ti) {
+						continue
+					}
+					tps := append(append([]*ast.TypeParam{}, ti.typeParams...), m.TypeParams...)
+					fi := funcInfo{file: ti.file, fn: m, method: true, owner: k}
+					c.facts.TmplSigs[m] = c.displaySignature(fi, tps)
+				}
 			}
 		}
 		for k, al := range c.typeAlias {
@@ -834,6 +991,45 @@ func RunWithFacts(p *Program, wantFacts bool) ([]Error, *Facts) {
 // holder), and every receiving position let it go. Registering on less than that is wrong
 // either way: a miss leaves a block nobody owns, a false registration lets two holders destroy
 // one block.
+// bindFileTop 把一份文件顶层那一层作用域搭起来：开一层作用域、登记引进来的名字、摊开顶层那些
+// let／const。Run 里那一趟与实例方法体那一队都走这一处——两处必须是同一份规矩，
+// 不然实例的方法体里查不到它自己那份文件顶层的名字，报出来的就是"没有这个名字"那种无从定位的话。
+//
+// 调用之前要先把 c.file、c.hoistedDecl 与 c.imported 摆好（Run 里是 checkImports 那一趟，
+// 排队那一处是 drainPending 自己重摆）。
+//
+// en: bindFileTop raises one file's top-level scope: it opens the layer, registers the imported
+// names and hoists the top-level let and const. The pass in Run and the instance-body queue both
+// come through here - one set of rules, otherwise a generic's method body could not find the
+// names living at its own file's top level and would report an unlocatable "no such name".
+//
+// Callers must have c.file, c.hoistedDecl and c.imported pointing at that file first (Run does
+// it with checkImports; drainPending re-seats them itself).
+func (c *Checker) bindFileTop(f *ast.File) {
+	c.openScope() // 顶层就是一层作用域
+	// 引来的名字必须先登记，再查本文件的定义：函数体里用一个 `export const`
+	// 是最常见的跨文件写法，晚一步登记，函数体里就查不到那个名字，
+	// 报出来的是"这里要的是 int，给的是 k"这种无法定位根源的话。
+	for _, nm := range c.importedList() {
+		if c.facts != nil {
+			c.facts.Imported[NameKey(c.file.Path, nm.Name)] = nm
+		}
+		if nm.Val.Kind != 0 {
+			by := nm.By
+			if by == BindGlobalLet {
+				by = BindGlobalConst // 导入进来的可变态只有 const 与 shared，let 导不出来
+			}
+			c.declareKind(nm.Name, nm.Val, nm.At, nil, by)
+			continue
+		}
+		if nm.Kind != FuncT {
+			continue // 类型名（struct/class/interface/enum）由 collect 那一趟登记
+		}
+		c.declare(nm.Name, Type{Kind: FuncT, Name: nm.Name}, nm.At)
+	}
+	c.hoistTopDecls(f)
+}
+
 func (c *Checker) noteConsumed() {
 	if c.facts == nil {
 		return
@@ -915,6 +1111,17 @@ type methodSig struct {
 	// （math.absolute_value／math.minimum／math.maximum）。组名式调用走的是 methodSig 这条路，
 	// 不记录这个字段就会丢失。
 	Poly int
+	// TypeParams 与 Tmpl 只在方法自己带类型参数时非空：那时候这一个签名还算不出参数与返回类型
+	// （`Item` 要配实参、`E` 也要配实参），所以这里只登记"有这一个方法"，
+	// 等调用处把实参配齐了才现算一份实例（generic.go 的 instantiateCallable）。
+	//
+	// en: TypeParams and Tmpl are set only when the method carries its own type parameters.
+	// Such a signature cannot compute its parameters or return type yet (`Item` needs the
+	// class's arguments and `E` needs its own), so this records only that the method exists and
+	// the call site builds an instance once the arguments are known (instantiateCallable in
+	// generic.go).
+	TypeParams []*ast.TypeParam
+	Tmpl       *ast.Func
 }
 
 type typeInfo struct {
@@ -927,6 +1134,20 @@ type typeInfo struct {
 	laidOut bool
 	fields  []field
 	methods []methodSig
+	// typeParams 非空说明这一条记录是泛型的模板本身（`class Box<Content>` 那一份声明），
+	// 不是任何一只实例；实例那一条记录带的是声明的一份副本，这里一律是空。
+	//
+	// en: a non-empty typeParams marks the generic template itself (the `class Box<Content>`
+	// declaration), never an instance; an instance's record carries a copy of the declaration
+	// and leaves this empty.
+	typeParams []*ast.TypeParam
+	// env 是实例那一条记录带着的类型参数对照表（`Item` → `int`），模板那一条是空。
+	// 方法自己还带类型参数时，调用处要把这张表与它自己那一张合在一起才解得出参数类型。
+	//
+	// en: env is the parameter mapping an instance record carries (`Item` to `int`); a template
+	// leaves it empty. When a method has its own type parameters, the call site merges this map
+	// with the method's own before its parameters resolve.
+	env map[string]Type
 }
 
 // calendarFields 是内建 `struct Calendar` 的字段表。
@@ -1072,8 +1293,56 @@ type Checker struct {
 	// class 的引用类型字段"要用它，而这一条在 `nf check`（不带 facts 那一趟）也要报得出来，
 	// 所以不能只记在 facts.Types 里。
 	fieldOf map[ast.Expr]Type
+	// typeEnv 是类型参数对照表的栈：摊一只实例的字段时，栈顶那一份把 `Content` 解成
+	// 填进来的那一只类型（见 generic.go 的 pushTypeEnv）。栈是因为实例可以套实例。
+	//
+	// en: typeEnv is a stack of type-parameter mappings: while an instance's fields are
+	// flattened, the top one resolves `Content` to the type filled in (see pushTypeEnv in
+	// generic.go). It is a stack because instances nest inside instances.
+	typeEnv []map[string]Type
+	// pending 排的是"这一只实例的这一个方法体还没查"的那几笔。实例是在查别处的路上被生成的，
+	// 方法体不能当场就查——那时作用域栈、当前函数与返回类型都还是调用方那一层的，
+	// 当场查会把两份上下文搅在一起。所有文件的语句流查完之后统一排空这一张队，
+	// 排的过程中又生成出新实例就接着排，直到排空（Run 里那一段）。
+	//
+	// en: pending holds "this method body of this instance has not been checked" entries. An
+	// instance appears while something else is being checked, and a body cannot be checked on
+	// the spot: the scope stack, the current function and the return type all still belong to
+	// the caller's stretch, so checking there would mix two contexts. The queue drains after
+	// every file's statements have been checked, and bodies that mint further instances keep
+	// it running until it is empty (that stretch in Run).
+	pending []pendingBody
+	// callables 是带类型参数的函数与方法按实参各生成的那一份：实例的键 → 摊好的签名。
+	// 模板那一份还在 c.funcs 里，它自己不摊参数（`Item` 与 `E` 都要配实参）。
+	//
+	// en: callables holds one entry per argument list a generic function or method was used
+	// with: the instance's key to its flattened signature. The template itself stays in c.funcs
+	// and never flattens its parameters (`Item` and `E` both need arguments).
+	callables map[string]funcInfo
+	// displayPass 只在编辑器那一趟签名表时打开：类型参数按它们自己的名字解，带尖括号的
+	// 具名类型不再现生成实例——那一行只给人读，实例既不该进名字表也不该进类型字表。
+	//
+	// en: displayPass is open only while building the signature table for the editor: a type
+	// parameter resolves to its own name and a named type with arguments mints no instance - that
+	// line is for reading, and such an instance belongs neither in the name table nor in the type
+	// word table.
+	displayPass bool
 	// facts 非空时同时记下后端要复用的那一份结论（前端到中间码那一步）。
 	facts *Facts
+}
+
+// pendingBody 是一笔等着查的可调用实例：模板住在那一份文件、实例的规范名、那一份副本、
+// 那一只实例的类型参数对照表，以及它是不是一个方法（方法要绑 `this` 与字段名）。
+//
+// en: pendingBody is one callable instance waiting to be checked: which file holds the
+// template, the instance's canonical name, its copy, that instance's parameter mapping, and
+// whether it is a method (a method binds `this` and the field names).
+type pendingBody struct {
+	file   *ast.File
+	owner  string
+	fn     *ast.Func
+	env    map[string]Type
+	method bool
 }
 
 // owner 交出正在查的这一份文件所属的包根；工程里的普通文件返回空串。
@@ -1286,7 +1555,7 @@ func (c *Checker) collect(f *ast.File) {
 			if def.Kind == "class" {
 				kind = Class
 			}
-			c.types[k] = &typeInfo{file: f, name: k, kind: kind, obj: def}
+			c.types[k] = &typeInfo{file: f, name: k, kind: kind, obj: def, typeParams: def.TypeParams}
 		case *ast.Interface:
 			c.checkName(def.NameText, def.Where())
 			k := c.key(def.NameText)
@@ -1423,7 +1692,7 @@ func (c *Checker) checkImports(f *ast.File) {
 						kind = Class
 					}
 					if _, dup := c.types[c.key(local)]; !dup {
-						c.types[c.key(local)] = &typeInfo{file: g, name: canon, kind: kind, obj: def}
+						c.types[c.key(local)] = &typeInfo{file: g, name: canon, kind: kind, obj: def, typeParams: def.TypeParams}
 					}
 					c.imported[local] = ImportedName{Kind: kind, TypeNm: nm.Name, From: target, Name: local, At: nm.Where()}
 				case *ast.Interface:
@@ -1609,6 +1878,13 @@ func (c *Checker) pkgType(nt *ast.NamedType, dot int) Type {
 		return errType
 	}
 	c.usedPkg[pkgName] = true
+	if len(ti.typeParams) > 0 {
+		// 包里的泛型同样在用的这一侧现生成实例：键带上那个包的根，
+		// 工程里同名的那只模板与它不是同一个键。
+		// A generic from a package is instantiated on the using side too: the key carries that
+		// package's root, so a same-named template in the project stays a different key.
+		return c.instantiate(ti, nt, nt.Where())
+	}
 	if len(nt.Args) > 0 {
 		c.fail(nt.Where(), "%s 是自定义类型，不带尖括号参数", nt.Name)
 	}
@@ -1641,9 +1917,57 @@ func (c *Checker) checkFacadeLeaks(f *ast.File) {
 		}
 		c.refuseForeign(c.resolveType(t, t.Where()), root, t.Where())
 	}
-	list := func(params []*ast.Param, ret ast.Type) {
+	// 带类型参数的那些声明不能走 `one` 那一条：把 `T` 解出来要先把实例生成出来，
+	// 而门面这一处判的是"这个名字属于哪个包"，与填进来的到底是什么类型无关。
+	// 这里改成走写出来的那一段类型：类型参数自己的名字跳过（谁来填是用这个包的人决定的），
+	// 剩下的按"写成了 `包.名字` 就是别人的类型"判。没有类型参数的声明照旧走解好类型那一条，
+	// 别名指向别人那一种也仍然判得出来。
+	// Declarations with type parameters cannot take the `one` path: resolving `T` means building
+	// an instance, while what the facade judges is which package a name belongs to, independent
+	// of what ends up filling it. Here the written type tree is walked instead: a parameter's own
+	// name is skipped (whoever uses the package decides what fills it) and anything written as
+	// `pkg.Name` is another package's type. Declarations without parameters keep the resolved
+	// path, so an alias pointing at somebody else's type is still caught.
+	var written func(t ast.Type, params map[string]bool)
+	written = func(t ast.Type, params map[string]bool) {
+		if t == nil {
+			return
+		}
+		nt, ok := t.(*ast.NamedType)
+		if !ok {
+			return
+		}
+		if params[nt.Name] {
+			return
+		}
+		if i := strings.Index(nt.Name, "."); i >= 0 {
+			c.fail(nt.Where(), "%s 是别的包里的类型：门面只能导出这个包自己定义的类型", nt.Name[i+1:])
+		}
+		for _, a := range nt.Args {
+			written(a, params)
+		}
+	}
+	paramSet := func(tps []*ast.TypeParam) map[string]bool {
+		if len(tps) == 0 {
+			return nil
+		}
+		out := map[string]bool{}
+		for _, tp := range tps {
+			out[tp.Name] = true
+		}
+		return out
+	}
+	list := func(params []*ast.Param, ret ast.Type, own map[string]bool) {
 		for _, p := range params {
+			if own != nil {
+				written(p.Typ, own)
+				continue
+			}
 			one(p.Typ)
+		}
+		if own != nil {
+			written(ret, own)
+			return
 		}
 		one(ret)
 	}
@@ -1656,20 +1980,25 @@ func (c *Checker) checkFacadeLeaks(f *ast.File) {
 			if def.IsMethod {
 				continue
 			}
-			list(def.Params, def.Ret)
+			list(def.Params, def.Ret, paramSet(def.TypeParams))
 		case *ast.Object:
+			own := paramSet(def.TypeParams)
 			for _, fl := range def.Fields {
+				if own != nil {
+					written(fl.Typ, own)
+					continue
+				}
 				one(fl.Typ)
 			}
 			for _, m := range def.Methods {
-				list(m.Params, m.Ret)
+				list(m.Params, m.Ret, mergeParamSets(own, paramSet(m.TypeParams)))
 			}
 		case *ast.Interface:
 			for _, fl := range def.Fields {
 				one(fl.Typ)
 			}
 			for _, m := range def.Methods {
-				list(m.Params, m.Ret)
+				list(m.Params, m.Ret, nil)
 			}
 		case *ast.TypeAlias:
 			one(def.Typ)
@@ -1677,6 +2006,25 @@ func (c *Checker) checkFacadeLeaks(f *ast.File) {
 			one(def.Typ)
 		}
 	}
+}
+
+// mergeParamSets 把类那一层与方法自己那一层的类型参数名合起来；两边都空时返回 nil，
+// 让调用处仍然走"解好类型再判"那一条老路。
+//
+// en: mergeParamSets joins the class's and the method's own parameter-name sets. When both are
+// empty it returns nil so the caller keeps taking the resolved-type path.
+func mergeParamSets(a, b map[string]bool) map[string]bool {
+	if a == nil && b == nil {
+		return nil
+	}
+	out := map[string]bool{}
+	for k := range a {
+		out[k] = true
+	}
+	for k := range b {
+		out[k] = true
+	}
+	return out
 }
 
 // refuseForeign 判断这一个类型里是不是包含其他包定义的类型（容器里的依赖、或者工程自己的）。
@@ -1803,6 +2151,17 @@ func (c *Checker) layout(name string) *typeInfo {
 		return info
 	}
 	info.laidOut = true
+	if genericTemplate(info) {
+		// 泛型的模板自己不摊字段：`class Box<Content>` 里 `Content` 是一个类型参数，
+		// 配上实参之后才认得出是什么（实例那一条记录由 generic.go 的 instantiate 登记，
+		// 它这里 typeParams 是空的，走的还是下面那一段）。
+		//
+		// en: a generic template never flattens its own fields: in `class Box<Content>` the
+		// name `Content` is a parameter, and only an argument says which type it is. Instances
+		// are registered by instantiate in generic.go; their record has an empty typeParams and
+		// falls through to the code below.
+		return info
+	}
 	var fields []field
 	var methods []methodSig
 	if base := c.baseName(info); base != "" {
@@ -1828,16 +2187,64 @@ func (c *Checker) layout(name string) *typeInfo {
 		}
 	}
 	info.fields, info.methods = fields, methods
+	if info.env != nil && info.obj != nil {
+		// 实例的字段规则在这一处补查：模板那一趟不查体也不查字段（`Content` 还没配上实参），
+		// 而字段能不能放、有没有绕成环，只有配上实参之后才判得出来。
+		// 判据与 `checkObject` 对源码里那一份声明用的同一条，句子也是同几句。
+		// An instance's fields get checked here: the template pass checks neither bodies nor
+		// fields (`Content` has no argument yet), and whether a field may hold something, or
+		// closes a cycle, is only decidable once arguments are attached. The test is the one
+		// checkObject applies to the declaration in the source, and the sentences are shared.
+		for i, f := range fields {
+			c.checkInstanceField(info, info.obj.Kind, fields[i].Pos, f)
+		}
+	}
 	if c.facts != nil {
 		c.facts.recordFields(info.name, fields)
 		for _, m := range info.objMethods() {
+			if len(m.TypeParams) > 0 {
+				// 方法自己带类型参数的不进这张表：它那一颗节点还没有配上实参的结论，
+				// 进了表就等于让两份实例共用同一份节点。调用处生成实例时再登记那一份副本。
+				// A method with its own type parameters stays out of this table: its node has no
+				// conclusions for unattached arguments yet, and registering it would make two
+				// instances share one node. The call site registers the copy it builds.
+				continue
+			}
 			c.facts.Funcs[info.name+"."+m.NameText] = m
 		}
 	}
 	return info
 }
 
-// objMethods 只取这个类型自己写的方法（不含从 base 摊上来的），用来给后端建 "类型.方法" 表。
+// checkInstanceField 判一只实例的字段能不能这样放：
+// 指回自己这一只、经两只以上 struct 绕成环、`struct` 的字段放句柄、`class` 的字段放 `Json`，
+// 四种都在这里拒，判据与句子都取自源码那一份声明的检查（`internal/check/def.go` 的 checkObject）。
+//
+// en: checkInstanceField decides whether one instance field may hold what it was given: pointing
+// back at this very instance, closing a cycle through two or more structs, a struct field
+// holding a handle, or a class field holding Json - all refused here, with the same tests and
+// the same sentences checkObject uses for a declaration in the source.
+func (c *Checker) checkInstanceField(info *typeInfo, kind string, at ast.Pos, f field) {
+	t := f.Typ
+	if t.Name == info.name {
+		c.fail(at, "字段不能指回自己这个类型")
+		return
+	}
+	if kind == "struct" {
+		if t.Kind == Struct {
+			c.refuseStructCycle(info.name, t.Name, at)
+		}
+		if !fieldHoldsValue(t) {
+			c.fail(at, "struct 的字段只能放值类型、string 或另一个 struct，这里是 %s", t)
+		}
+		return
+	}
+	if t.Kind == Json {
+		c.fail(at, "%s 只能待在名字、实参与返回值里，不能当字段", t)
+	}
+}
+
+// objMethods 只取这个类型自己写的方法（不含从 base 摊上来的），用来给后端建 "类型名.方法名" 表。
 //
 // en: objMethods takes only the methods this type wrote itself (not the ones hoisted from
 // base), which the backend uses to build the "type.method" table.
@@ -1866,6 +2273,16 @@ func baseOf(e ast.Expr) string {
 }
 
 func (c *Checker) signatureOf(m *ast.Func) methodSig {
+	if len(m.TypeParams) > 0 {
+		// 方法自己带类型参数：这一个签名还算不出参数与返回类型（要把调用处写的或推出来的
+		// 实参配上才行）。这里只登记"有这一个方法"，实参配齐时由 generic.go 的
+		// instantiateCallable 现算一份实例。
+		// A method with its own type parameters: this signature cannot compute parameters or a
+		// return type yet - the call site's arguments, written or inferred, are what make them
+		// resolvable. Only the method's existence is recorded here; instantiateCallable in
+		// generic.go builds the instance once those arguments are known.
+		return methodSig{Name: m.NameText, Pos: m.Where(), TypeParams: m.TypeParams, Tmpl: m}
+	}
 	sig := methodSig{Name: m.NameText, Ret: c.retOf(m), Pos: m.Where()}
 	for _, p := range m.Params {
 		sig.Params = append(sig.Params, Param{Name: p.NameText, Typ: c.resolveType(p.Typ, p.Pos),
@@ -2036,6 +2453,24 @@ func (c *Checker) resolveType(t ast.Type, where ast.Pos) Type {
 		c.fail(where, "这里需要一个类型")
 		return errType
 	}
+	// 类型参数：摊一只实例的字段时，栈顶那份对照表把 `Content` 解成填进来的那一只类型
+	// （generic.go 的 lookupTypeParam）。没有对照表压着时这里什么都查不到，
+	// 下面那几支照旧——普通程序走的路径一字未变。
+	// A type parameter: while an instance's fields are flattened, the mapping on top of the
+	// stack resolves `Content` to the type filled in (lookupTypeParam in generic.go). With no
+	// mapping pushed nothing is found here and the branches below keep working - an ordinary
+	// program walks the same path as before, byte for byte.
+	if pt, ok := c.lookupTypeParam(nt.Name); ok {
+		if len(nt.Args) > 0 {
+			// 类型参数后面再套尖括号没有意义（填进来的那只类型自己带不带参数与这一处无关）。
+			// 类型参数身上不能再套尖括号：填进来的那只类型自己带不带实参与这一处无关，
+			// 这里先用现成那一句。
+			// A parameter takes no nested brackets: whether the type filled in carries its own
+			// arguments is another matter, so this reuses the existing sentence.
+			c.fail(nt.Where(), "%s 是自定义类型，不带尖括号参数", nt.Name)
+		}
+		return pt
+	}
 	// 类型位置上的双名：`a.Pair`。左边必须是本文件绑定的包名。
 	if i := strings.Index(nt.Name, "."); i >= 0 {
 		return c.pkgType(nt, i)
@@ -2047,6 +2482,16 @@ func (c *Checker) resolveType(t ast.Type, where ast.Pos) Type {
 		return bt
 	}
 	switch nt.Name {
+	case "Thread":
+		// 线程句柄带一个尖括号参数：那一个是被起的那个函数的返回类型。
+		// 参数位置上写得对不对，与 thread.start 那一处用的是同一条判据。
+		if len(nt.Args) != 1 {
+			c.fail(nt.Where(), "%s 需要 %d 个尖括号参数，实际 %d 个", nt.Name, 1, len(nt.Args))
+			return errType
+		}
+		arg := c.resolveType(nt.Args[0], nt.Where())
+		c.checkThreadArg(arg, nt.Where())
+		return Type{Kind: Thread, Name: nt.Name, Args: []Type{arg}}
 	case "list", "dict", "hashset":
 		want := 1
 		kind := List
@@ -2064,25 +2509,9 @@ func (c *Checker) resolveType(t ast.Type, where ast.Pos) Type {
 		for _, a := range nt.Args {
 			args = append(args, c.resolveType(a, nt.Where()))
 		}
-		for _, a := range args {
-			c.checkTypeUsable(a, nt.Where())
-			// `Json` 头上没有运行期的类型字（`lower.go` 的 `tagOf`），容器那个位置的形状与析构
-			// 都要靠它：不作处理的话，打印出来会是 `[null, null]` 这种静默的错误结果。
-			if a.Kind == Json {
-				c.fail(nt.Where(), "%s 进不了 %s：先把它拆成自己要的值，或者存那段文本", a, nt.Name)
-			}
-			// Socket 与 Listener 同理不进容器：容器那个位置要的是"能被容器完整持有并一路析构"的
-			// 一块内存，而句柄的释放方式是调用一次关闭；两只名字指着同一个句柄会导致它被关闭两次。
-			// Process 也在这一条上：它的释放方式同样是调用一次关闭，而且它并不是一块内存。
-			if a.Kind == Socket || a.Kind == Listener || a.Kind == Process {
-				c.fail(nt.Where(), "%s 进不了 %s：它是操作系统给的句柄，只待在名字、实参与返回值里", a, nt.Name)
-			}
-			// 函数值那个位置装的是机器代码的入口地址：它没有运行期的类型字，也打印不出来，
-			// 所以与 Json 走的是同一档处理——先拒在检查这一层，不留到发码那一步。
-			if a.Kind == FuncVal {
-				c.fail(nt.Where(), "%s 进不了 %s：函数值只待在名字、实参、返回值与字段里", a, nt.Name)
-			}
-		}
+		// `Json`、操作系统那三种句柄与函数值进不了容器那个位置；泛型的实参用同一条判定，
+		// 两处共用 checkTypeArguments。
+		c.checkTypeArguments(args, nt.Name, nt.Where())
 		if kind == Dict || kind == Set {
 			for _, a := range args[:1] {
 				if msg := keyReason(a); msg != "" {
@@ -2104,6 +2533,12 @@ func (c *Checker) resolveType(t ast.Type, where ast.Pos) Type {
 	if !ok {
 		c.fail(nt.Where(), "没有 %s 这个类型", nt.Name)
 		return errType
+	}
+	if len(info.typeParams) > 0 {
+		// 带类型参数的定义不能直接当类型用：这里要的是它的一只实例（generic.go 的 instantiate）。
+		// A definition with type parameters is not itself a usable type: what comes here is one
+		// of its instances (instantiate in generic.go).
+		return c.instantiate(info, nt, nt.Where())
 	}
 	if len(nt.Args) > 0 {
 		c.fail(nt.Where(), "%s 是自定义类型，不带尖括号参数", nt.Name)

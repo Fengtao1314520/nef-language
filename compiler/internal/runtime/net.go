@@ -37,7 +37,7 @@
 //
 // 这一层共用同一条寄存器纪律：每一次 call 之后都视为 rax／rcx／rdx／r8～r11 已被踩过，
 // 要保留的值一律写入帧上的槽（`b.put`／`b.get`），使用时再取回——与 file.go 开头的理由相同。
-// 静态缓冲（netHints／netRes／netFd／…）只被本组使用，用户无法命名：没有线程，
+// 那几格临时数据（netHints／netRes／netFd／…）在每一条线程自己的状态块里，只被本组使用，用户无法命名：没有线程，
 // 同一时刻只有一件事在运行，与 `wPath`／`aWide` 同一个道理。
 //
 // en: net.go implements the `net` group: TCP client and server. Three facts decide this
@@ -113,19 +113,11 @@ const (
 	listenBacklog = int64(0x7fffffff) // SOMAXCONN：队列长度由系统决定
 )
 
-// netData 定义本组的静态数据与那几句报错文案。
+// netData 定义本组那几句报错文案。本组那九格临时数据在每一条线程的状态块里（stateCells 那张清单）。
 //
-// en: netData lays out this group's static data and its error sentences.
+// en: netData lays out this group's error sentences. The nine scratch cells are in each
+// thread's state block (see stateCells).
 func netData(put func(name string, bs []byte)) {
-	put("netHints", make([]byte, addrInfoSize)) // getaddrinfo 的提示：只有前 16 个字节会被写
-	put("netRes", make([]byte, 8))              // 结果链表的首项
-	put("netOne", make([]byte, 8))              // ioctlsocket 的那个 u_long（0 或 1）
-	put("netMs", make([]byte, 8))               // setsockopt 的那个 DWORD（毫秒）
-	put("netLen4", make([]byte, 8))             // getsockopt 的"数值大小"：始终写 4
-	put("netOpt", make([]byte, 8))              // getsockopt 返回的整数
-	put("netFd", make([]byte, 16))              // fd_set：一个计数 ＋ 一个句柄
-	put("netTv", make([]byte, 8))               // timeval：秒 ＋ 微秒
-	put("netAddr", make([]byte, sockAddrSize))  // 自行布置的 sockaddr_in（listen 用）
 	put("sNetRefuse", strObject("连不上这个地址"))
 	put("sNetTimeout", strObject("等回应等超时了"))
 	put("sNetParse", strObject("解析不到 "))
@@ -203,14 +195,14 @@ func netCodeOf(b *rt) {
 	}
 	// 一路比下来都没中：走默认那一句
 	a.MovImm(x64.RAX, 10100)
-	b.leaRIP(x64.RDX, "sNetAsk")
+	b.leaCell(x64.RDX, "sNetAsk")
 	a.MovImm(x64.R8, 0)
 	end := b.label()
 	a.Jmp(end)
 	for i, r := range rows {
 		a.Mark(hits[i])
 		a.MovImm(x64.RAX, r.code)
-		b.leaRIP(x64.RDX, r.msg)
+		b.leaCell(x64.RDX, r.msg)
 		a.MovImm(x64.R8, r.tail)
 		a.Jmp(end)
 	}
@@ -276,7 +268,7 @@ func netFail(b *rt) {
 		b.get(x64.RAX, fPart)
 		b.put(fText, x64.RAX)
 	}
-	from := func(name string) func() { return func() { b.leaRIP(x64.RDX, name) } }
+	from := func(name string) func() { return func() { b.leaCell(x64.RDX, name) } }
 
 	// 「解析不到 <名字> 这个地址」：只有该条把名字拼在句子中间
 	skipParse := b.label()
@@ -409,23 +401,24 @@ func netConnect(b *rt) {
 	a.Jcc(x64.A, badPort)
 
 	// 地址文本转成宽字符：为空与超出容量都算"这个地址不行"（尚未调用解析器）
-	b.leaRIP(x64.RDX, "wPath")
+	b.leaCell(x64.RDX, "wPath")
 	b.get(x64.RCX, cHost)
 	b.call("@to_wide")
 	a.Test(x64.RAX, x64.RAX)
 	a.Jcc(x64.E, badPort)
 
 	// 提示：家族不限、流式、TCP。那 48 个字节里本组只填头 16 个（四个 int），
-	// 后面 addrlen／canonname／addr／next 一律留 0——静态数据初始就是 0，系统只读不写。
+	// 后面 addrlen／canonname／addr／next 一律留 0——这个位置从状态块里来，开局就是 0，
+	// 而本组只写前面那四个位置，系统读它但不写它。
 	// 两次各写 8 个字节，窗口不重叠，免得后一笔覆盖前一笔刚写入的那个 int。
-	b.leaRIP(x64.RDI, "netHints")
+	b.leaCell(x64.RDI, "netHints")
 	a.MovImmMem(x64.RDI, 0, 0) // ai_flags 与 ai_family：都不限（AF_UNSPEC 就是 0）
 	a.MovImm(x64.RAX, int64(ipProtoTCP)<<32|sockStream)
 	a.MovStore(x64.RDI, 8, x64.RAX) // ai_socktype 与 ai_protocol
-	b.leaRIP(x64.RCX, "wPath")
+	b.leaCell(x64.RCX, "wPath")
 	a.Xor(x64.RDX, x64.RDX)
-	b.leaRIP(x64.R8, "netHints")
-	b.leaRIP(x64.R9, "netRes")
+	b.leaCell(x64.R8, "netHints")
+	b.leaCell(x64.R9, "netRes")
 	b.impCallFrom(ws2, "GetAddrInfoW")
 	// `getaddrinfo` 把结果直接放在返回值里（不走 WSAGetLastError）：0 才是成功。
 	// 那一句「解析不到 <名字> 这个地址」只在 11001／11004／11010 三个号码上说，
@@ -437,7 +430,7 @@ func netConnect(b *rt) {
 
 	a.MovImm(x64.RAX, 0)
 	b.put(cLast, x64.RAX)
-	b.leaRIP(x64.RAX, "netRes")
+	b.leaCell(x64.RAX, "netRes")
 	a.MovLoad(x64.RAX, x64.RAX, 0)
 	b.put(cCur, x64.RAX)
 
@@ -483,11 +476,11 @@ func netConnect(b *rt) {
 
 	// 设置了超时：先置非阻塞，连接一次，未连上再判断是否仍在连接
 	a.MovImm(x64.RAX, 1)
-	b.leaRIP(x64.RDX, "netOne")
+	b.leaCell(x64.RDX, "netOne")
 	a.MovStore(x64.RDX, 0, x64.RAX)
 	b.get(x64.RCX, cS)
 	a.MovImm(x64.RDX, fionBio)
-	b.leaRIP(x64.R8, "netOne")
+	b.leaCell(x64.R8, "netOne")
 	b.impCallFrom(ws2, "ioctlsocket")
 	b.get(x64.RCX, cS)
 	b.get(x64.RDX, cAddr)
@@ -508,21 +501,21 @@ func netConnect(b *rt) {
 	a.MovImm(x64.RCX, 1000)
 	a.Xor(x64.RDX, x64.RDX)
 	a.Div1(x64.RCX) // rax＝秒，rdx＝剩余的毫秒
-	b.leaRIP(x64.RDI, "netTv")
+	b.leaCell(x64.RDI, "netTv")
 	a.MovStore32(x64.RDI, 0, x64.RAX)
 	a.MovImm(x64.RCX, 1000)
 	a.Imul(x64.RDX, x64.RCX)
 	a.MovStore32(x64.RDI, 4, x64.RDX)
-	b.leaRIP(x64.RDI, "netFd")
+	b.leaCell(x64.RDI, "netFd")
 	a.MovImm(x64.RAX, 1)
 	a.MovStore32(x64.RDI, 0, x64.RAX)
 	b.get(x64.RAX, cS)
 	a.MovStore(x64.RDI, 8, x64.RAX)
 	a.Xor(x64.RCX, x64.RCX)
 	a.Xor(x64.RDX, x64.RDX)
-	b.leaRIP(x64.R8, "netFd")
+	b.leaCell(x64.R8, "netFd")
 	a.Xor(x64.R9, x64.R9)
-	b.leaRIP(x64.RAX, "netTv")
+	b.leaCell(x64.RAX, "netTv")
 	a.MovStore(x64.RBP, arg5, x64.RAX)
 	b.impCallFrom(ws2, "select")
 	signExt(a) // int 扩展成 64 位后才能区分"可写"／"超时"／"select 调用失败"
@@ -541,17 +534,17 @@ func netConnect(b *rt) {
 
 	a.Mark(gotReady)
 	// 可写不等于连接成功：SO_ERROR 中的值才是该连接的结果
-	b.leaRIP(x64.RAX, "netLen4")
+	b.leaCell(x64.RAX, "netLen4")
 	a.MovImm(x64.RDX, 4)
 	a.MovStore(x64.RAX, 0, x64.RDX)
 	a.Xor(x64.RDX, x64.RDX)
-	b.leaRIP(x64.RAX, "netOpt")
+	b.leaCell(x64.RAX, "netOpt")
 	a.MovStore(x64.RAX, 0, x64.RDX)
 	b.get(x64.RCX, cS)
 	a.MovImm(x64.RDX, solSocket)
 	a.MovImm(x64.R8, soError)
-	b.leaRIP(x64.R9, "netOpt")
-	b.leaRIP(x64.RAX, "netLen4")
+	b.leaCell(x64.R9, "netOpt")
+	b.leaCell(x64.RAX, "netLen4")
 	a.MovStore(x64.RBP, arg5, x64.RAX)
 	b.impCallFrom(ws2, "getsockopt")
 	a.Test(x64.RAX, x64.RAX)
@@ -562,7 +555,7 @@ func netConnect(b *rt) {
 	a.Jmp(advance)
 	a.Mark(asked)
 	// 查询成功：返回的整数（0＝已连接）才是该连接的实际结果
-	b.leaRIP(x64.RAX, "netOpt")
+	b.leaCell(x64.RAX, "netOpt")
 	a.MovLoad(x64.RAX, x64.RAX, 0)
 	a.Test(x64.RAX, x64.RAX)
 	a.Jcc(x64.E, good)
@@ -588,31 +581,31 @@ func netConnect(b *rt) {
 	noTimeo := b.label()
 	a.Jcc(x64.E, noTimeo)
 	a.Xor(x64.RDX, x64.RDX)
-	b.leaRIP(x64.RAX, "netOne")
+	b.leaCell(x64.RAX, "netOne")
 	a.MovStore(x64.RAX, 0, x64.RDX)
 	b.get(x64.RCX, cS)
 	a.MovImm(x64.RDX, fionBio)
-	b.leaRIP(x64.R8, "netOne")
+	b.leaCell(x64.R8, "netOne")
 	b.impCallFrom(ws2, "ioctlsocket")
-	b.leaRIP(x64.RAX, "netMs")
+	b.leaCell(x64.RAX, "netMs")
 	b.get(x64.RDX, cMs)
 	a.MovStore(x64.RAX, 0, x64.RDX)
 	b.get(x64.RCX, cS)
 	a.MovImm(x64.RDX, solSocket)
 	a.MovImm(x64.R8, soRcvTimeo)
-	b.leaRIP(x64.R9, "netMs")
+	b.leaCell(x64.R9, "netMs")
 	a.MovImm(x64.RAX, 4)
 	a.MovStore(x64.RBP, arg5, x64.RAX)
 	b.impCallFrom(ws2, "setsockopt")
 	b.get(x64.RCX, cS)
 	a.MovImm(x64.RDX, solSocket)
 	a.MovImm(x64.R8, soSndTimeo)
-	b.leaRIP(x64.R9, "netMs")
+	b.leaCell(x64.R9, "netMs")
 	a.MovImm(x64.RAX, 4)
 	a.MovStore(x64.RBP, arg5, x64.RAX)
 	b.impCallFrom(ws2, "setsockopt")
 	a.Mark(noTimeo)
-	b.leaRIP(x64.RAX, "netRes")
+	b.leaCell(x64.RAX, "netRes")
 	a.MovLoad(x64.RCX, x64.RAX, 0)
 	b.impCallFrom(ws2, "FreeAddrInfoW")
 	b.get(x64.RAX, cS)
@@ -633,7 +626,7 @@ func netConnect(b *rt) {
 
 	// 表走完：以最后一个记录的号码为准（一个条目都没试过时为 0，走默认那一句）
 	a.Mark(none)
-	b.leaRIP(x64.RAX, "netRes")
+	b.leaCell(x64.RAX, "netRes")
 	a.MovLoad(x64.RCX, x64.RAX, 0)
 	b.impCallFrom(ws2, "FreeAddrInfoW")
 	b.get(x64.RCX, cLast)
@@ -709,13 +702,13 @@ func netListen(b *rt) {
 	b.put(lS, x64.RAX)
 
 	// sockaddr_in 的 16 字节：家族 2、端口由 portInto 写入（网络字节序）、地址 0＝接收本机所有网卡的连接
-	b.leaRIP(x64.RDI, "netAddr")
+	b.leaCell(x64.RDI, "netAddr")
 	a.MovImmMem(x64.RDI, 0, afInet) // 低两字节是家族，2～7 一并清 0（端口与地址的前一段）
 	a.MovImmMem(x64.RDI, 8, 0)      // 地址的剩余四字节与两个填充字节
 	portInto(b, x64.RDI, lPort)
 
 	b.get(x64.RCX, lS)
-	b.leaRIP(x64.RDX, "netAddr")
+	b.leaCell(x64.RDX, "netAddr")
 	a.MovImm(x64.R8, sockAddrSize)
 	b.impCallFrom(ws2, "bind")
 	a.Test(x64.RAX, x64.RAX)

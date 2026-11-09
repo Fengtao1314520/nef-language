@@ -80,10 +80,10 @@ func resolvesAsMember(dotName string) bool {
 			continue
 		}
 		head, name := dotName[:i], dotName[i+1:]
-		for _, k := range []Kind{List, Dict, Set, Str, Bytes, Socket, Listener, Process} {
+		for _, k := range []Kind{List, Dict, Set, Str, Bytes, Socket, Listener, Process, Thread} {
 			shape := Type{Kind: k, Name: head}
 			switch k {
-			case List, Set:
+			case List, Set, Thread:
 				shape.Args = []Type{placeholderType(head, 0)}
 			case Dict:
 				shape.Args = []Type{placeholderType(head, 0), placeholderType(head, 1)}

@@ -64,7 +64,7 @@ func TestProbeSlotsVsOutgoingArgs(t *testing.T) {
 	a := l.Asm()
 	callee := l.Label()
 
-	EntryPrologue(a, slots, 1)
+	l.EntryStart(slots, 1)
 	a.MovImm(x64.RAX, 0xdeadbeef)
 	for i := 0; i < slots; i++ {
 		a.MovStore(x64.RBP, slotOff(i), x64.RAX)
@@ -102,7 +102,7 @@ func TestProbeNineArgsVsRecordSlots(t *testing.T) {
 	a := l.Asm()
 	callee := l.Label()
 
-	EntryPrologue(a, slots, 5)
+	l.EntryStart(slots, 5)
 	a.MovImm(x64.RAX, 0xdeadbeef)
 	a.MovStore(x64.RBP, slotOff(slots-1), x64.RAX)
 	a.MovImm(x64.RAX, 0xbeef)
@@ -139,7 +139,7 @@ func TestProbeStackAlignment(t *testing.T) {
 	for _, slots := range []int{0, 1, 2, 3, 8, 40} {
 		l := NewLinker()
 		a := l.Asm()
-		EntryPrologue(a, slots, 1)
+		l.EntryStart(slots, 1)
 		a.MovdqaLoad(0, x64.RBP, -frameSize(slots, 1))
 		a.MovImm(x64.RCX, int64(slots))
 		l.CallRt("@put_int")
@@ -175,7 +175,7 @@ func TestProbeDeepRecursion(t *testing.T) {
 	a := l.Asm()
 	rec := l.Label()
 
-	EntryPrologue(a, 1, 1)
+	l.EntryStart(1, 1)
 	a.MovImm(x64.RCX, 200)
 	a.Call(rec)
 	a.Mov(x64.RCX, x64.RAX)

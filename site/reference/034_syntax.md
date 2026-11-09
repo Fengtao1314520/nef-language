@@ -8,7 +8,7 @@ title: 语法速查
 
 ## 声明
 
-从变量声明到跨文件共享，一共十五种写法：
+从变量声明到跨文件共享，写法列在下面：
 
 | 写法 | 意思 |
 | --- | --- |
@@ -21,6 +21,7 @@ title: 语法速查
 | `method show(m:string) { }` | 不写返回类型表示不返回值 |
 | `struct Point { x:int  y:int }` | 一组值，赋值时整份拷贝 |
 | `class Circle { r:float  method area():float { return 3.14159 * r * r } }` | 字段与方法组合，用 `new` 创建 |
+| `class Basket<Item> { v:Item }` | 带类型参数的定义；`struct`、函数与方法同样可以带，见[定义](/reference/040_definitions) |
 | `interface Shape { perim():float }` | 方法声明；接口体内的声明前面不写 `method` |
 | `enum Day { mon, tue, wed }` | 只保存整数，默认从 0 开始递增 |
 | `type Names = list<string>` | 给一个已有的类型另起一个名字，不是一种新类型 |
@@ -168,7 +169,7 @@ console.print(
 
 ## 保留名字
 
-36 个关键字，加上 33 个内建名称，一共 69 个词不能用作变量名、字段名、函数名和类型名：
+36 个关键字，加上 35 个内建名称，一共 71 个词不能用作变量名、字段名、函数名和类型名：
 
 | 类别 | 名单 |
 | --- | --- |
@@ -176,12 +177,12 @@ console.print(
 | 内建类型 | `boolean` `int` `float` `byte` `unicode` `string` `object` |
 | 容器 | `list` `dict` `hashset` |
 | 内建 `struct` | `Calendar` `Response` |
-| 内建引用类型 | `Json` `bytes` `Socket` `Listener` `Process` |
+| 内建引用类型 | `Json` `bytes` `Socket` `Listener` `Process` `Thread` |
 | 内建函数 | `length` `exit` |
-| 标准库组名 | `console` `text` `number` `math` `time` `file` `path` `environment` `regular_expression` `json` `bytes` `net` `http` `process` |
+| 标准库组名 | `console` `text` `number` `math` `time` `file` `path` `environment` `regular_expression` `json` `bytes` `net` `http` `process` `thread` |
 | 入口预置 | `args` |
 
-`bytes` 同时是类型名与组名：`let b:bytes = bytes.new(4)` 中前一个是类型、后一个是组，名单上只登记一次。`process` 与 `Process` 是两个不同的名称，前者是组名、后者是类型名（[进程](/stdlib/053_process)）。
+`bytes` 同时是类型名与组名：`let b:bytes = bytes.new(4)` 中前一个是类型、后一个是组，名单上只登记一次。`process` 与 `Process`、`thread` 与 `Thread` 是两对不同的名称，前者是组名、后者是类型名（[进程](/stdlib/053_process)）。
 
 `add`、`remove`、`contains` 不在上面的保留名字表里：它们只是容器的方法，自定义的 `class` 中可以照常使用这三个名称。
 
@@ -210,7 +211,6 @@ console.print(
 | `let (a, b) = p` 解构赋值 | 一次绑定一个名称：`let a:int = p.x`、`let b:int = p.y` |
 | `f(param_name = value)` 命名实参 | 实参一律按位置传递，顺序就是声明中书写的顺序 |
 | `xs[0][0] = 7` 这种连着两级下标写入 | 先把内层那一条摘出来，改完再放回去：`let row:list<int> = xs.remove_at(0)`，`row[0] = 7`，`xs.add(row)` |
-| `struct Pair<T>` | 泛型只用于三个内建容器 |
 | 匿名函数、闭包 | 具名的顶层函数可以当值传递（`fn(参数类型):返回类型`，见[函数与调用](/reference/039_functions)）；没有匿名函数，函数值也不带走外面的名称 |
 | 构造函数 `init` | `new C(field: value)` 就是给出初值的写法；`init` 这个名字没有特殊含义，写了也不会在 `new` 之后自动执行 |
 | `->`、`::`、`@`、`#`、`...`、三引号字符串、模式匹配 | 都不是这门语言的记号 |

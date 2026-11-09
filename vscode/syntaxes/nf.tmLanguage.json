@@ -154,9 +154,9 @@
     "members": {
       "patterns": [
         {
-          "comment": "点号后面接着调用括号的：方法与组函数",
+          "comment": "点号后面接着调用括号的：方法与组函数。中间那一截尖括号是写出来的类型实参（`cell.take<string>(k)`），跟着名字一起算",
           "name": "entity.name.function.nf",
-          "match": "(?<=\\.)([A-Za-z_$][A-Za-z0-9_$]*)(?=\\s*\\()"
+          "match": "(?<=\\.)([A-Za-z_$][A-Za-z0-9_$]*)(?=\\s*(?:<[^<>]*(?:<[^<>]*>)?[^<>]*>)?\\s*\\()"
         },
         {
           "comment": "点号后面不接括号的：字段、枚举成员与静态名字",
@@ -177,12 +177,12 @@
         },
         {
           "name": "storage.type.primitive.nf",
-          "match": "(?<![\\w$])(boolean|int|float|byte|unicode|string|object|list|dict|hashset|Calendar|Json|bytes|Socket|Listener|Process|Response)(?![\\w$])"
+          "match": "(?<![\\w$])(boolean|int|float|byte|unicode|string|object|list|dict|hashset|Calendar|Json|bytes|Socket|Listener|Process|Thread|Response)(?![\\w$])"
         },
         {
           "comment": "标准库的组名（console、text、math 这些）",
           "name": "support.class.nf",
-          "match": "(?<![\\w$])(console|text|number|math|time|file|path|environment|regular_expression|json|bytes|net|http|process)(?![\\w$])"
+          "match": "(?<![\\w$])(console|text|number|math|time|file|path|environment|regular_expression|json|bytes|net|http|process|thread)(?![\\w$])"
         },
         {
           "comment": "没有点号也能调的那三个",
@@ -199,9 +199,9 @@
     "calls": {
       "patterns": [
         {
-          "comment": "自己写的函数与方法的调用点：名字后面紧跟左括号",
+          "comment": "自己写的函数与方法的调用点：名字后面紧跟左括号；中间夹一对尖括号的（`twice<int>(1)`）也算调用点",
           "name": "entity.name.function.nf",
-          "match": "(?<![\\w$.])([a-z_$][A-Za-z0-9_$]*)(?=\\s*\\()"
+          "match": "(?<![\\w$.])([a-z_$][A-Za-z0-9_$]*)(?=\\s*(?:<[^<>]*(?:<[^<>]*>)?[^<>]*>)?\\s*\\()"
         }
       ]
     },

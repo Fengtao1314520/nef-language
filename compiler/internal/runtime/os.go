@@ -25,7 +25,8 @@
 // 与 file.go 同一套前提：产物只依赖 kernel32，第五个及以后的实参落回本帧
 // [rsp+0x20] 也就是 [rbp-0xE0] 那个位置往 rbp 方向一个位置一个位置。
 //
-// 文本进来只有一条路：@to_wide 翻成宽字符摆进静态缓冲（`aWide`／`wPath`，各 4096 个宽字符）。
+// 文本进来只有一条路：@to_wide 翻成宽字符摆进宽字符缓冲（`aWide`／`wPath`，各 4096 个宽字符，
+// 在每一条线程自己的状态块里）。
 // 文本出去也只有一条：先 WideCharToMultiByte 问一遍要几个字节，再翻进 aBuf 那块
 // 「占位头 16 ＋ 正文」，最后交 @str_sub 就地造对象——与 @args 那一条完全同一个写法。
 // 码点数由 @str_sub 自己数，不在这里另数一遍（规则只有一处）。
@@ -76,12 +77,15 @@ const (
 	wSrc   = 23
 )
 
-// osData 摆这一组的静态数据：高精度计数器那两个槽、那一条反斜杠、两句运行期要说的话。
+// osData 摆这一组的静态数据：高精度计数器的频率那一个槽、那一条反斜杠、两句运行期要说的话。
+// 计时那一次读回的起点在每一条线程的状态块里（stateCells 那张清单的 `perfStart`）；频率是全机
+// 一个数，两条线程各问一次问回来的也是同一个，留静态。
 //
-// en: osData lays out this group's static data: the two high-resolution counter slots, that one
-// backslash, and the two runtime sentences.
+// en: osData lays out this group's static data: the high-resolution counter's frequency slot,
+// that one backslash, and the two runtime sentences. The reading the timing call writes back
+// goes to each thread's state block (perfStart in stateCells); the frequency is one number for
+// the whole machine, so two threads asking each get the same value and it stays static.
 func osData(put func(name string, bs []byte)) {
-	put("perfStart", make([]byte, 8))
 	put("perfFreq", make([]byte, 8))
 	put("sSep", []byte{'\\'})
 	put("sNoEnv", strObject("没有这个环境变量"))
@@ -336,26 +340,26 @@ func timeParts(b *rt) {
 func timeElapsed(b *rt) {
 	a := b.a
 	b.prologue()
-	b.loadRIP(x64.RAX, "perfFreq")
+	b.loadCell(x64.RAX, "perfFreq")
 	a.Test(x64.RAX, x64.RAX)
 	got := b.label()
 	a.Jcc(x64.NE, got)
 	a.LeaMem(x64.RCX, x64.RBP, -8)
 	b.impCall("QueryPerformanceFrequency")
 	b.get(x64.RAX, 0)
-	b.storeRIP(x64.RAX, "perfFreq")
+	b.storeCell(x64.RAX, "perfFreq")
 	a.LeaMem(x64.RCX, x64.RBP, -16)
 	b.impCall("QueryPerformanceCounter")
 	b.get(x64.RAX, 1)
-	b.storeRIP(x64.RAX, "perfStart")
+	b.storeCell(x64.RAX, "perfStart")
 	a.Mark(got)
 
 	a.LeaMem(x64.RCX, x64.RBP, -16)
 	b.impCall("QueryPerformanceCounter")
 	b.get(x64.RDX, 1) // rdx=此刻的 tick 数
-	b.loadRIP(x64.RAX, "perfStart")
+	b.loadCell(x64.RAX, "perfStart")
 	a.Sub(x64.RDX, x64.RAX)
-	b.loadRIP(x64.RAX, "perfFreq")
+	b.loadCell(x64.RAX, "perfFreq")
 	a.CvtSI2SD(0, x64.RDX)
 	a.CvtSI2SD(1, x64.RAX)
 	a.Divsd(0, 1)
@@ -388,7 +392,7 @@ func zeroExtend32(b *rt, slot int) {
 	b.a.MovStore(x64.RBP, off, x64.RAX)
 }
 
-// nameToWide 把 rcx 那个文本翻进静态的 aWide，返回 rax=几个宽字符（0 是翻不成或太长）。
+// nameToWide 把 rcx 那个文本翻进这一条线程的 aWide，返回 rax=几个宽字符（0 是翻不成或太长）。
 //
 // 文本对象在翻之前先存进第 srcSlot 格留住：@to_wide 与它调的那些例程都会动寄存器。
 //
@@ -398,12 +402,12 @@ func zeroExtend32(b *rt, slot int) {
 // move registers.
 func nameToWide(b *rt, srcSlot int) {
 	b.put(srcSlot, x64.RCX)
-	b.leaRIP(x64.RDX, "aWide")
+	b.leaCell(x64.RDX, "aWide")
 	b.get(x64.RCX, srcSlot)
 	b.call("@to_wide")
 }
 
-// widen 把第 srcSlot 格那个文本翻进名为 bufName 的静态宽字符缓冲，返回的宽字符数在 rax。
+// widen 把第 srcSlot 格那个文本翻进名为 bufName 的宽字符缓冲（状态块里的那一块），返回的宽字符数在 rax。
 //
 // 与 nameToWide 的分别是**空串那个位置**：空串翻出来是"只装一个结尾 0"、宽字符数 0，
 // 这是合法输入——`environment.set("K", "")` 就是把一个变量设成空，`environment.get("")`
@@ -423,7 +427,7 @@ func widen(b *rt, srcSlot, lenSlot int, bufName string, bad x64.Label) {
 	a.MovLoad(x64.RAX, x64.RAX, StrBytes)
 	b.put(lenSlot, x64.RAX)
 	b.get(x64.RCX, srcSlot)
-	b.leaRIP(x64.RDX, bufName)
+	b.leaCell(x64.RDX, bufName)
 	b.call("@to_wide")
 	a.Test(x64.RAX, x64.RAX)
 	ok := b.label()
@@ -439,7 +443,7 @@ func widen(b *rt, srcSlot, lenSlot int, bufName string, bad x64.Label) {
 // 再翻进 aBuf 的正文那一侧，最后 @str_sub 就地造对象。
 //
 // 问出来是 0（那一段本来就是空的）也照同一条走：@str_sub 收零长度返回空文本，不必另开一支。
-// 落点是静态的 aBuf，装得下 lineCap 个字节——环境变量与路径都远在这个数以下；真的超过了
+// 落点是这一条线程的 aBuf，装得下 lineCap 个字节——环境变量与路径都远在这个数以下；真的超过了
 // 返回的就是截断的那一段，这一条语言规则尚未定。
 // 本函数只用第 wBytes／wSrc 两个槽，调用方的槽排在 0～9，不会重叠。
 //
@@ -472,7 +476,7 @@ func wideToText(b *rt, wideSlot, countSlot int) {
 	a.Xor(x64.RDX, x64.RDX)
 	b.get(x64.R8, wideSlot)
 	b.get(x64.R9, countSlot)
-	b.leaRIP(x64.RAX, "aBuf")
+	b.leaCell(x64.RAX, "aBuf")
 	a.AddImm(x64.RAX, strHead)
 	a.MovStore(x64.RBP, arg5, x64.RAX)
 	b.get(x64.RAX, wBytes)
@@ -483,7 +487,7 @@ func wideToText(b *rt, wideSlot, countSlot int) {
 	b.impCall("WideCharToMultiByte")
 	zeroExtend32(b, wBytes)
 
-	b.leaRIP(x64.RCX, "aBuf")
+	b.leaCell(x64.RCX, "aBuf")
 	a.Xor(x64.RDX, x64.RDX)
 	b.get(x64.R8, wBytes)
 	b.call("@str_sub")
@@ -679,7 +683,7 @@ func pathJoin(b *rt) {
 	a.Test(x64.RAX, x64.RAX)
 	noSep := b.label()
 	a.Jcc(x64.E, noSep)
-	b.leaRIP(x64.RSI, "sSep")
+	b.leaCell(x64.RSI, "sSep")
 	a.MovImm(x64.RCX, 1)
 	copyRun(b, x64.RDI, x64.RSI, x64.RCX)
 	a.Mark(noSep)
@@ -823,7 +827,7 @@ func pathExists(b *rt) {
 	a.Test(x64.RAX, x64.RAX)
 	bad := b.label()
 	a.Jcc(x64.E, bad)
-	b.leaRIP(x64.RCX, "aWide")
+	b.leaCell(x64.RCX, "aWide")
 	b.impCall("GetFileAttributesW")
 	zeroExtend32(b, 1)
 	b.get(x64.RAX, 1)
@@ -873,7 +877,7 @@ func envGet(b *rt) {
 	badName := b.label()
 	widen(b, gName, gLen, "aWide", badName)
 
-	b.leaRIP(x64.RCX, "aWide")
+	b.leaCell(x64.RCX, "aWide")
 	a.Xor(x64.RDX, x64.RDX)
 	a.Xor(x64.R8, x64.R8)
 	b.impCall("GetEnvironmentVariableW")
@@ -889,7 +893,7 @@ func envGet(b *rt) {
 	b.call("@alloc")
 	b.put(gBuf, x64.RAX)
 
-	b.leaRIP(x64.RCX, "aWide")
+	b.leaCell(x64.RCX, "aWide")
 	b.get(x64.RDX, gBuf)
 	b.get(x64.R8, gNeed)
 	b.impCall("GetEnvironmentVariableW")
@@ -909,7 +913,7 @@ func envGet(b *rt) {
 
 // @env_set(rcx=名字, rdx=值)：设一个环境变量，只对本程序有效。
 //
-// 名字与值分别翻进 aWide 与 wPath 两块静态缓冲。值本身是空句柄，不在这一层检查——
+// 名字与值分别翻进 aWide 与 wPath 两块缓冲。值本身是空句柄，不在这一层检查——
 // 降级在取用之前先按 10092 号拒绝，这一条只管操作系统那一侧。
 // 不成就是 10060 号：环境这一组的默认错误码，没有为"设不进"另开一号。
 // SetEnvironmentVariableW 返回的是 BOOL（DWORD），不洗高位就没法判成败。
@@ -940,8 +944,8 @@ func envSet(b *rt) {
 	// 中间那一次 widen 动过 rcx，所以这里只交槽号、不再交寄存器。
 	widen(b, sVal, sVLen, "wPath", bad)
 
-	b.leaRIP(x64.RCX, "aWide")
-	b.leaRIP(x64.RDX, "wPath")
+	b.leaCell(x64.RCX, "aWide")
+	b.leaCell(x64.RDX, "wPath")
 	b.impCall("SetEnvironmentVariableW")
 	zeroExtend32(b, sOK)
 	b.get(x64.RAX, sOK)
@@ -984,7 +988,7 @@ func envUnset(b *rt) {
 	b.put(sName, x64.RCX)
 	bad := b.label()
 	widen(b, sName, sNLen, "aWide", bad)
-	b.leaRIP(x64.RCX, "aWide")
+	b.leaCell(x64.RCX, "aWide")
 	a.Xor(x64.RDX, x64.RDX)
 	b.impCall("SetEnvironmentVariableW")
 	zeroExtend32(b, sOK)
@@ -1125,7 +1129,7 @@ func envChdir(b *rt) {
 	bad := b.label()
 	widen(b, hName, hLen, "aWide", bad)
 
-	b.leaRIP(x64.RCX, "aWide")
+	b.leaCell(x64.RCX, "aWide")
 	b.impCall("SetCurrentDirectoryW")
 	zeroExtend32(b, hOK)
 	b.get(x64.RAX, hOK)

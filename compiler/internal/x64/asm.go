@@ -269,7 +269,9 @@ func (a *Asm) modrmReg(reg, rm int) { a.buf = append(a.buf, 0xC0|byte(reg&7)<<3|
 // right here. The emitter always uses rbp as the frame base and never reaches this path.
 func (a *Asm) modrmMem(reg, base int, disp int32) {
 	if base == RSP || base == R12 {
-		panic("modrmMem：rsp／r12 当基址要 SIB 字节，这个编码器不支持")
+		// 这一组基址要走 SIB：见 modrmSib。
+		a.modrmSib(reg, base, disp)
+		return
 	}
 	r := byte(reg&7) << 3
 	switch {
@@ -281,6 +283,27 @@ func (a *Asm) modrmMem(reg, base int, disp int32) {
 		a.buf = append(a.buf, 0x80|r|byte(base&7))
 		a.u32(uint32(disp))
 	}
+}
+
+// modrmSib 落"基址是 rsp／r12 那一组"的那种内存形式：modrm 的 rm 三位给 100（后面跟 SIB），
+// SIB 里 index 给"没有"（100）、base 给这一组自己（100：RSP 与加过 REX.B 的 R12 同号）。
+// 位移为 0 也不能省掉那一段：mod=00 配 base=101 在 64 位模式里是"绝对地址"，不是"这个寄存器"。
+//
+// en: modrmSib emits the memory form for the rsp/r12 bases: the rm field becomes 100 (a SIB byte
+// follows) and the SIB leaves index as "none" (100) with base as this pair's own number (100:
+// RSP, and R12 once REX.B is set). The displacement cannot be dropped at zero: mod=00 with
+// base=101 means an absolute address in 64-bit mode, not this register.
+func (a *Asm) modrmSib(reg, base int, disp int32) {
+	r := byte(reg&7) << 3
+	if base != RSP && base != R12 {
+		panic("modrmSib：只有 rsp／r12 这一组才需要 SIB")
+	}
+	if disp >= -128 && disp <= 127 {
+		a.buf = append(a.buf, 0x40|r|4, 0x24, byte(disp))
+		return
+	}
+	a.buf = append(a.buf, 0x80|r|4, 0x24)
+	a.u32(uint32(disp))
 }
 
 // regReg 是"两个寄存器"型指令的通用落法。
@@ -367,6 +390,15 @@ func (a *Asm) MovImmMem(base int, disp int32, v int32) {
 // read.
 func (a *Asm) MovZX8Reg(dst int) { a.regReg([]byte{0x0F, 0xB6}, true, dst, dst) }
 
+// MovZX32Reg 落 dst = 零扩展的 dst 低四字节（movzx r64, r32）。
+// 系统调用返回一个 32 位无符号数时（`TlsAlloc` 的槽号就是），上面那半截不做承诺，
+// 要当 64 位数用就得先这样抹一次。
+//
+// en: MovZX32Reg emits dst = the zero-extended low four bytes of dst (movzx r64, r32). When a
+// system call returns a 32-bit unsigned number - the slot number from TlsAlloc is one - the
+// upper half carries no promise, so clearing it this way is what makes it a 64-bit value.
+func (a *Asm) MovZX32Reg(dst int) { a.regReg([]byte{0x0F, 0xB7}, true, dst, dst) }
+
 // MovZX8 落 dst = 零扩展的 *[base+disp]，读一个字节（UTF-8 的续字节用）。
 //
 // en: MovZX8 emits dst = zero-extended *[base+disp], reading one byte (used for UTF-8
@@ -426,6 +458,13 @@ func (a *Asm) MovFromTeb(dst int, off int32) {
 	a.w(0x25)               // SIB：index=100（没有）、base=101（没有）→ 位移是绝对地址
 	a.u32(uint32(off))
 }
+
+// CmpRspMem 比 rsp 与 *[base+disp]。"栈用完了"那一项检查用的是它的一个特例：
+// 那一个位置现在在每一条线程自己的状态块里，基址是 R12。
+//
+// en: CmpRspMem compares rsp with *[base+disp]. The "stack exhausted" check is the special case:
+// that cell now sits in each thread's own state block, so the base is R12.
+func (a *Asm) CmpRspMem(base int, disp int32) { a.regMem([]byte{0x3B}, true, RSP, base, disp) }
 
 // CmpRspRIP 比 rsp 与 *[rip+disp32]，返回那个 disp32 的位置，由链接器回填。
 // "栈用完了"那一项检查用的就是它：一次比、一次跳，正常深度下这条跳转不会被执行。
@@ -489,6 +528,20 @@ func (a *Asm) Cmp(dst, src int) { a.regReg([]byte{0x39}, true, src, dst) }
 //
 // en: Imul emits dst *= src (signed, low 64 bits).
 func (a *Asm) Imul(dst, src int) { a.regReg([]byte{0x0F, 0xAF}, true, dst, src) }
+
+// LockXadd 落 lock xadd *[base+disp], src：把内存里那一个数加上 src 那一份，旧值留在 src 里。
+//
+// 容器的"改过几次"用的就是这一条：两个数相加那一步不能拆成"读一次、加一次、写一次"，
+// 两条线程同时改同一只容器时那样写会丢一次修改（堆锁护不到对象自己身上那个位置）。
+//
+// en: LockXadd emits lock xadd *[base+disp], src: the memory value gains src's amount and the
+// old value is left in src. This is what a container's "how many times mutated" counter uses:
+// that step cannot be a read, an add and a write, because two threads mutating one container
+// would drop one mutation, and the heap lock does not reach a cell inside an object.
+func (a *Asm) LockXadd(base int, disp int32, src int) {
+	a.w(0xF0)
+	a.regMem([]byte{0x0F, 0xC1}, true, src, base, disp)
+}
 
 // AddImm 落 dst += 立即数。
 //

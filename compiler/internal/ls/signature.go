@@ -114,16 +114,21 @@ func (s source) enclosingCall(at Position) (int, int, bool) {
 	return 0, 0, false
 }
 
-// tokenBefore 说这一个记号是否排在光标之前（或正压在光标下）。协议里的列按 UTF-16 计，
-// 词法层的列按字符计，两边在这一行上换算一次。
+// tokenBefore 说这一个记号整个排在光标左边。协议里的列按 UTF-16 计，词法层的列按字符计，
+// 两边在这一行上换算一次。从光标那一个位置开始的记号不算在内：编辑器打完左括号会自动补上
+// 右括号，光标正夹在中间，那一个右括号排在光标那一个位置上——把它当成已经走过的记号，
+// 往回找就找不到包住光标的那一个左括号了，参数提示会当场没有。
 //
-// en: tokenBefore says whether a token lies at or before the cursor. The protocol counts columns in
-// UTF-16 units and the lexer in characters, so this converts once on that line.
+// en: tokenBefore says a token lies wholly to the left of the cursor. The protocol counts columns
+// in UTF-16 units and the lexer in characters, so this converts once on that line. A token starting
+// at the cursor's own column does not count: the editor closes a parenthesis it inserted, leaving
+// the cursor in between, and treating that right parenthesis as already passed would make the walk
+// back miss the opening parenthesis around the cursor - parameter help would vanish.
 func (s source) tokenBefore(t lexer.Tok, at Position) bool {
 	if t.Line-1 != at.Line {
 		return t.Line-1 < at.Line
 	}
-	return s.u16Col(t.Line, t.Col) <= at.Character
+	return s.u16Col(t.Line, t.Col) < at.Character
 }
 
 // calleeSignature 认左括号前面那一个名字，返回它的一行签名与每一格的文字。
@@ -157,12 +162,28 @@ func (s source) calleeSignature(open int) (string, []string) {
 		if label := check.MemberSignature(t, name.Text); label != "" {
 			return label, check.MemberParameters(t, name.Text)
 		}
+		// 泛型方法的这一次调用落在哪一只实例，检查那一步按位置记过（`Cell<int>.take<string>`）：
+		// 参数提示要的就是那一份签名，不是模板那一条。
+		// The checker recorded which instance this generic method call lands on, by position
+		// (`Cell<int>.take<string>`): parameter help wants that signature, not the template's.
+		if key, ok := s.facts.CallAt(name.Line, name.Col); ok {
+			if label := s.facts.Signature(key); label != "" {
+				return label, s.facts.SignatureParams(key)
+			}
+		}
 		// 挂在具体类型上的方法（`p.open(`）：签名表里的键是"类型名.方法名"，包里的带包根。
 		key := s.methodKey(t, name.Text)
 		if key == "" {
 			return "", nil
 		}
 		return s.facts.Signature(key), s.facts.SignatureParams(key)
+	}
+	if key, ok := s.facts.CallAt(name.Line, name.Col); ok {
+		// 顶层函数那一条同上：`twice(1)` 的提示该是 `twice(v: int): int`。
+		// Top-level functions follow the same rule: twice(1) should read twice(v: int): int.
+		if label := s.facts.Signature(key); label != "" {
+			return label, s.facts.SignatureParams(key)
+		}
 	}
 	key := sigKeyFrom(s.facts, name.Text, s.path)
 	if key == "" {

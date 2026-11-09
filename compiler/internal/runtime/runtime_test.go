@@ -39,6 +39,9 @@ func newDrv(t *testing.T) *drv {
 	d.a.Push(x64.RBP)
 	d.a.Mov(x64.RBP, x64.RSP)
 	d.a.AddImm(x64.RSP, -0x100)
+	// 这一份驱动代码自己就是进程入口，真实那条路在这儿先要这一条线程的状态块（R12 是它的起点），
+	// 不然抛出、打印与栈底那一批位置读的都是没备好的内存。
+	d.call("@state_init")
 	return d
 }
 
@@ -64,6 +67,18 @@ func (d *drv) addString(s string) int {
 func (d *drv) lea(off int, reg int) {
 	at := d.a.LeaRIP(reg)
 	d.patch = append(d.patch, pe.Patch{At: at, Sec: pe.SecData, Off: off})
+}
+
+// staticAddr 把运行期静态数据里那一个位置的地址取到 reg。测试要读写的是运行期自己那一批
+// （wsadata 与 wsaOnce 那两块都在静态段，不在每一条线程的状态块里），所以地址算的是
+// 驱动自己那段数据之后、再加运行期数据里的那个偏移。
+func (d *drv) staticAddr(t *testing.T, name string, reg int) {
+	t.Helper()
+	off, ok := d.rt.DataAt[name]
+	if !ok {
+		t.Fatalf("静态数据里没有 %s", name)
+	}
+	d.lea(len(d.data)+off, reg)
 }
 
 func (d *drv) putInt(v int64) {
@@ -92,6 +107,13 @@ func (d *drv) putBool(v bool) {
 
 func (d *drv) nl()    { d.call("@put_nl") }
 func (d *drv) space() { d.call("@put_space") }
+
+// printOutLen 打印这一条线程的行缓冲里已经攒了几个字节（状态块里那个位置，不另起一行）。
+// 攒行那一条路要看得见长度才能钉住"没到换行就不写出去"。
+func (d *drv) printOutLen() {
+	d.a.MovLoad(x64.RCX, x64.R12, runtime.StateAt("outLen"))
+	d.call("@put_int")
+}
 
 // alloc 要 @alloc：字节数与类型字进去，返回的地址在 rax。
 func (d *drv) alloc(size, tag int64) {
@@ -420,6 +442,132 @@ func TestAllocOutOfMemory(t *testing.T) {
 	got, code := run(t, d.finish(t, 0))
 	if got != "出错了（10091）：向操作系统要不到内存\n" || code != 1 {
 		t.Fatalf("要不到内存的形状不对：out=%q code=%d", got, code)
+	}
+}
+
+// TestFreeAboveTopBandKeepsHandlerChain 钉这一处：比最大那一档还大的块还回堆里之后，
+// 抛出那一路仍然走得通。
+//
+// 档号原先会排到 freeHeads 那一张之外（那张只有 73 格），而紧挨在它后面的静态格子就是
+// 处理器链的头（那时候它还在静态段里）：还一块 600 KiB 的文本就把链的头改写成那一个块地址，下一次没人接住的抛出
+// 照着这个头去跳，进程被操作系统终止、屏幕上一个字也不输出（2026-11-07 实测）。
+// 抛出那一句本身用 10031 号，与堆无关，只看它能不能正常打成那一行、给退出码 1。
+//
+// en: TestFreeAboveTopBandKeepsHandlerChain pins this: after a block larger than the biggest
+// band is returned to the heap, a throw still works. The band number used to advance past the
+// freeHeads table, which has 73 slots, and the static cell right behind that table is the head
+// of the handler chain - returning a 600 KiB text block therefore rewrote the chain head with
+// that block's address, and the next uncaught throw jumped to it: the process ended with no
+// output at all (measured 2026-11-07). The throw itself uses code 10031, unrelated to the heap,
+// so this only asks whether that line gets printed with exit code 1.
+func TestFreeAboveTopBandKeepsHandlerChain(t *testing.T) {
+	d := newDrv(t)
+	d.alloc(600*1024, 6)
+	d.save(0)
+	d.free(0)
+	d.lea(d.addString("下标越界"), x64.RDX)
+	d.a.MovImm(x64.RCX, 10031)
+	d.call("@throw")
+	got, code := run(t, d.finish(t, 0))
+	if got != "出错了（10031）：下标越界\n" || code != 1 {
+		t.Fatalf("还回大块的文本之后抛出不对：out=%q code=%d", got, code)
+	}
+}
+
+// TestAllocAboveHeaderSizeReportsOutOfMemory 钉进门那一判：块头记尺寸的那个位置只有四个字节，
+// 大过 4294967295 字节的这一笔记下来就是另一个数，往下每一步（挂链、拆两半、抹零）都按那个
+// 错的数走。这样的这一笔与 VirtualAlloc 给不出走同一个出口：报 10091，不依赖本机内存多大。
+//
+// en: TestAllocAboveHeaderSizeReportsOutOfMemory pins the check at the door: the header's size
+// field is four bytes, so a request above 4294967295 bytes is stored as some other number and
+// every step below it (chaining, splitting, wiping) follows that wrong figure. Such a request
+// leaves through the same exit as one VirtualAlloc cannot serve: code 10091, independent of how
+// much memory the machine has.
+func TestAllocAboveHeaderSizeReportsOutOfMemory(t *testing.T) {
+	d := newDrv(t)
+	d.alloc(4294967296, 6)
+	d.save(0)
+	got, code := run(t, d.finish(t, 0))
+	if got != "出错了（10091）：向操作系统要不到内存\n" || code != 1 {
+		t.Fatalf("记不进块头那个位置的这一笔不对：out=%q code=%d", got, code)
+	}
+}
+
+// TestStateBlockPerThreadIsolation 钉这一段的核心：抛出、打印方向与栈底那一批位置现在住在
+// 每一条线程自己那一块里，两块之间互不影响。
+//
+// 今天程序只有一条线程，所以这里用同一份驱动代码连叫两次 @state_init 当两条线程各备一份：
+// 两次拿到的地址不一样（堆给的两块）；往手上那一份摆一个数，换回第一份读回来还是第一份自己的，
+// 反过来第二份读到的是开局那一个 0。段 6 真起第二条线程之后，这一条钉的就是第二条线程不该
+// 看见第一条线程那一份。这里直接读写块里的格子，不叫抛出那一路：那一路的测试已经有了。
+//
+// en: TestStateBlockPerThreadIsolation pins the core of this segment: the throw cells, the print
+// direction and the stack floor now live in each thread's own block, and the two blocks do not
+// reach each other. The program has one thread today, so this driver asks @state_init twice, the
+// way two threads would each prepare theirs: the two addresses differ; a number written into the
+// block on hand still reads back as that first block's own value when R12 goes back to it, while
+// the second block reads the zero it started with. Once segment 6 starts a second thread, this is
+// what that thread must not see. The test writes and reads the cells directly rather than going
+// through a throw - the tests for that path already exist.
+func TestStateBlockPerThreadIsolation(t *testing.T) {
+	d := newDrv(t)
+	d.save(0) // newDrv 开头那一次 @state_init 的返回值：第一块的起点
+	d.a.MovImm(x64.RCX, 7)
+	d.a.MovStore(x64.R12, runtime.StThrowCode, x64.RCX) // 往第一块里摆一个码
+	d.call("@state_init")
+	d.save(1)
+	d.sameAndPrint(0) // 1 = 两次拿到的是同一块，那就不叫每一条线程一份
+	d.a.MovLoad(x64.RCX, x64.R12, runtime.StThrowCode)
+	d.call("@put_int") // 第二块是干净的：0
+	d.nl()
+	d.addrOf(0)
+	d.a.Mov(x64.R12, x64.RAX) // 把 R12 换回第一块
+	d.a.MovLoad(x64.RCX, x64.R12, runtime.StThrowCode)
+	d.call("@put_int") // 第一块里那一个 7 还在
+	d.nl()
+	got, code := run(t, d.finish(t, 0))
+	if got != "0\n0\n7\n" || code != 0 {
+		t.Fatalf("两份状态块没隔开：\n got %q 码 %d\nwant \"0\\n0\\n7\\n\"", got, code)
+	}
+}
+
+// TestStateBlockLayout 钉那张清单与 st* 那一组号一格格对上，块的大小进到 8 的倍数。
+// 清单是运行期与发射那一步共同的依据：号错了，抛出那一路读写的是别人的格子，
+// 而错的方式取决于排在前面的格子多大，编译与跑都不响。
+//
+// en: TestStateBlockLayout pins the list against the st* numbers, cell by cell, and the block's
+// size to a multiple of 8. The list is what both the runtime and the emit step read, so a wrong
+// number makes the throw path touch someone else's cell - and how it goes wrong depends on the
+// sizes ahead of it, which neither compiling nor running would notice.
+func TestStateBlockLayout(t *testing.T) {
+	cases := []struct {
+		off  int32
+		name string
+	}{
+		{runtime.StHTop, "hTop"},
+		{runtime.StThrowCode, "throwCode"},
+		{runtime.StThrowMsg, "throwMsg"},
+		{runtime.StThrowAt, "throwAt"},
+		{runtime.StOutErr, "outErr"},
+		{runtime.StTraceRows, "traceRows"},
+		{runtime.StTraceRowsN, "traceRowsN"},
+		{runtime.StTraceRowsCap, "traceRowsCap"},
+		{runtime.StTraceAt, "traceAt"},
+		{runtime.StTraceRbp, "traceRbp"},
+		{runtime.StTraceBusy, "traceBusy"},
+		{runtime.StStackFloor, "stackFloor"},
+		{runtime.StDefaultHandler, "defaultHandler"},
+		{runtime.StReleasing, "releasing"},
+		{runtime.StThreadError, "threadError"},
+		{runtime.StSelfEntry, "selfEntry"},
+	}
+	for _, c := range cases {
+		if got := runtime.StateAt(c.name); got != c.off {
+			t.Errorf("%s 的号对不上：清单算出 %d，常量写着 %d", c.name, got, c.off)
+		}
+	}
+	if runtime.StateBytes()%8 != 0 {
+		t.Errorf("状态块的大小没进到 8 的倍数：%d", runtime.StateBytes())
 	}
 }
 
@@ -848,11 +996,14 @@ func TestImportTableIsGroupedByModule(t *testing.T) {
 		kernel32 = "kernel32.dll"
 		winsock  = "ws2_32.dll"
 		winhttp  = "winhttp.dll"
-		// 35 个 kernel32 的名字：文件、目录、环境、时间那一摊 31 个，加 `process` 那四个；
+		// 42 个 kernel32 的名字：文件、目录、环境、时间那一摊 31 个，加 `process` 那四个，
+		// 加每一条线程那一份状态块要的两个（要一个槽号、把块登记进那个槽），
+		// 再加堆锁与打印锁那两条（拿与放）、"只结束这一条线程"那一条，
+		// 再加起线程那两条（CreateThread 与归还那块状态块要用的 VirtualFree）；
 		// 加 winsock 那 17 个：开机与收尾两个，加 `net` 那一组十五个；
 		// 再加 winhttp 那 9 个（`http` 那一组）。
-		namesBefore   = 61
-		kernel32Names = 35
+		namesBefore   = 68
+		kernel32Names = 42
 		winsockNames  = 17
 		winhttpNames  = 9
 	)
@@ -900,6 +1051,257 @@ func TestImportTableIsGroupedByModule(t *testing.T) {
 	}
 	if got := countOf(imps, winhttp); got != winhttpNames {
 		t.Fatalf("winhttp 那一段是 %d 个名字，要的是 %d 个（`http` 那一组八条加关句柄与拆网址）", got, winhttpNames)
+	}
+}
+
+// TestAllocFreeKeepLockRegisters 钉拿锁与放锁那一步不洗寄存器。
+//
+// 堆锁与打印锁那两条是系统调用，按调用约定要擦掉 caller-saved 那一组（rax／rcx／rdx 与 r8～r11）。
+// 运行期自己那一层把 rdx／r10／r11 当合法的过路值用：@alloc 与 @free 从头到尾不碰这三个，
+// 所以叫它们的那一条例程可以把一个地址留在 r10 里穿过这一次调用。早前没有护住的时候，
+// 归还两块文本之后 r10 里那一个句柄没了，进程被操作系统终止。
+// 做法是这三格在拿锁与放锁前后寄到 r13／r14／r15（被调方保存的那一组），叫完系统那一条再原样读回。
+func TestAllocFreeKeepLockRegisters(t *testing.T) {
+	d := newDrv(t)
+	d.alloc(24, 7)
+	d.save(0)
+	d.alloc(24, 7)
+	d.save(1)
+
+	// @free 那一路：三个哨兵摆进去，归还一块，再把三个值挪进驱动帧的局部槽。
+	// 必须先原样搬走再打印：打印那一条自己就用 r10／r11 做搬运，边打印边读会被它自己擦掉。
+	d.a.MovImm(x64.RDX, 1000001)
+	d.a.MovImm(x64.R10, 2000002)
+	d.a.MovImm(x64.R11, 3000003)
+	d.free(0)
+	park := func(dst int, n int) {
+		d.a.Mov(x64.RAX, dst)
+		d.save(n)
+	}
+	park(x64.RDX, 3)
+	park(x64.R10, 4)
+	park(x64.R11, 5)
+	printSlot := func(n int) {
+		d.a.MovLoad(x64.RCX, x64.RBP, int32(-8*(n+1)))
+		d.call("@put_int")
+		d.nl()
+	}
+	printSlot(3)
+	printSlot(4)
+	printSlot(5)
+
+	// @alloc 那一路：只用 r10／r11 做哨兵。rdx 在那一条里是类型字的入参，按调用约定本来就是
+	// 叫完作废的，钉它等于把 @alloc 的内部写法冻住。
+	d.a.MovImm(x64.R10, 4000004)
+	d.a.MovImm(x64.R11, 5000005)
+	d.a.MovImm(x64.RCX, 24)
+	d.a.MovImm(x64.RDX, 8)
+	d.call("@alloc")
+	d.save(2)
+	park(x64.R10, 7)
+	park(x64.R11, 8)
+	printSlot(7)
+	printSlot(8)
+
+	got, code := run(t, d.finish(t, 0))
+	want := "1000001\n2000002\n3000003\n4000004\n5000005\n"
+	if got != want || code != 0 {
+		t.Fatalf("拿锁与放锁洗掉了寄存器：\n got %q 码 %d\nwant %q", got, code, want)
+	}
+}
+
+// TestWriteKeepsLineUntilNewline 钉攒行那一条：不到换行不写出去，长度一直往上加；
+// 到了换行整行一次交出去，长度抹回 0。屏幕上出来的字与不攒行时一模一样。
+func TestWriteKeepsLineUntilNewline(t *testing.T) {
+	d := newDrv(t)
+	d.putStr("ab") // 这一段还留在缓冲里，屏幕上暂时没有
+	d.printOutLen()
+	d.nl() // 一行到了尽头：整行一次交出去
+	d.printOutLen()
+	d.nl()
+	got, code := run(t, d.finish(t, 0))
+	if want := "ab2\n0\n"; got != want || code != 0 {
+		t.Fatalf("攒行那一路不对：\n got %q 码 %d\nwant %q", got, code, want)
+	}
+}
+
+// TestWriteOversizePieceBypassesBuffer 钉比整块行缓冲还长的那一笔：它不进缓冲，自己一次写出去。
+// 缓冲里先前攒着的那一截要先交出去，屏幕上先后照旧。
+func TestWriteOversizePieceBypassesBuffer(t *testing.T) {
+	d := newDrv(t)
+	big := strings.Repeat("x", 70000) // 比 outBufCap（65536）还长
+	d.putStr("ab")
+	d.putStr(big)
+	d.printOutLen() // 那一笔没进缓冲：长度还是 0
+	d.nl()
+	got, code := run(t, d.finish(t, 0))
+	if want := "ab" + big + "0\n"; got != want || code != 0 {
+		t.Fatalf("比整块缓冲还长的那一笔不对：got %d 字节 码 %d，want %d 字节", len(got), code, len(want))
+	}
+}
+
+// TestWriteFlushesWhenLineDoesNotFit 钉接不上的那一种：一行还没写完但缓冲已经满了，
+// 先把已经攒着的那一截写出去，再接着攒后面。屏幕上出来的字与一次写完完全相同。
+func TestWriteFlushesWhenLineDoesNotFit(t *testing.T) {
+	d := newDrv(t)
+	xs := strings.Repeat("x", 65000)
+	ys := strings.Repeat("y", 30000)
+	d.putStr(xs) // 装得下：65000 字节留在缓冲里
+	d.printOutLen()
+	d.putStr(ys) // 65000 + 5 + 30000 超过整块缓冲：前面那一截先出去
+	d.printOutLen()
+	d.nl()
+	got, code := run(t, d.finish(t, 0))
+	if want := xs + "65000" + ys + "30000\n"; got != want || code != 0 {
+		t.Fatalf("接不上那一截不对：got %d 字节 码 %d，want %d 字节", len(got), code, len(want))
+	}
+}
+
+// TestWinsockStartRunsOnce 钉 winsock 那一次初始化的护栏：@winsock_start 叫第二遍不再叫系统那一条。
+//
+// 只看 wsaOnce 那个标志翻了没有钉不住"跳过"这一件事，所以这里读 WSADATA 的头一个字节：
+// 第一次叫过之后系统在那里写下了请求版本号的低字节 0x02；把它抹成一个哨兵再叫第二遍，
+// 真的又初始化一次就会被写回 0x02。段 5 与段 6 里第二条线程也要进门，这一条钉的就是那时候的形状。
+func TestWinsockStartRunsOnce(t *testing.T) {
+	d := newDrv(t)
+	d.call("@winsock_start")
+	d.staticAddr(t, "wsadata", x64.RAX)
+	d.a.MovZX8(x64.RCX, x64.RAX, 0)
+	d.call("@put_int") // 2：系统真的初始化过一次
+	d.nl()
+
+	d.a.MovImm(x64.RCX, 153)
+	d.staticAddr(t, "wsadata", x64.RAX)
+	d.a.MovStore8(x64.RAX, 0, x64.RCX) // 哨兵抹进去
+	d.call("@winsock_start")
+	d.staticAddr(t, "wsadata", x64.RAX)
+	d.a.MovZX8(x64.RCX, x64.RAX, 0)
+	d.call("@put_int") // 还是 153：那一条系统调用没有再来第二遍
+	d.nl()
+
+	d.staticAddr(t, "wsaOnce", x64.RAX)
+	d.a.MovLoad(x64.RCX, x64.RAX, 0)
+	d.call("@put_int") // 护栏写着 1
+	d.nl()
+	got, code := run(t, d.finish(t, 0))
+	if want := "2\n153\n1\n"; got != want || code != 0 {
+		t.Fatalf("winsock 那一次初始化的护栏不对：\n got %q 码 %d\nwant %q", got, code, want)
+	}
+}
+
+// TestThreadExitLastThreadEndsProcess 钉那一步的"最后一条"分支：还有一条活着时叫 @thread_exit，
+// 数到 0 就把收尾整个交给 @exit，所以退出码就是传进去的那一个，屏幕上没有别的东西。
+// 今天程序只有一条线程，这一条钉的正是那条路现在走的形状。
+func TestThreadExitLastThreadEndsProcess(t *testing.T) {
+	d := newDrv(t) // 开局那一次 @state_init 已经把线程条数推成 1
+	d.a.MovImm(x64.RCX, 3)
+	d.a.MovImm(x64.RDX, 7) // 这一条线程自己的错误号
+	d.call("@thread_exit")
+	d.nl() // 走不到：那一条不返回
+	got, code := run(t, d.finish(t, 0))
+	if got != "" || code != 3 {
+		t.Fatalf("最后一条线程结束要带走整个进程并留下退出码：\n got %q 码 %d\nwant 空输出 码 3", got, code)
+	}
+}
+
+// TestThreadExitFlushesWhenAnotherRemains 钉那一步的"还有别人"分支：退之前条数是 2，就不是最后一条，
+// 于是交出自己那一截行缓冲之后叫 ExitThread。这里没有真的第二条线程，用同一份驱动代码连叫两次
+// @state_init 当两条线程各备一份（与 TestStateBlockPerThreadIsolation 同一做法）：第二次把条数推成 2，
+// @thread_exit 数到 1 就走"还有别人"那一支。
+//
+// 两个读数钉两件事。屏幕上只有"还在"那两个字、后面没有堆用量那一行：那一截没到换行的字先交了
+// 出去，而收尾（`@heap_report` 与 `ExitProcess`）整个没有走——那一段是留给最后一条线程的。
+// 退出码不钉具体数值：进程由最后一条还在的线程叫 ExitThread 结束时，那一个数是操作系统给的，
+// 这里只钉它不是传进去的 9（那一个数只在"最后一条"那一支生效）。
+func TestThreadExitFlushesWhenAnotherRemains(t *testing.T) {
+	t.Setenv("NEF_HEAP", "1")
+	d := newDrv(t)
+	d.call("@state_init") // 第二条那份：线程条数成 2
+	d.putStr("还在")        // 没有换行：这一截还攒在缓冲里
+	d.a.MovImm(x64.RCX, 9)
+	d.a.MovImm(x64.RDX, 0)
+	d.call("@thread_exit")
+	d.nl() // 走不到
+	got, code := run(t, d.finish(t, 0))
+	if got != "还在" {
+		t.Fatalf("还有别人时收尾不该走 @exit，那一截字却要先交出去：\n got %q\nwant \"还在\"", got)
+	}
+	if code == 9 {
+		t.Fatalf("传进去的退出码只在该最后一条线程时生效，这一支却用了它：码 %d", code)
+	}
+}
+
+// TestReleaseBeginIsPerThread 钉释放那一道护栏按线程各一份：一条线程摆下"正在释放"之后，
+// 第二条线程读到的还是开局的 0——共用一格的后果是第二条线程跳过自己那一份顶层释放。
+// 三条读数分别是 0（第一份第一次）、0（第二份第一次）、1（换回第一份第二次）。
+// 换回第一份用的是先存下来的那一个起点，把 R12 摆回去；这一段仍然只有一条线程，
+// 所以两次备块当两条线程各备一份，与 TestStateBlockPerThreadIsolation 同一做法。
+func TestReleaseBeginIsPerThread(t *testing.T) {
+	d := newDrv(t)
+	d.save(0) // 第一份的起点
+	printBegin := func() {
+		d.call("@release_begin")
+		d.a.Mov(x64.RCX, x64.RAX)
+		d.call("@put_int")
+		d.nl()
+	}
+	printBegin()          // 0：第一份的第一次
+	d.call("@state_init") // 第二份
+	printBegin()          // 0：第二份自己那个位置还没人摆过
+	d.addrOf(0)
+	d.a.Mov(x64.R12, x64.RAX) // 换回第一份
+	printBegin()              // 1：那一份的护栏早在第一次就摆下了
+	got, code := run(t, d.finish(t, 0))
+	if want := "0\n0\n1\n"; got != want || code != 0 {
+		t.Fatalf("释放那一道护栏没按线程各一份：\n got %q 码 %d\nwant %q", got, code, want)
+	}
+}
+
+// TestWaitPathsReleaseStateBlock 钉等过之后的那两条收尾路都要归还那条线程的状态块。
+// 块是 252,232 字节一整块 `VirtualAlloc` 来的，不在堆的账里，所以 `NEF_HEAP` 那张每轮增长表
+// 看不见它：少了那一句归还，屏幕与退出码一字不变，只有长跑下来提交量一直涨。
+// 钉法取的是发出来的引用清单：`@thread_wait` 与 `@thread_join` 每一份的引用里必须有且只有一格
+// 指向导入表里的 `VirtualFree`。去掉 `threadTail` 里那一句 `impCall("VirtualFree")`，两处同时红。
+//
+// en: TestWaitPathsReleaseStateBlock pins that both waiting tails give that thread's state block
+// back. The block is one 252,232-byte VirtualAlloc, outside the heap's accounting, so the NEF_HEAP
+// per-round growth table cannot see it: drop the release and the screen, the exit code and every
+// heap reading stay identical while committed memory keeps climbing over a long run. The pin reads
+// the emitted reference list instead - each of @thread_wait and @thread_join must reference exactly
+// one import-table slot holding VirtualFree. Deleting the impCall("VirtualFree") in threadTail turns
+// both red at once.
+func TestWaitPathsReleaseStateBlock(t *testing.T) {
+	rt := runtime.Build()
+	slot := -1
+	for i, imp := range rt.Imports {
+		if imp.Name == "VirtualFree" {
+			slot = i
+		}
+	}
+	if slot < 0 {
+		t.Fatal("导入表里没有 VirtualFree，这一条测试钉的东西不存在")
+	}
+	for _, name := range []string{"@thread_wait", "@thread_join"} {
+		hits := 0
+		found := false
+		for _, p := range rt.Parts {
+			if p.Name != name {
+				continue
+			}
+			found = true
+			for _, r := range p.Refs {
+				if r.Kind == runtime.RefIAT && r.Off == slot {
+					hits++
+				}
+			}
+		}
+		if !found {
+			t.Errorf("%s 不在例程清单里", name)
+			continue
+		}
+		if hits != 1 {
+			t.Errorf("%s 归还状态块那一句出现 %d 次，要正好一次：两次就是把同一块还两遍，零次就是漏", name, hits)
+		}
 	}
 }
 

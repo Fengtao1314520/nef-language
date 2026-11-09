@@ -62,10 +62,12 @@ import (
 // waits for that process to end and gives its exit code.
 type Start func(program string, args []string, port string, throwStop bool, onOutput func(category, text string)) (wait func() int, err error)
 
-// 与编辑器约定的那一个线程号：这一版程序只有一条跑 nf 代码的线程。
+// 与编辑器约定的那一个线程号：调试只跟程序自己那一条线程，起出来的那一条不停，
+// 所以协议里从头到尾只有这一号。真要让两条都能停，要的是线程列表与停住事件带上各自的号。
 //
-// en: The thread id agreed with the editor: this version of the language has only one thread
-// running nf code.
+// en: The thread id agreed with the editor: debugging follows the program's own thread only, and a
+// started thread never stops, so this single id is all the protocol ever sends. Letting both threads
+// stop would need a thread list and stopped events carrying each id.
 const threadID = 1
 
 type server struct {

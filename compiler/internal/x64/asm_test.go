@@ -25,8 +25,22 @@ func TestEncodings(t *testing.T) {
 		{"mov qword [rbp-8],0", "48c745f800000000", func(a *Asm) { a.MovImmMem(RBP, -8, 0) }},
 		{"mov qword [rbp-0xE0],-1", "48c78520ffffffffffffff", func(a *Asm) { a.MovImmMem(RBP, -0xE0, -1) }},
 		{"mov rdx,[rax]", "488b10", func(a *Asm) { a.MovLoad(RDX, RAX, 0) }},
+		// rsp／r12 当基址的那一组要 SIB：modrm 的 rm 给 100，SIB 里 index 给"没有"（100）、
+		// base 给这一组自己（100）。位移为 0 也不能省那一段，所以 8 也照 disp8 摆。
+		{"mov rax,[r12+8]", "498b442408", func(a *Asm) { a.MovLoad(RAX, R12, 8) }},
+		{"mov rax,[rsp+8]", "488b442408", func(a *Asm) { a.MovLoad(RAX, RSP, 8) }},
+		{"mov [r12+0x58],rcx", "49894c2458", func(a *Asm) { a.MovStore(R12, 0x58, RCX) }},
+		{"mov [r12+0x58],rdx", "4989542458", func(a *Asm) { a.MovStore(R12, 0x58, RDX) }},
+		{"mov rax,[r12+0x1234]", "498b842434120000", func(a *Asm) { a.MovLoad(RAX, R12, 0x1234) }},
+		{"lea rcx,[r12+24]", "498d4c2418", func(a *Asm) { a.LeaMem(RCX, R12, 24) }},
+		{"cmp rsp,[r12+0x58]", "493b642458", func(a *Asm) { a.CmpRspMem(R12, 0x58) }},
+		{"movzx rax,eax", "480fb7c0", func(a *Asm) { a.MovZX32Reg(RAX) }},
 		{"mov [rdi],dl", "8817", func(a *Asm) { a.MovStore8(RDI, 0, RDX) }},
 		{"movzx rsi,byte[rdi]", "480fb637", func(a *Asm) { a.MovZX8(RSI, RDI, 0) }},
+		// 原子加一：容器那个"改过几次"用的就是这一条。lock 前缀在最前面，操作码 0F C1，
+		// modrm 里 reg 给那个源寄存器（r9 的低三位是 001，上面那一位由 REX.R 给）。
+		{"lock xadd [rdi+24],r9", "f04c0fc14f18", func(a *Asm) { a.LockXadd(RDI, 24, R9) }},
+		{"lock xadd [r12+0x1234],r8", "f04d0fc1842434120000", func(a *Asm) { a.LockXadd(R12, 0x1234, R8) }},
 		{"mov rdx,[rbp-0xE0]", "48899520ffffff", func(a *Asm) { a.MovStore(RBP, -0xE0, RDX) }},
 		{"add rsi,-1", "4883c6ff", func(a *Asm) { a.AddImm(RSI, -1) }},
 		{"add rcx,48", "4883c130", func(a *Asm) { a.AddImm(RCX, 48) }},

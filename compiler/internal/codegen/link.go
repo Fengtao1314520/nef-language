@@ -164,23 +164,42 @@ func (l *Linker) LeaGlobal(reg, off int) {
 }
 
 // StackFloorSet 摆开局那三行：这一段的栈基减去语言答应的栈，剩下那个地址就是栈底，
-// 存进静态槽给每一帧比。
+// 写进这一条线程状态块里那个位置给每一帧比。
 //
 // 在开局计算而不是写死一个地址：栈住在哪儿由操作系统定，每台机器、每次运行都不同；
 // 而"能用多少"是语言定的那一个数（`pe.StackReserve`），产物头里写它、直跑起线程也按它要栈，
 // 于是同一份代码两条路落在同一条边界上。
 //
 // en: StackFloorSet places the three opening lines: the stack base of this segment minus the
-// stack the language promises leaves the floor address, which is stored in a static slot for
-// every frame to compare against. It is computed at start-up rather than hardcoded because
+// stack the language promises leaves the floor address, which is written into a cell of this
+// thread's state block for every frame to compare against. It is computed at start-up rather
+// than hardcoded because
 // where the stack lives is the operating system's choice and differs per machine and per run,
 // while how much of it is usable is the single number the language fixes (`pe.StackReserve`):
 // the product header carries it and the direct-run path requests that much stack when starting
 // the thread, so the same code reaches the same boundary on both paths.
-func (l *Linker) StackFloorSet(off int) {
+func (l *Linker) StackFloorSet() {
 	l.a.MovFromTeb(x64.RAX, tebStackBase)
 	l.a.AddImm(x64.RAX, -(pe.StackReserve - stackSlack))
-	l.patches = append(l.patches, pe.Patch{At: l.a.MovStoreRIP(x64.RAX), Sec: pe.SecData, Off: off})
+	l.a.MovStore(x64.R12, runtime.StStackFloor, x64.RAX)
+}
+
+// StateInit 摆最前面那一条：给这一条线程备好那一份运行期状态，R12 从此就是它的起点。
+// 它必须排在 StackFloorSet 之前——那一步写的就是块里的一格。
+//
+// en: StateInit places the very first line: it prepares this thread's runtime state block, and
+// R12 is its start from then on. It must come before StackFloorSet, which writes a cell inside
+// that block.
+func (l *Linker) StateInit() {
+	l.a.Call(l.rtLabel["@state_init"])
+}
+
+// StoreState 把寄存器的值写进这一条线程状态块里的一格。用户代码里那条 SetPos 用它摆位置文本。
+//
+// en: StoreState writes a register into one cell of this thread's state block; the user-side
+// SetPos uses it to place the position text.
+func (l *Linker) StoreState(reg int, off int32) {
+	l.a.MovStore(x64.R12, off, reg)
 }
 
 // StackGuard 摆每一帧开场那两条：比一次栈、跳一次。正常深度下那条跳不会被执行。
@@ -193,8 +212,8 @@ func (l *Linker) StackFloorSet(off int) {
 // instruction only moves a pointer and touches no memory, so not one byte has been written
 // before the boundary is reached. Crossing the boundary goes to @die_stack, which neither
 // returns nor looks for a catch - catching a "stack exhausted" throw would itself need stack.
-func (l *Linker) StackGuard(off int) {
-	l.patches = append(l.patches, pe.Patch{At: l.a.CmpRspRIP(), Sec: pe.SecData, Off: off})
+func (l *Linker) StackGuard() {
+	l.a.CmpRspMem(x64.R12, runtime.StStackFloor)
 	l.a.Jcc(x64.B, l.rtLabel["@die_stack"])
 }
 

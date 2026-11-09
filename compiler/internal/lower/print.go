@@ -441,6 +441,11 @@ func buildPrint(l *L) {
 		{ir.KindProc, func() ir.Val {
 			return b.orNull(v, func() ir.Val { return b.strOf(desc, pdName) })
 		}},
+		{ir.KindThread, func() ir.Val {
+			// 线程句柄印的是写出来的那一个类型名（`Thread<int>` 这样带上尖括号里那一层，
+			// 名字在形状表里，见 desc.go 的 Thread 那一支）。
+			return b.orNull(v, func() ir.Val { return b.strOf(desc, pdName) })
+		}},
 	}
 	body := make([]ir.Label, len(cases))
 	for i, c := range cases {

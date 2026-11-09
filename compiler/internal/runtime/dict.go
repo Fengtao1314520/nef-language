@@ -509,9 +509,8 @@ func mapPut(b *rt) {
 	a.MovLoad(x64.R9, x64.RDI, cLen)
 	a.AddImm(x64.R9, 1)
 	a.MovStore(x64.RDI, cLen, x64.R9)
-	a.MovLoad(x64.R9, x64.RDI, cVer)
-	a.AddImm(x64.R9, 1)
-	a.MovStore(x64.RDI, cVer, x64.R9)
+	a.MovImm(x64.R9, 1)
+	a.LockXadd(x64.RDI, cVer, x64.R9) // 旧值留在 r9 里，没人看它
 	a.Jmp(place)
 
 	a.Mark(same)
@@ -618,9 +617,8 @@ func mapRemove(b *rt) {
 	a.MovLoad(x64.R9, x64.RDI, cLen)
 	a.AddImm(x64.R9, -1)
 	a.MovStore(x64.RDI, cLen, x64.R9)
-	a.MovLoad(x64.R9, x64.RDI, cVer)
-	a.AddImm(x64.R9, 1)
-	a.MovStore(x64.RDI, cVer, x64.R9)
+	a.MovImm(x64.R9, 1)
+	a.LockXadd(x64.RDI, cVer, x64.R9) // 旧值留在 r9 里，没人看它
 	b.get(x64.RAX, kValue)
 	b.epilogue()
 	a.Mark(gone)

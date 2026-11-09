@@ -86,23 +86,30 @@ console.print(length(xs), length(kept))
 		t.Fatal("nef.main 是空的")
 	}
 	// nef.main 里不该再有散着的析构：那一段都收进 nef.release_top 了
-	_, exit, lastTop := destroyAt(main)
+	_, _, lastTop := destroyAt(main)
 	for _, in := range main.Body {
 		if c, ok := in.(*ir.Call); ok && c.Fn == "nef.destroy" {
 			t.Fatalf("nef.main 里散着一笔析构 %v——尽头那一段应该在 nef.release_top 里", c.Args[0])
 		}
 	}
 	call := -1
+	exit := -1
 	for i, in := range main.Body {
-		if c, ok := in.(*ir.Call); ok && c.Fn == "nef.release_top" {
+		if c, ok := in.(*ir.Call); ok && c.Fn == "@exit" {
+			exit = i
+			break
+		}
+	}
+	if exit < 0 {
+		t.Fatal("nef.main 里没有 @exit")
+	}
+	for i := 0; i < exit; i++ {
+		if c, ok := main.Body[i].(*ir.Call); ok && c.Fn == "nef.release_top" {
 			call = i
 		}
 	}
 	if call < 0 {
 		t.Fatal("nef.main 没叫 nef.release_top")
-	}
-	if exit < 0 {
-		t.Fatal("nef.main 里没有 @exit")
 	}
 	if !(lastTop < call && call < exit) {
 		t.Fatalf("nef.release_top 要排在各文件顶层都调完、@exit 之前：最后一调 %d、叫它 %d、@exit %d", lastTop, call, exit)

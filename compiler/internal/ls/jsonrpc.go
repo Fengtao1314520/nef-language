@@ -46,6 +46,12 @@ const (
 	ErrInvalidParams  = -32602
 	ErrInternal       = -32603
 	ErrNotInitialized = -32002
+	// ErrRequestFailed 是 LSP 定的"这一条请求做不了"（-32803）：重命名被拒时回它，
+	// 编辑器把消息原样显示在输入框旁边。
+	//
+	// en: ErrRequestFailed is LSP's "this request cannot be carried out" (-32803): a refused
+	// rename answers with it, and the editor shows the message beside the input box.
+	ErrRequestFailed = -32803
 )
 
 // Conn 是 stdio 上那一条报文通道。写要带锁：答复与诊断通知可能由两处先后写出，

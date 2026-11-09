@@ -43,6 +43,8 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+
+	"neflang.org/nf/internal/ast"
 )
 
 // Member 是补全里的一条。
@@ -69,7 +71,7 @@ var stdMemberNames = []string{
 	"first", "get", "index_of", "insert_at", "intersect", "keys", "last", "last_index_of",
 	"pad_end", "pad_start", "recv_into", "remove", "remove_at", "repeat", "replace", "reverse",
 	"send", "slice", "sort", "split", "starts_with", "to_base64", "to_bytes", "to_list",
-	"to_lower", "to_set", "to_upper", "trim", "trim_end", "trim_start", "union", "values",
+	"to_lower", "to_set", "to_upper", "trim", "trim_end", "trim_start", "union", "values", "id",
 	"wait",
 }
 
@@ -107,7 +109,7 @@ func MembersOn(receiver string, t Type, f *Facts) []Member {
 		return groupFunctions(receiver)
 	}
 	switch t.Kind {
-	case List, Dict, Set, Str, Bytes, Socket, Listener, Process:
+	case List, Dict, Set, Str, Bytes, Socket, Listener, Process, Thread:
 		// 这一类的形状自己就能确定，不需要 Facts：逐条问 stdMember 认不认这个名字。
 		out := make([]Member, 0, len(stdMemberNames))
 		for _, name := range stdMemberNames {
@@ -212,11 +214,30 @@ func typeMembers(t Type, f *Facts) []Member {
 		out = append(out, Member{Name: fl.Name, Detail: fl.Name + ": " + fl.Typ.String(), Field: true})
 	}
 	prefix := t.Name + "."
-	for key, sg := range f.Sigs {
+	// 方法自己带类型参数时，键是 `Cell<int>.take<string>` 这一串：点号后面要补的是 `take`
+	// 这一个名字，一种实参一份不能各列一条。这里按基名并一次，签名取按名字排在前的那一份。
+	// A method with its own type parameters is keyed `Cell<int>.take<string>`: after the dot the
+	// name to offer is `take`, one entry per overload rather than one per argument list. The
+	// keys merge onto the base name here, and the signature shown is the first one in name order.
+	seen := map[string]bool{}
+	keys := make([]string, 0, len(f.Sigs))
+	for key := range f.Sigs {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	for _, key := range keys {
+		sg := f.Sigs[key]
 		if !strings.HasPrefix(key, prefix) || !sg.Method {
 			continue
 		}
 		name := key[len(prefix):]
+		if i := strings.Index(name, "<"); i >= 0 {
+			name = name[:i]
+		}
+		if seen[name] {
+			continue
+		}
+		seen[name] = true
 		out = append(out, Member{Name: name, Detail: SigText(name, name, sg.Params, sg.Ret, false)})
 	}
 	return sorted(out)
@@ -329,7 +350,7 @@ func StdParameters(dotName string) []string {
 // uses this to find that one member instead of trying eight shapes in turn (`add` on a list and
 // `add` on a dict are two different actions).
 func kindOfGroup(group string) (Kind, bool) {
-	for _, k := range []Kind{List, Dict, Set, Str, Bytes, Socket, Listener, Process} {
+	for _, k := range []Kind{List, Dict, Set, Str, Bytes, Socket, Listener, Process, Thread} {
 		if containerGroup(k) == group {
 			return k, true
 		}
@@ -388,12 +409,81 @@ func (f *Facts) Signature(key string) string {
 	if !ok {
 		return ""
 	}
-	head := SealedName(key)
+	head := displayHead(key)
 	if sg.Method {
 		head = bareName(sg.Owner) + "." + head
 		return SigText(head, head, sg.Params, sg.Ret, false)
 	}
 	return SigText(head, head, sg.Params, sg.Ret, false)
+}
+
+// TmplSignature 交出写出来那一份声明自己的一行签名：光标停在定义那一行的名字上时问它。
+// 归属是一个类型时写"类型名.方法名"，顶层函数只写名字，类型参数留着它自己的名字。
+// 认不出返回空串，编辑器随即不显示。
+//
+// en: TmplSignature returns the one-line signature of a declaration as written, asked when the
+// cursor rests on the name in a definition line. With a type as owner it reads "type.method"; a
+// top-level function reads just its name, and a type parameter keeps its own name. An unknown node
+// returns an empty string and the editor shows nothing.
+func (f *Facts) TmplSignature(fn *ast.Func, owner string) string {
+	if f == nil || fn == nil {
+		return ""
+	}
+	sg, ok := f.TmplSigs[fn]
+	if !ok {
+		return ""
+	}
+	head := fn.NameText
+	if owner != "" {
+		head = bareName(owner) + "." + head
+	}
+	return SigText(head, head, sg.Params, sg.Ret, false)
+}
+
+// displayHead 交出签名与说明里给人看的那一个名字：实例的键把实参排在名字后面
+// （`twice<int>`、`Cell<int>.take<string>`），而语言里写的是 `twice(1)` 与 `c.take("乙")`，
+// 实参那一截不给看，参数与返回那一段已经写着具体的类型。
+// 类型那一段的尖括号留着（`Cell<int>.get`）：那一个说的是哪一只实例。
+//
+// en: displayHead returns the name a signature or description shows to a reader: an instance key
+// puts its arguments behind the name (`twice<int>`, `Cell<int>.take<string>`), while the language
+// writes twice(1) and c.take("乙"), so that bracket group stays out of the line - the parameters
+// and the return already carry the concrete types. The brackets on the type part stay
+// (`Cell<int>.get`): those say which instance this is.
+func displayHead(key string) string {
+	name := SealedName(key)
+	if !strings.HasSuffix(name, ">") {
+		return name
+	}
+	if i := strings.LastIndexByte(name, '<'); i >= 0 {
+		return name[:i]
+	}
+	return name
+}
+
+// CallAt 按那一次调用的位置交出检查记下的落点键，编辑器做参数提示时用它：
+// 同一个名字在泛型上可能对应好几只实例（`twice(1)` 与 `twice("甲")`），
+// 按名字查签名只能查到模板那一份，按位置查才查得到这一次真正调的是哪一只。
+// 认不出返回空串与 false，编辑器随即不显示。
+//
+// en: CallAt returns the landing key the checker recorded for the call starting at that
+// position, which is what the editor needs for parameter help: one name can mean several
+// generic instances (`twice(1)` and `twice("甲")`), and looking a signature up by name only
+// finds the template, while looking it up by position finds the one this call actually makes.
+// An unknown position returns an empty key and false, so the editor shows nothing.
+func (f *Facts) CallAt(line, col int) (string, bool) {
+	if f == nil {
+		return "", false
+	}
+	for node, ref := range f.Calls {
+		if node == nil {
+			continue
+		}
+		if node.Pos.Line == line && node.Pos.Col == col && ref.Func != "" {
+			return ref.Func, true
+		}
+	}
+	return "", false
 }
 
 // SignatureParams 返回那一个函数或方法的每一个参数那一段文字，与 Signature 同一个头名、
@@ -410,7 +500,7 @@ func (f *Facts) SignatureParams(key string) []string {
 	if !ok {
 		return nil
 	}
-	head := SealedName(key)
+	head := displayHead(key)
 	if sg.Method {
 		head = bareName(sg.Owner) + "." + head
 	}

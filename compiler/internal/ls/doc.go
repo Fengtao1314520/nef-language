@@ -81,6 +81,13 @@ func declPos(prog *check.Program, node any) (file string, at ast.Pos, ok bool) {
 					}
 				}
 			}
+			if i, isIface := d.(*ast.Interface); isIface {
+				for _, m := range i.Methods {
+					if sameNode(m, node) {
+						return f.Path, m.Where(), true
+					}
+				}
+			}
 		}
 		for _, s := range f.Stmts {
 			if dd, isDecl := s.(*ast.Decl); isDecl && sameNode(dd, node) {

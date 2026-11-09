@@ -81,9 +81,12 @@ const (
 	ctlSz = 32
 )
 
-// 静态缓冲的名字，dataBytes 里摆的就是这几块。
+// 这一支那几块缓冲的名字。它们是每一条线程状态块里的格子，大小与起点排在
+// runtime.go 的 stateCells 那张清单里，静态数据段里不再有这一支的缓冲。
 //
-// en: The names of the static buffers; dataBytes lays out exactly these blocks.
+// en: The names of this branch's buffers. They are cells of each thread's state block -
+// runtime.go's stateCells lists their sizes and starts - and the static data segment holds no
+// buffer of this branch any more.
 const (
 	bufV   = "fV"
 	bufLo  = "fLo"
@@ -96,20 +99,11 @@ const (
 	ctlC   = "fCtlC"
 )
 
-// floatData 摆放小数这一支的静态数据。名字与顺序都由这里定，
-// 避免 Go map 的随机遍历顺序把偏移变成"每次编译都不一样"。
+// 上面那几个名字指的是每一条线程状态块里的格子（stateCells 那张清单排了它们的大小与起点），
+// 静态数据段里不再有这一支的缓冲。
 //
-// en: floatData lays out the static data of the float branch. Names and order are fixed here so
-// that Go's random map ordering cannot turn an offset into something that differs per compile.
-func floatData(put func(name string, bs []byte)) {
-	for _, n := range []string{bufV, bufLo, bufHi, bufC} {
-		put(n, make([]byte, limbN*8))
-	}
-	put(bufOut, make([]byte, 512))
-	for _, n := range []string{ctlV, ctlLo, ctlHi, ctlC} {
-		put(n, make([]byte, ctlSz))
-	}
-}
+// en: Those names are cells of each thread's state block (stateCells gives their sizes and
+// starts); the static data segment holds no buffer of this branch any more.
 
 // @f_mul(rcx=数组, rdx=格数, r8=乘数)：整个数组乘上一个小整数，有进位就在末尾增加一个格，
 // 返回 rax=新的格数。
@@ -841,7 +835,7 @@ func fLayout(b *rt) {
 	b.prologue()
 	b.put(sC, x64.RCX)
 	b.put(sZ, x64.RDX) // 负号先借 sZ 存一下，下面立刻取出来
-	b.leaRIP(x64.RAX, bufOut)
+	b.leaCell(x64.RAX, bufOut)
 	b.put(sOut, x64.RAX)
 	a.MovImm(x64.RAX, 0)
 	b.put(sI, x64.RAX)
@@ -1260,8 +1254,8 @@ func leBytes(s string) int64 {
 // but wraps the few characters into a text object left in rax.
 func fixedOut(b *rt, s string, asString bool) {
 	b.a.MovImm(x64.RAX, leBytes(s))
-	b.storeRIP(x64.RAX, bufOut)
-	b.leaRIP(x64.RCX, bufOut)
+	b.storeCell(x64.RAX, bufOut)
+	b.leaCell(x64.RCX, bufOut)
 	b.a.MovImm(x64.RDX, int64(len(s)))
 	if asString {
 		b.a.Mov(x64.R8, x64.RDX) // NaN／Inf／0.0 这几串全是 ASCII
@@ -1311,8 +1305,8 @@ func putFloat(b *rt, asString bool) {
 	b.prologue()
 	b.put(sBits, x64.RCX)
 	setCtl := func(ctl, buf string) {
-		b.leaRIP(x64.RAX, ctl)
-		b.leaRIP(x64.RDX, buf)
+		b.leaCell(x64.RAX, ctl)
+		b.leaCell(x64.RDX, buf)
 		a.MovStore(x64.RAX, cPtr, x64.RDX)
 	}
 	setCtl(ctlV, bufV)
@@ -1426,15 +1420,15 @@ func putFloat(b *rt, asString bool) {
 	b.get(x64.RAX, sE)
 	a.AddImm(x64.RAX, -1)
 	b.put(sHiJ, x64.RAX)
-	b.leaRIP(x64.RCX, ctlV)
+	b.leaCell(x64.RCX, ctlV)
 	b.get(x64.RDX, sM)
 	b.get(x64.R8, sE)
 	b.call("@f_expand")
-	b.leaRIP(x64.RCX, ctlLo)
+	b.leaCell(x64.RCX, ctlLo)
 	b.get(x64.RDX, sLoK)
 	b.get(x64.R8, sLoJ)
 	b.call("@f_expand")
-	b.leaRIP(x64.RCX, ctlHi)
+	b.leaCell(x64.RCX, ctlHi)
 	b.get(x64.RDX, sHiK)
 	b.get(x64.R8, sHiJ)
 	b.call("@f_expand")
@@ -1462,12 +1456,12 @@ func putFloat(b *rt, asString bool) {
 	b.get(x64.RAX, sP)
 	a.CmpImm(x64.RAX, 17)
 	a.Jcc(x64.G, pDone)
-	b.leaRIP(x64.RCX, ctlV)
-	b.leaRIP(x64.RDX, ctlC)
+	b.leaCell(x64.RCX, ctlV)
+	b.leaCell(x64.RDX, ctlC)
 	b.get(x64.R8, sP)
 	b.call("@f_round")
-	b.leaRIP(x64.RCX, ctlC)
-	b.leaRIP(x64.RDX, ctlLo)
+	b.leaCell(x64.RCX, ctlC)
+	b.leaCell(x64.RDX, ctlLo)
 	b.call("@f_cmp")
 	a.CmpImm(x64.RAX, 0)
 	a.Jcc(x64.L, nextP)
@@ -1476,8 +1470,8 @@ func putFloat(b *rt, asString bool) {
 	a.Test(x64.RAX, x64.RAX)
 	a.Jcc(x64.NE, nextP)
 	a.Mark(upOK)
-	b.leaRIP(x64.RCX, ctlC)
-	b.leaRIP(x64.RDX, ctlHi)
+	b.leaCell(x64.RCX, ctlC)
+	b.leaCell(x64.RDX, ctlHi)
 	b.call("@f_cmp")
 	a.CmpImm(x64.RAX, 0)
 	a.Jcc(x64.G, nextP)
@@ -1494,10 +1488,10 @@ func putFloat(b *rt, asString bool) {
 	// 17 位一定够，走到这里是给算术留的保险：把最后一轮的候选原样交出
 	a.Mark(pDone)
 	a.Mark(found)
-	b.leaRIP(x64.RCX, ctlC)
+	b.leaCell(x64.RCX, ctlC)
 	b.get(x64.RDX, sSign)
 	b.call("@f_layout")
-	b.leaRIP(x64.RCX, bufOut)
+	b.leaCell(x64.RCX, bufOut)
 	a.Mov(x64.RDX, x64.RAX)
 	if asString {
 		a.Mov(x64.R8, x64.RDX) // @f_layout 返回的全是 ASCII

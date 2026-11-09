@@ -228,6 +228,14 @@ func nameCompletion(path, text string) []CompletionItem {
 			add(pkgName, "包 "+impPath, kindModule)
 		}
 		for key, sg := range facts.Sigs {
+			if _, isInstance := facts.InstFuncs[key]; isInstance {
+				// 按实例生成的那一份不单独列：名字栏里那一行写的是模板的签名
+				// （`twice(v: Element): Element`），实参是哪一种由这一次调用自己决定。
+				// An instance is not listed on its own: the name column carries the template's
+				// signature (twice(v: Element): Element); which argument applies is this call's
+				// business.
+				continue
+			}
 			kind := kindFunc
 			if sg.Method {
 				kind = kindMethod
@@ -322,6 +330,9 @@ func Hover(path, text string, at Position) *HoverResult {
 	if b, ok := bindAt(facts, ln, bc); ok {
 		return markHover(bindLine(name, b), doc(b.Decl))
 	}
+	if sig, node := funcHover(prog, facts, path, ln, bc, name); sig != "" {
+		return markHover(sig, doc(node))
+	}
 	for key, d := range facts.Declared {
 		if check.SealedName(key) == name {
 			return markHover(facts.DeclaredHover(key, d), doc(declNode(prog, name)))
@@ -391,6 +402,102 @@ func importPaths(prog *check.Program, path string) map[string]string {
 		}
 	}
 	return out
+}
+
+// funcHover 认定义那一行上的名字：光标正压在函数或方法自己写出来的那一个名字上时，
+// 答那一条的签名与它上面那段注释。只看光标所在那一份文件——别的文件里同一行同一列上
+// 写着什么是另一回事。带类型参数的答模板那一份：实例的节点是复制出来的，位置与模板相同，
+// 按位置去认会把定义行答成文件里某一次调用落到的那一只实例。
+//
+// en: funcHover recognises the name on a definition line: when the cursor rests on the very name
+// a function or method was written with, it answers that declaration's signature and the comment
+// above it. Only the file the cursor is in counts - what sits on the same line and column in
+// another file is a different matter. A declaration with type parameters answers with the
+// template: an instance's node is a copy carrying the same positions, so matching by position
+// alone would answer the definition line with whichever instance some call in the file reached.
+func funcHover(prog *check.Program, facts *check.Facts, path string, line, col int, name string) (string, any) {
+	if prog == nil {
+		return "", nil
+	}
+	for _, f := range prog.Files {
+		if f.Path != path {
+			continue
+		}
+		for _, d := range f.Defs {
+			switch n := d.(type) {
+			case *ast.Func:
+				if !n.IsMethod && defNameAt(n, line, col, name) {
+					return funcSig(facts, n, ""), n
+				}
+			case *ast.Object:
+				for _, m := range n.Methods {
+					if defNameAt(m, line, col, name) {
+						return funcSig(facts, m, n.NameText), m
+					}
+				}
+			case *ast.Interface:
+				for _, m := range n.Methods {
+					if defNameAt(m, line, col, name) {
+						return funcSig(facts, m, n.NameText), m
+					}
+				}
+			}
+		}
+	}
+	return "", nil
+}
+
+// defNameAt 判光标是不是正压在这一条声明的名字上：名字那一截的位置由语法层记下来，
+// 声明节点自己的位置指的是 `method` 那个关键字，两者不是同一列。
+//
+// en: defNameAt decides whether the cursor rests on this declaration's name: the name's own
+// position is recorded by the parser, while the declaration node's position points at the
+// `method` keyword - the two are not the same column.
+func defNameAt(fn *ast.Func, line, col int, name string) bool {
+	return fn.NameText == name && fn.NamePos.Line == line && fn.NamePos.Col == col
+}
+
+// funcSig 交出一条声明写出来那一行的签名。模板里的方法与自带类型参数的方法先问按节点记的
+// 那一张（Sigs 里没有它们摊平的那一条）；其余先按节点找事实表里那一笔（顶层函数与不带自己
+// 那一层类型参数的方法都登记了节点）；接口里的方法声明没有节点那一笔，签名在按
+// "类型名.方法名"排的那张表上，按归属的名字找，实例那几份的归属带着尖括号，对不上。
+//
+// en: funcSig returns the signature for the line a declaration was written on. A method inside a
+// template and one carrying its own type parameters first ask the table keyed by node (Sigs holds
+// no flattened line for them); the rest look the node up in the facts table (top-level functions
+// and methods without their own layer of type parameters both register a node); an interface's
+// method declaration has no node entry, so its signature is found on the table keyed by
+// "type.method" through the owner's name - an instance's owner carries angle brackets and does
+// not match.
+func funcSig(facts *check.Facts, fn *ast.Func, owner string) string {
+	if sig := facts.TmplSignature(fn, owner); sig != "" {
+		return sig
+	}
+	for key, node := range facts.Funcs {
+		if node == fn {
+			if sig := facts.Signature(key); sig != "" {
+				return sig
+			}
+		}
+	}
+	if owner == "" {
+		return ""
+	}
+	var keys []string
+	for key := range facts.Sigs {
+		i := strings.LastIndexByte(key, '.')
+		if i < 0 || key[i+1:] != fn.NameText || check.SealedName(key[:i]) != owner {
+			continue
+		}
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	for _, key := range keys {
+		if sig := facts.Signature(key); sig != "" {
+			return sig
+		}
+	}
+	return ""
 }
 
 // declNode 按名字找那一个顶层定义的节点：要找的注释写在定义上面，定义节点才带行列。

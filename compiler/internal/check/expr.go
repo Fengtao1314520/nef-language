@@ -47,6 +47,9 @@ var (
 	// typeProcess 是操作系统给的那一类东西：手上那一个数是
 	// 运行期那一张表的表项（一个子进程有两把句柄，一个名字装不下两把）。
 	typeProcess = Type{Kind: Process, Name: "Process"}
+	// typeThread 只给 stdFuncs 那张表列名字用：真正的返回类型跟着第一个入参那一个函数走，
+	// 由 threadStart 现场算出来（带尖括号参数那一只），这一项身上不带 Args。
+	typeThread = Type{Kind: Thread, Name: "Thread"}
 )
 
 func (c *Checker) expr(e ast.Expr) Type { return c.infer(e, typeAuto) }
@@ -234,6 +237,14 @@ func (c *Checker) nameExpr(n *ast.Name, want Type) Type {
 			// 自己写的顶层函数可以按值交出去：那一个位置收的是它入口的地址。
 			// 要的是 fn 类型、签名对得上才算数；对不上就是类型不符，与其余每一处赋值同一条。
 			if want.Kind == FuncVal {
+				if len(fi.fn.TypeParams) > 0 {
+					// 泛型那一份声明按值交出去要的也是"填好的那一只实例"，而一份 fn 类型说不出
+					// 填什么：类型参数只从实参推，值这一处一个实参都没有。这一处按现成那一句拒，
+					// 不能再往下拿没填的签名算——那一份返回类型还是个类型参数，算出来的那一句里
+					// 会出现"错误"这种给编译器自己看的词。
+					c.fail(n.Where(), "%s 是泛型，先填尖括号里的类型再交出去", n.Text)
+					return errType
+				}
 				ft := c.funcValueType(fi)
 				if sameType(want, ft) {
 					if c.facts != nil {
@@ -281,7 +292,7 @@ func (c *Checker) nameExpr(n *ast.Name, want Type) Type {
 	if c.facts != nil {
 		decl, _ := v.node.(*ast.Decl)
 		param, _ := v.node.(*ast.Param)
-		c.facts.Binds[n] = Bind{By: v.by, Global: depth == 0, Decl: decl, Param: param, Typ: v.typ}
+		c.facts.Binds[n] = Bind{By: v.by, Global: depth == 0, Decl: decl, Param: param, Typ: v.typ, At: v.pos}
 	}
 	return v.typ
 }
@@ -848,6 +859,8 @@ func containerGroup(k Kind) string {
 		return "listener"
 	case Process:
 		return "process"
+	case Thread:
+		return "thread"
 	}
 	return ""
 }
@@ -1024,6 +1037,20 @@ func stdMember(base Type, name string) member {
 		case "close":
 			return member{kind: memberStd, typ: Type{Kind: FuncT, Name: group}}
 		}
+	case Thread:
+		// 线程句柄身上只有两条：`wait()` 等它跑完并返回那个函数返回的东西（类型跟着句柄身上
+		// 那一个尖括号参数走），`id()` 交出那张表的表项。没有 `close()`：名字走到作用域尽头时
+		// 语言自动等一次，没有"不等了"的写法。
+		switch name {
+		case "wait":
+			ret := typeInt
+			if len(base.Args) > 0 {
+				ret = base.Args[0]
+			}
+			return member{kind: memberStd, typ: Type{Kind: FuncT, Name: group}, sig: methodSig{Ret: ret}}
+		case "id":
+			return member{kind: memberStd, typ: Type{Kind: FuncT, Name: group}, sig: methodSig{Ret: typeInt}}
+		}
 	}
 	return member{}
 }
@@ -1172,6 +1199,26 @@ func (c *Checker) call(call *ast.Call) Type {
 	}
 	if fi, ok := c.funcs[c.key(name)]; ok && fi.fn != nil {
 		c.markUsed(name)
+		if len(fi.fn.TypeParams) > 0 {
+			// 带类型参数的顶层函数：调用这一句要的是它的一只实例。
+			// 写了尖括号就照写的配，没写就把实参先求一遍类型再回来配（配不上时报现成的那一句）。
+			// A top-level function with type parameters: this sentence wants one of its
+			// instances. Written brackets bind the parameters directly; without them the
+			// arguments are evaluated first so the parameters can be inferred, and a mismatch
+			// reports the existing sentence.
+			var argTypes []Type
+			if call.TypeArgs == nil {
+				for _, a := range call.Args {
+					argTypes = append(argTypes, c.expr(a))
+				}
+			}
+			inst, ok := c.instantiateCallable(fi.file, fi.key, fi.fn, nil, "", call.TypeArgs, argTypes, call.Where())
+			if !ok {
+				return errType
+			}
+			c.recordCall(call, CallRef{Kind: CallUser, Func: inst.key})
+			return c.userCall(call, inst, name)
+		}
 		// 记定义处的规范名：`import { f as g }` 与包里的名字都不该让同一个函数体拿到两个 IR 名字。
 		c.recordCall(call, CallRef{Kind: CallUser, Func: fi.key})
 		return c.userCall(call, c.funcSig(c.key(name), fi), name)
@@ -1282,10 +1329,56 @@ func (c *Checker) memberCall(call *ast.Call, m *ast.Member) Type {
 		// 包外的函数与直接叫名字的同一套账：参数、交出、被调方带不带走。
 		// 签名现算：检查按装载的次序逐份文件走，入口那份先跑，包那份的 funcInfo 这时还没算过。
 		// 调用记的是定义处的规范名（带包根），后端发的 IR 函数名与它同一个。
+		if mm.fi.fn != nil && len(mm.fi.fn.TypeParams) > 0 {
+			// 包里的泛型函数：与叫名字那一条同一处生成实例，模板所在那份文件由那一份 funcInfo 带着。
+			// A generic function reached through a package name: the same instantiation path as
+			// calling it by name, with the template's file coming from that funcInfo.
+			var argTypes []Type
+			if call.TypeArgs == nil {
+				for _, a := range call.Args {
+					argTypes = append(argTypes, c.expr(a))
+				}
+			}
+			inst, ok := c.instantiateCallable(mm.fi.file, mm.fi.key, mm.fi.fn, nil, "", call.TypeArgs, argTypes, call.Where())
+			if !ok {
+				return errType
+			}
+			c.recordCall(call, CallRef{Kind: CallUser, Func: inst.key})
+			return c.userCall(call, inst, m.NameText)
+		}
 		c.recordCall(call, CallRef{Kind: CallUser, Func: mm.fi.key})
 		return c.userCall(call, c.funcSig(mm.fi.key, *mm.fi), m.NameText)
 	case memberMethod:
 		recv := c.exprTypeOf(m.What)
+		if len(mm.sig.TypeParams) > 0 {
+			// 方法自己带类型参数：类那一张对照表加上方法自己那一张，才解得出参数类型。
+			// 键是"类实例名.方法名.实参"这一串（`Cell<int>.take<int>`），落码时两个实参就是两个函数。
+			// A method with its own type parameters needs both maps - the class instance's and
+			// the method's own - before its parameters resolve. The key is
+			// `Cell<int>.take<int>`, so two argument lists become two functions at lowering.
+			// 模板住在哪一份文件：类实例那一条记录带着（找不到就是本文件，普通写法都到不了这里）。
+			// Which file holds the template: the class instance's record says; a missing one
+			// falls back to this file, which no ordinary spelling reaches.
+			var outer map[string]Type
+			file := c.file
+			if ti, ok := c.types[recv.Name]; ok {
+				outer = ti.env
+				file = ti.file
+			}
+			var argTypes []Type
+			if call.TypeArgs == nil {
+				for _, a := range call.Args {
+					argTypes = append(argTypes, c.expr(a))
+				}
+			}
+			inst, ok := c.instantiateCallable(file, recv.Name+"."+m.NameText, mm.sig.Tmpl, outer, recv.Name,
+				call.TypeArgs, argTypes, call.Where())
+			if !ok {
+				return errType
+			}
+			c.recordCall(call, CallRef{Kind: CallUser, Func: inst.key, Recv: recv})
+			return c.userCall(call, inst, m.NameText)
+		}
 		c.recordCall(call, CallRef{Kind: CallUser, Func: recv.Name + "." + m.NameText, Recv: recv})
 		if !omitsOnlyDefaults(call.Args, mm.sig.Params) {
 			c.fail(call.Where(), "%s 收 %d 个参数，这里给了 %d 个", mm.sig.Name, len(mm.sig.Params), len(call.Args))
@@ -1298,6 +1391,11 @@ func (c *Checker) memberCall(call *ast.Call, m *ast.Member) Type {
 		return mm.sig.Ret
 	case memberStd:
 		c.recordCall(call, CallRef{Kind: CallStd, Std: mm.typ.Name})
+		if mm.typ.Name == "thread.start" {
+			// 这一条的返回类型跟着第一个入参那一个函数的返回类型走，通用那一段算不出来
+			// （它自己在 thread.go 的 threadStart 里把两个位置都判完）。
+			return c.threadStart(call)
+		}
 		if !mm.sig.VarArg && len(call.Args) != len(mm.sig.Params) {
 			c.fail(call.Where(), "%s 收 %d 个参数，这里给了 %d 个", m.NameText, len(mm.sig.Params), len(call.Args))
 		}
@@ -1638,7 +1736,7 @@ func (c *Checker) convert(cv *ast.Convert) Type {
 		// Json 那一棵树同理。这两条原先留到发码那一步才报（"类型字没排上"），
 		// 等于把一条语言规则说成后端少做的一块。bytes 是同一档：盒子里那个位置只放得下一个句柄，
 		// 拆出来要靠类型字，而它比的是那一段内存，不是那一个块。
-		if from.Kind == List || from.Kind == Dict || from.Kind == Set || from.Kind == Json || from.Kind == Bytes || from.Kind == Socket || from.Kind == Listener || from.Kind == Process {
+		if from.Kind == List || from.Kind == Dict || from.Kind == Set || from.Kind == Json || from.Kind == Bytes || IsSystemHandle(from.Kind) {
 			c.fail(cv.Where(), "%s 装不进盒子：盒子只装 class、struct 和值类型，要混装就一个一个装进去", from)
 			return errType
 		}
@@ -1665,7 +1763,7 @@ func (c *Checker) convert(cv *ast.Convert) Type {
 		// 拆箱的目标得是进得了盒子的那一档：容器、Json 与 bytes 从来没装进去过，`o as list<int>`、
 		// `o as Json` 拆的是一个装不进去的东西。这一条原先到发码才报
 		// "%s 的类型字没排上，拆不开这个盒"，看起来像后端缺的实现，要改的其实是那句 as。
-		if to.Kind == List || to.Kind == Dict || to.Kind == Set || to.Kind == Json || to.Kind == Bytes || to.Kind == Socket || to.Kind == Listener || to.Kind == Process || to.Kind == FuncVal {
+		if to.Kind == List || to.Kind == Dict || to.Kind == Set || to.Kind == Json || to.Kind == Bytes || IsSystemHandle(to.Kind) || to.Kind == FuncVal {
 			c.fail(cv.Where(), "盒子里没有 %s：它进不了盒子，也拆不出来", to)
 			return errType
 		}
@@ -1730,7 +1828,7 @@ func (c *Checker) testExpr(t *ast.Test) Type {
 	}
 	// `is` 问的是"盒子里那一个值是哪一只"。容器、Json 与 bytes 进不了盒子，
 	// 这一问没有东西可答——原先 `j is Json` 过了检查、到后端才报"类型字没排上"。
-	if to.Kind == List || to.Kind == Dict || to.Kind == Set || to.Kind == Json || to.Kind == Bytes || to.Kind == Socket || to.Kind == Listener || to.Kind == Process {
+	if to.Kind == List || to.Kind == Dict || to.Kind == Set || to.Kind == Json || to.Kind == Bytes || IsSystemHandle(to.Kind) {
 		c.fail(t.Where(), "is 的右边只能写盒子里可能装的那个类型")
 		return typeBool
 	}
@@ -1751,6 +1849,22 @@ func (c *Checker) testExpr(t *ast.Test) Type {
 }
 
 func (c *Checker) structLit(sl *ast.StructLit) Type {
+	if len(sl.TypeArgs) > 0 {
+		// `Pnt<int>{x: 1}`：名字与尖括号里那几段类型一起交给 resolveType，
+		// 该不该生成实例、个数对不对、填进来的类型能不能用都在那一条路上办。
+		// `Pnt<int>{x: 1}` sends the name and its bracketed types to resolveType together:
+		// whether an instance must be created, whether the count matches and whether a filled-in
+		// type may be used are all answered there.
+		t := c.resolveType(&ast.NamedType{Pos: sl.Pos, Name: sl.Type, Args: sl.TypeArgs}, sl.Where())
+		if t.Kind == ErrT {
+			return errType
+		}
+		if t.Kind != Struct {
+			c.fail(sl.Where(), "%s 是 class，造值要写 new %s{...}", t, t)
+			return errType
+		}
+		return c.structFields(sl, t.Name, t)
+	}
 	name, info, ok := c.typeNameFor(sl.Type, sl.Where())
 	if !ok {
 		c.fail(sl.Where(), "没有 %s 这个类型", sl.Type)
@@ -1768,8 +1882,30 @@ func (c *Checker) structLit(sl *ast.StructLit) Type {
 		c.fail(sl.Where(), "%s 是枚举，取成员写 %s.成员名", bareName(name), bareName(name))
 		return errType
 	}
+	if len(info.typeParams) > 0 {
+		// 泛型的模板不是类型，造不出值：这一句写的是 `Pnt{...}`，缺的是那一对尖括号。
+		// A template is not a type and builds no value: this sentence writes `Pnt{...}` and is
+		// missing exactly the pair of angle brackets.
+		c.fail(sl.Where(), "%s 需要 %d 个尖括号参数，实际 %d 个", sl.Type, len(info.typeParams), 0)
+		return errType
+	}
 	t := Type{Kind: Struct, Name: name}
+	return c.structFields(sl, name, t)
+}
+
+// structFields 查 struct 字面量里列出的那几个字段：名字对不对、值配不配得上类型、字段列全没有。
+// 普通类型与泛型实例走的是同一段，差的就是 `name` 是那一只实例的规范名（`Pnt<int>`）。
+//
+// en: structFields checks the fields a struct literal lists: whether the names exist, whether
+// the values match, and whether every field was given. Ordinary types and generic instances
+// share this stretch; the only difference is that name is the instance's canonical name
+// (`Pnt<int>`).
+func (c *Checker) structFields(sl *ast.StructLit, name string, t Type) Type {
 	lay := c.layout(name)
+	if lay == nil {
+		c.fail(sl.Where(), "没有 %s 这个类型", name)
+		return errType
+	}
 	seen := map[string]bool{}
 	for _, f := range sl.Fields {
 		if seen[f.NameText] {
@@ -1797,20 +1933,15 @@ func (c *Checker) structLit(sl *ast.StructLit) Type {
 }
 
 func (c *Checker) newExpr(n *ast.New) Type {
-	name, info, ok := c.typeNameFor(n.Type, n.Where())
+	name, ret, ok := c.newTarget(n)
 	if !ok {
-		c.fail(n.Where(), "没有 %s 这个类型", n.Type)
-		return errType
-	}
-	if info.kind != Class {
-		kind := "struct"
-		if info.obj != nil {
-			kind = info.obj.Kind
-		}
-		c.fail(n.Where(), "new 只用在 class 上，%s 是 %s", name, kind)
 		return errType
 	}
 	lay := c.layout(name)
+	if lay == nil {
+		c.fail(n.Where(), "没有 %s 这个类型", name)
+		return errType
+	}
 	seen := map[string]bool{}
 	for _, f := range n.Fields {
 		if seen[f.NameText] {
@@ -1841,7 +1972,61 @@ func (c *Checker) newExpr(n *ast.New) Type {
 			}
 		}
 	}
-	return Type{Kind: Class, Name: name}
+	return ret
+}
+
+// newTarget 说出这一句 `new` 要造的是哪一只类型：一个是摊字段用的名字，一个是给后端的类型。
+//
+// 名字后面没有尖括号时走的是老那一条：写出来的名字在本文件的名单里查（`import { Pair as P }`
+// 之后两个名字指的还是同一只类型）。带尖括号时这一句造的是某一只泛型类的实例，
+// 所以整个名字与实参一起交给 resolveType——实例该不该生成、实参个数对不对、
+// 填进来的类型能不能用，都在那一条路上办（generic.go 的 instantiate）。
+//
+// en: newTarget returns the type this `new` builds: the name whose fields get flattened and the
+// type handed to the backend. Without angle brackets it is the old path - the written name is
+// looked up in this file's table, so `import { Pair as P }` still means the same type. With them
+// the sentence builds an instance of some generic class, so the name and its arguments go to
+// resolveType together: whether an instance must be created, whether the argument count matches
+// and whether a filled-in type may be used are all answered there (instantiate in generic.go).
+func (c *Checker) newTarget(n *ast.New) (string, Type, bool) {
+	if len(n.TypeArgs) > 0 {
+		t := c.resolveType(&ast.NamedType{Pos: n.Pos, Name: n.Type, Args: n.TypeArgs}, n.Where())
+		if t.Kind == ErrT {
+			return "", t, false
+		}
+		if t.Kind != Class {
+			kind := "struct"
+			if t.Kind == Iface {
+				kind = "interface"
+			} else if t.Kind == Enum {
+				kind = "enum"
+			}
+			c.fail(n.Where(), "new 只用在 class 上，%s 是 %s", t, kind)
+			return "", errType, false
+		}
+		return t.Name, t, true
+	}
+	name, info, ok := c.typeNameFor(n.Type, n.Where())
+	if !ok {
+		c.fail(n.Where(), "没有 %s 这个类型", n.Type)
+		return "", errType, false
+	}
+	if info.kind != Class {
+		kind := "struct"
+		if info.obj != nil {
+			kind = info.obj.Kind
+		}
+		c.fail(n.Where(), "new 只用在 class 上，%s 是 %s", name, kind)
+		return "", errType, false
+	}
+	if len(info.typeParams) > 0 {
+		// 模板造不出对象：`new Box(v: 3)` 缺的那一对尖括号说的是要哪一只实例。
+		// A template builds nothing: in `new Box(v: 3)` the missing brackets are the ones that
+		// would say which instance is wanted.
+		c.fail(n.Where(), "%s 需要 %d 个尖括号参数，实际 %d 个", n.Type, len(info.typeParams), 0)
+		return "", errType, false
+	}
+	return name, Type{Kind: Class, Name: name}, true
 }
 
 // takesIntoCell 判容器字面量里的这个位置要不要记交出：引用类型装进去就是换持有者，
@@ -2142,6 +2327,10 @@ var stdFuncs = map[string]stdSig{
 	// 系统的 `CreateProcessW`，语言不替谁拆参数、也不替谁加引号（带空格的路径自己写成 `"…"`）。
 	// 起不成的那些原因（文件不在、不是一个可执行文件、不让访问）只占一个号，系统原号码带在消息里。
 	"process.start": {params: []Param{{Typ: typeStr}}, ret: typeProcess},
+	// thread 那一组只有这一条挂在组名上。返回的类型跟着第一个入参走，所以这一条不走完
+	// stdCall 那一段（它在 stdCall 开头就分出去了，见 thread.go 的 threadStart）：
+	// 表里这一项只给补全与文档那几处列名字用，两个参数位置都写"跟着实参走"。
+	"thread.start": {params: []Param{{Typ: Type{Kind: ErrT}}, {Typ: Type{Kind: ErrT}}}, ret: typeThread},
 }
 
 // stdFunc 查一条挂在组名上的函数；第二个返回假说的是"没有这一条"。
@@ -2406,7 +2595,7 @@ var _ = fmt.Sprintf
 // table, so adding a group costs one line.
 var stdGroups = []string{
 	"console", "text", "number", "math", "time", "file", "path", "environment",
-	"regular_expression", "json", "bytes", "net", "http", "process",
+	"regular_expression", "json", "bytes", "net", "http", "process", "thread",
 }
 
 // isStdGroup 识别那些标准库组名。

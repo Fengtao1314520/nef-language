@@ -677,11 +677,19 @@ func (t *Target) byTag(addr uintptr) *ir.Desc {
 }
 
 // byName 照写出来的类型名找形状。名字带包根的那种（"greet.Pair"）在这里就是形状表里那一个名字。
+// 带类型实参的那种（"Cell<int>"）也照名字找：泛型按实例各生成一份，形状表里存的就是这一串，
+// 而块头给不出它的只有静态字面量（头里那一个类型字是 0，`Cell<int> { v: 1 }` 那种）。
+// 容器那几种不靠这里：上面 switch 按 list<、dict<、hashset< 的写法先分走了，
+// 而形状表里那几条的类别也不是 struct／class。
 //
 // en: byName finds a shape by the type name as written. A name carrying a package root
-// ("greet.Pair") is exactly the name stored in the shape table.
+// ("greet.Pair") is exactly the name stored in the shape table, and so is one carrying type
+// arguments ("Cell<int>"): generics generate one copy per instance, so that string is what the
+// table holds - and the written name is the only way to read a static literal, whose header
+// carries type word 0 (`Cell<int> { v: 1 }`). Containers do not come here: the switch above
+// already routes the list<, dict< and hashset< spellings, and those rows are not struct or class.
 func (t *Target) byName(name string) *ir.Desc {
-	if name == "" || name == "?" || strings.ContainsAny(name, "<, ") {
+	if name == "" || name == "?" {
 		return nil
 	}
 	for i := range t.prog().Descs {

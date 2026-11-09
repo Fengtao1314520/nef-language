@@ -167,6 +167,9 @@ var stdParamNames = map[string][]string{
 	// 起进程那一档
 	"process.start": {"command_line"},
 
+	// 起线程那一档：第一个位置是被起的那个函数（写出来的函数名或一个 fn 名字）
+	"thread.start": {"worker", "argument"},
+
 	// 挂在容器、文本与字节块上的成员
 	"list.add":       {"value"},
 	"list.add_all":   {"other"},
@@ -227,6 +230,9 @@ var stdParamNames = map[string][]string{
 
 	"process.wait":  {},
 	"process.close": {},
+
+	"thread.wait": {},
+	"thread.id":   {},
 }
 
 // stdParamName 返回一条动作第 i 个参数的展示名；这张表没有登记的返回空串，

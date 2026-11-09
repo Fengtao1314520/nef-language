@@ -121,7 +121,7 @@ func b64EncodeFrom(b *rt, lenOff, bodyOff int) {
 	a.AddImm(x64.RAX, -strHead)
 	a.MovStore(x64.RDI, 0, x64.RAX) // 头里的字节数
 	a.MovStore(x64.RDI, 8, x64.RAX) // 码点数：出来的全是 ASCII，一字节一个码点
-	b.leaRIP(x64.RAX, "b64Table")   // 要的是这张表的地址，不是它头八格里存的那个数
+	b.leaCell(x64.RAX, "b64Table")  // 要的是这张表的地址，不是它头八格里存的那个数
 	b.put(eTab, x64.RAX)
 	b.get(x64.RDI, eOut)
 	a.AddImm(x64.RDI, strHead)
@@ -295,7 +295,7 @@ func b64DecodeTo(b *rt, asString bool) {
 	a.MovImm(x64.RDX, int64(dstTag))
 	b.call("@alloc")
 	b.put(dOut, x64.RAX)
-	b.leaRIP(x64.RAX, "b64Value") // 同上：反查表也是取地址
+	b.leaCell(x64.RAX, "b64Value") // 同上：反查表也是取地址
 	b.put(dTab, x64.RAX)
 
 	a.Xor(x64.RAX, x64.RAX)

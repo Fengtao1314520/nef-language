@@ -39,6 +39,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"syscall"
 	"unsafe"
 
@@ -51,6 +52,19 @@ import (
 )
 
 var procReadProcessMemo = kernel32.NewProc("ReadProcessMemory")
+
+// procGetThreadID 用在宿主回调那一头：回调是由走到检查点的那一条线程直接调进来的，
+// 所以在这里问一句"我是谁"就能认出不是程序那一条线程的来客。
+//
+// en: procGetThreadID is used by the host callback. The callback is called directly by whichever
+// thread reaches the checkpoint, so asking "who am I" here is enough to recognise a caller that is
+// not the program's own thread.
+var procGetThreadID = kernel32.NewProc("GetCurrentThreadId")
+
+// mainThreadID 是程序那一条线程的号码，起线程之后、放行之前写下。
+//
+// en: mainThreadID is the program thread's number, written after creating it and before resuming it.
+var mainThreadID atomic.Uintptr
 
 // procReader 读本进程里那块 VirtualAlloc 来的内存。走 ReadProcessMemory 是与写进去用的
 // WriteProcessMemory 成对：Go 既不知道那块内存存在，也不该替我们看着它（run_windows.go 头上那句）。
@@ -203,7 +217,30 @@ func cmdDebuggee(args []string) int {
 	// 抛出那一次的问话带的是另一个号（debug.ThrowID），那一条路上第二个与第三个参数交的是
 	// "抛出所在那一句之后的第一个字节"和"那一帧的帧基"：前者查现成的检查点表就是位置与函数名，
 	// 后者是栈与局部量要读的那一帧。
+	//
+	// 头一句先比线程号：`nf dap` 只跟程序那一条线程。检查点在每一条
+	// 线程的代码里都在，那一判写在产物里要给每一条线程多两次内存访问，而"要不要停"本来就是宿主
+	// 定的事，所以写在回调这一头。不是程序那一条线程就直接放行：既不锁那块账，也不往线上写话，
+	// 那一条线程照旧往下跑。
+	//
+	// en: The host callback: under the Windows calling convention the first three integer arguments
+	// arrive in rcx, rdx and r8, so when the pointer returned by NewCallback is called this side
+	// receives (checkpoint id, this frame's rbp). The throw query carries a different id
+	// (debug.ThrowID); on that path the second and third arguments are "the first byte after the
+	// statement that threw" and "that frame's frame base": the first looks up the existing
+	// checkpoint table for position and function name, the second is the frame the stack and locals
+	// are read from.
+	//
+	// The first thing it does is compare thread numbers: nf dap follows the program's own thread
+	// only. The checkpoint instruction sits in every thread's code,
+	// and answering "is this me" inside the product would cost every thread two more memory reads,
+	// while whether to stop was the host's decision anyway - so the check lives on the callback
+	// side. A caller that is not the program's thread is released immediately: it neither takes the
+	// lock nor writes on the wire, and that thread keeps running.
 	cb := syscall.NewCallback(func(id, arg2, arg3 uintptr) uintptr {
+		if tid, _, _ := procGetThreadID.Call(); tid != mainThreadID.Load() {
+			return 0
+		}
 		mu.Lock()
 		var act debug.Action
 		if int(id) == debug.ThrowID {
@@ -298,11 +335,24 @@ func cmdDebuggee(args []string) int {
 	}()
 
 	<-startGate
-	th, _, errno := syscall.SyscallN(procCreateThread.Addr(), 0, uintptr(pe.StackReserve), base+uintptr(ent), 0, 0, 0)
+	// 先停在入口处，不是嫌它跑得太早：回调地址已经写进产物，线程一落地就会走到第一个检查点，
+	// 那时候 `mainThreadID` 要是还没写上，那一句"我是哪一条线程"会把程序自己当成别人。
+	// 号码写上、再放行，那一判才有得比。
+	//
+	// en: The thread starts suspended, not because it runs too early but because the callback
+	// address is already written into the product: the thread reaches its first checkpoint the
+	// moment it lands, and if mainThreadID were still unset that "which thread am I" check would
+	// treat the program as somebody else. Write the number, then release it, and the check has
+	// something to compare against.
+	var tid uint32
+	th, _, errno := syscall.SyscallN(procCreateThread.Addr(), 0, uintptr(pe.StackReserve),
+		base+uintptr(ent), 0, createSuspended, uintptr(unsafe.Pointer(&tid)))
 	if th == 0 {
 		fmt.Fprintln(os.Stderr, "起不来线程：", errno)
 		return 1
 	}
+	mainThreadID.Store(uintptr(tid))
+	syscall.SyscallN(procResumeThread.Addr(), uintptr(th))
 	// 程序正常收尾会自己 ExitProcess，整个进程跟着没；走到下面这两行是它擅自返回了。
 	syscall.SyscallN(procWaitForSingle.Addr(), uintptr(th), waitInfinite)
 	send(debug.Message{Event: "exit", Code: 1})

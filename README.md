@@ -10,10 +10,11 @@
 
 Nef is a statically typed language with mandatory type annotations and no
 garbage collection. Every value has exactly one owner at any moment: passing a
-value to a function or storing it into a container hands ownership over - a
-parameter written `ref` borrows it for the call instead - and the compiler frees each block at compile time, at the end of the scope of its
-last owner. The compiler is written in Go and emits x86-64 machine code
-directly, producing a standalone `.exe`.
+value to a function or storing it into a container transfers ownership, while a
+parameter written `ref` borrows the value for the call. The compiler inserts
+each free at the end of the scope of the block's last owner, in reverse
+declaration order. Written in Go, the compiler emits x86-64 machine code
+directly and produces a standalone `.exe`.
 
 Compiled programs ask the operating system for only a handful of capabilities
 (standard output, memory, process exit, and the system libraries for sockets
@@ -37,15 +38,24 @@ and HTTP). No runtime, no installed components, no C runtime linkage.
 - Ownership moves on assignment and on argument passing; write `ref` before a
   parameter to borrow it instead. The destructor order is the reverse of
   declaration, decided at compile time.
+- Generics: `class`, `struct`, top-level functions and methods take type
+  parameters (`class Basket<Item>`). Each instantiation the program uses is
+  monomorphized into its own code and shape; type parameters do not exist at
+  runtime.
+- Threads: `thread.start(fn, value)` runs a function on a new thread and returns
+  a `Thread<T>` handle; `wait()` joins it and takes the result back. There are
+  no locks or condition variables - the only exchange is one value in and one
+  value out.
 - The compiler runs a program straight from memory (`nf file.nf`) or builds a
   standalone executable (`nf build`) - same checks, same machine code.
-- A small standard library of fourteen groups, covering text, containers,
-  files, time, math, JSON, regular expressions, networking (TCP and HTTP) and
-  processes.
+- A small standard library of fifteen groups, covering text, containers,
+  files, time, math, JSON, regular expressions, networking (TCP and HTTP),
+  processes and threads.
 - Packages ship as source (`.nfpack` containers), compiled again by each
   consuming project.
 - A VS Code extension with syntax highlighting, diagnostics, completion,
-  hover docs and F5 debugging, built on `nf lsp` and `nf dap`.
+  hover docs, go-to-definition, find-references, rename, document formatting
+  and F5 debugging, built on `nf lsp` and `nf dap`.
 - `webtest/` - a browser automation library written in Nef itself, the first
   external program built with this toolchain.
 
@@ -144,7 +154,7 @@ example.
 | Path | Contents |
 | --- | --- |
 | `compiler/` | The Go source of the whole toolchain (single module, no third-party dependencies) |
-| `samples/` | Eight example programs; each one doubles as an end-to-end test |
+| `samples/` | Ten example programs; each one doubles as an end-to-end test |
 | `webtest/` | Browser automation library and test runner written in Nef |
 | `site/` | The documentation website (VitePress) and its seven checks |
 | `vscode/` | The VS Code extension |
@@ -177,7 +187,7 @@ contributor license agreement next to it. Two conventions shape changes here:
   The site's own scripts under `site/tools-site/` and `site/.vitepress/` are
   code and follow the line above.
 - The name "Nef" is governed by the [trademark policy](nef-licensing/TRADEMARK_POLICY.md).
-- The eight programs under `samples/` and the code printed in this README or on
+- The ten programs under `samples/` and the code printed in this README or on
   the documentation site are dedicated to be free of restriction: use them in
   your own programs under any terms you like, no attribution needed. The
   dedication is the last entry of the license summary in

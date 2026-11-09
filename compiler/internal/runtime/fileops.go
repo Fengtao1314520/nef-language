@@ -62,23 +62,16 @@ const (
 	codeIsDir   = 10043 // 目录打不开，或拿目录去问文件的属性
 )
 
-// fileOpsData 摆这一段的静态缓冲：查找回来的那一块、枚举用的模式串、属性三条的落点、
+// 这一段跨一次调用留值的那几格与两块临时文本都在每一条线程的状态块里
+// （stateCells 那张清单）：查找回来的那一块、枚举用的模式串、属性三条的落点、
 // 一次翻译的临时文本，还有查到的那一个句柄。
 //
-// en: fileOpsData lays out this section's static buffers: the block found by a search, the
+// en: This section's cells that hold a value across a call, and its two temporary texts, all
+// live in each thread's state block (see stateCells): the block a search brings back, the
 // pattern string for enumeration, the landing slots of the three attributes, the temporary text
 // of one translation, and the handle that was looked up.
-func fileOpsData(put func(name string, bs []byte)) {
-	put("findBuf", make([]byte, 592))
-	put("enumPat", make([]byte, (wideCap+272)*2))
-	put("findH", make([]byte, 8))
-	put("gSize", make([]byte, 8))
-	put("gTime", make([]byte, 8))
-	put("gRo", make([]byte, 8))
-	put("cvBuf", make([]byte, strHead+cvCap))
-}
 
-// @file_attrs(rcx=路径文本)：把大小、最后写入时间（秒）、只读标志摆进那三个静态槽。
+// @file_attrs(rcx=路径文本)：把大小、最后写入时间（秒）、只读标志摆进那三个位置。
 //
 // 三条属性都走这一条，所以"不在"与"那是目录"两条答复只写一遍：找不到是 10045 号，
 // 是目录是 10043 号，路径本身摆不下是 10051 号。那三个槽是一次性的：
@@ -100,21 +93,21 @@ func fileAttrs(b *rt) {
 	a := b.a
 	b.prologue()
 	b.put(xPath, x64.RCX)
-	b.leaRIP(x64.RDX, "wPath")
+	b.leaCell(x64.RDX, "wPath")
 	b.get(x64.RCX, xPath)
 	b.call("@to_wide")
 	a.Test(x64.RAX, x64.RAX)
 	a.Jcc(x64.E, badPath)
 
-	b.leaRIP(x64.RCX, "wPath")
-	b.leaRIP(x64.RDX, "findBuf")
+	b.leaCell(x64.RCX, "wPath")
+	b.leaCell(x64.RDX, "findBuf")
 	b.impCall("FindFirstFileW")
 	a.MovImm(x64.R8, invalidHandle)
 	a.Cmp(x64.RAX, x64.R8)
 	a.Jcc(x64.E, noAttrs)
-	b.storeRIP(x64.RAX, "findH")
+	b.storeCell(x64.RAX, "findH")
 
-	b.leaRIP(x64.RSI, "findBuf")
+	b.leaCell(x64.RSI, "findBuf")
 	a.MovZX32(x64.RAX, x64.RSI, ffdAttr)
 	a.AndImm(x64.RAX, attrDir)
 	a.Jcc(x64.NE, isDir)
@@ -123,7 +116,7 @@ func fileAttrs(b *rt) {
 	a.MovZX32(x64.RAX, x64.RSI, ffdSizeLo)
 	a.ShlImm(x64.RDX, 32)
 	a.Or(x64.RAX, x64.RDX)
-	b.storeRIP(x64.RAX, "gSize")
+	b.storeCell(x64.RAX, "gSize")
 
 	// 时间那一步用有符号除：1970 年之前的文件真的存在，商要往负的那一侧走。
 	// 除数不能放在 RDX——`CQO` 正是拿 RDX 当被除数高位的，除数挪到 RCX 去。
@@ -136,21 +129,21 @@ func fileAttrs(b *rt) {
 	a.MovImm(x64.RCX, hundredNS)
 	a.Cqo()
 	a.Idiv(x64.RCX)
-	b.storeRIP(x64.RAX, "gTime")
+	b.storeCell(x64.RAX, "gTime")
 
-	b.leaRIP(x64.RSI, "findBuf")
+	b.leaCell(x64.RSI, "findBuf")
 	a.MovZX32(x64.RAX, x64.RSI, ffdAttr)
 	a.AndImm(x64.RAX, attrReadOnly)
-	b.storeRIP(x64.RAX, "gRo")
+	b.storeCell(x64.RAX, "gRo")
 
-	b.loadRIP(x64.RCX, "findH")
+	b.loadCell(x64.RCX, "findH")
 	b.impCall("FindClose")
 	b.epilogue()
 
 	a.Mark(noAttrs)
 	b.throwWith(codeNoAttrs, "sNoAttrs")
 	a.Mark(isDir)
-	b.loadRIP(x64.RCX, "findH")
+	b.loadCell(x64.RCX, "findH")
 	b.impCall("FindClose")
 	b.throwWith(codeIsDir, "sIsDir")
 	a.Mark(badPath)
@@ -166,7 +159,7 @@ func attrOnce(b *rt, slot string) {
 	b.put(0, x64.RCX)
 	b.get(x64.RCX, 0)
 	b.call("@file_attrs")
-	b.loadRIP(x64.RAX, slot)
+	b.loadCell(x64.RAX, slot)
 	b.epilogue()
 }
 
@@ -234,7 +227,7 @@ func fileList(b *rt) {
 	b.call("@list_new")
 	b.put(xOut, x64.RAX)
 
-	b.leaRIP(x64.RDX, "enumPat")
+	b.leaCell(x64.RDX, "enumPat")
 	b.get(x64.RCX, xDir)
 	b.call("@to_wide")
 	a.Test(x64.RAX, x64.RAX)
@@ -246,7 +239,7 @@ func fileList(b *rt) {
 	// RDI 停在目录那一段之后的一个位置。尾巴上已经是 `\` 或 `/`：那个位置就是分隔符，
 	// 名字接在 RDI 当下这个位置上；两头都不是：先在这个位置补一个 `\`，RDI 往后挪一个位置再放名字。
 	// xSep 记的是"名字从第几个宽字符起"，模式串里那个 `*` 也摆在同一个位置上。
-	b.leaRIP(x64.RDI, "enumPat")
+	b.leaCell(x64.RDI, "enumPat")
 	b.get(x64.RAX, xDLen)
 	a.ShlImm(x64.RAX, 1)
 	a.Add(x64.RDI, x64.RAX)
@@ -286,16 +279,16 @@ func fileList(b *rt) {
 	a.MovStore8(x64.RDI, 2, x64.RCX)
 	a.MovStore8(x64.RDI, 3, x64.RCX)
 
-	b.leaRIP(x64.RCX, "enumPat")
-	b.leaRIP(x64.RDX, "findBuf")
+	b.leaCell(x64.RCX, "enumPat")
+	b.leaCell(x64.RDX, "findBuf")
 	b.impCall("FindFirstFileW")
 	a.MovImm(x64.R8, invalidHandle)
 	a.Cmp(x64.RAX, x64.R8)
 	a.Jcc(x64.E, noDir)
-	b.storeRIP(x64.RAX, "findH")
+	b.storeCell(x64.RAX, "findH")
 
 	a.Mark(entry)
-	b.leaRIP(x64.RSI, "findBuf")
+	b.leaCell(x64.RSI, "findBuf")
 	a.AddImm(x64.RSI, ffdName)
 	a.MovZX16(x64.RAX, x64.RSI, 0)
 	a.CmpImm(x64.RAX, '.')
@@ -315,7 +308,7 @@ func fileList(b *rt) {
 	b.get(x64.RAX, xFlag)
 	a.Test(x64.RAX, x64.RAX)
 	a.Jcc(x64.NE, full)
-	b.leaRIP(x64.RAX, "findBuf")
+	b.leaCell(x64.RAX, "findBuf")
 	a.AddImm(x64.RAX, ffdName)
 	b.put(xSrc, x64.RAX)
 	a.Jmp(translate)
@@ -324,9 +317,9 @@ func fileList(b *rt) {
 	// 把名字抄到分隔符后面（盖掉那个 `*`），末尾补一个 0：整串就是"目录＋名字"。
 	b.get(x64.RAX, xSep)
 	a.ShlImm(x64.RAX, 1)
-	b.leaRIP(x64.RDI, "enumPat")
+	b.leaCell(x64.RDI, "enumPat")
 	a.Add(x64.RDI, x64.RAX)
-	b.leaRIP(x64.RSI, "findBuf")
+	b.leaCell(x64.RSI, "findBuf")
 	a.AddImm(x64.RSI, ffdName)
 	a.Mark(cp)
 	a.MovZX16(x64.RAX, x64.RSI, 0)
@@ -343,7 +336,7 @@ func fileList(b *rt) {
 	a.Xor(x64.RAX, x64.RAX)
 	a.MovStore8(x64.RDI, 0, x64.RAX)
 	a.MovStore8(x64.RDI, 1, x64.RAX)
-	b.leaRIP(x64.RAX, "enumPat")
+	b.leaCell(x64.RAX, "enumPat")
 	b.put(xSrc, x64.RAX)
 
 	// 宽字符翻成 UTF-8 进 cvBuf：给 -1 就是"到第一个 0 为止"，返回的字节数带着那个 0，减掉。
@@ -353,7 +346,7 @@ func fileList(b *rt) {
 	a.Xor(x64.RDX, x64.RDX)
 	b.get(x64.R8, xSrc)
 	a.MovImm(x64.R9, -1)
-	b.leaRIP(x64.RAX, "cvBuf")
+	b.leaCell(x64.RAX, "cvBuf")
 	a.AddImm(x64.RAX, strHead)
 	a.MovStore(x64.RBP, arg5, x64.RAX)
 	a.MovImm(x64.RAX, cvCap)
@@ -367,7 +360,7 @@ func fileList(b *rt) {
 	a.AddImm(x64.RAX, -1)
 	b.put(xBytes, x64.RAX)
 
-	b.leaRIP(x64.RCX, "cvBuf")
+	b.leaCell(x64.RCX, "cvBuf")
 	a.Xor(x64.RDX, x64.RDX)
 	b.get(x64.R8, xBytes)
 	b.call("@str_sub")
@@ -376,13 +369,13 @@ func fileList(b *rt) {
 	b.call("@list_add")
 
 	a.Mark(nxt)
-	b.loadRIP(x64.RCX, "findH")
-	b.leaRIP(x64.RDX, "findBuf")
+	b.loadCell(x64.RCX, "findH")
+	b.leaCell(x64.RDX, "findBuf")
 	b.impCall("FindNextFileW")
 	a.Test(x64.RAX, x64.RAX)
 	a.Jcc(x64.NE, entry)
 
-	b.loadRIP(x64.RCX, "findH")
+	b.loadCell(x64.RCX, "findH")
 	b.impCall("FindClose")
 	b.get(x64.RAX, xOut)
 	b.epilogue()
@@ -445,13 +438,13 @@ func fileReadFrom(b *rt) {
 	a.CmpImm(x64.RAX, 1)
 	a.Jcc(x64.L, none)
 
-	b.leaRIP(x64.RDX, "wPath")
+	b.leaCell(x64.RDX, "wPath")
 	b.get(x64.RCX, xPath)
 	b.call("@to_wide")
 	a.Test(x64.RAX, x64.RAX)
 	a.Jcc(x64.E, badPath)
 
-	b.leaRIP(x64.RCX, "wPath")
+	b.leaCell(x64.RCX, "wPath")
 	a.MovImm(x64.RDX, genericRead)
 	a.MovImm(x64.R8, shareAll)
 	a.Xor(x64.R9, x64.R9)
@@ -595,7 +588,7 @@ func fileReadFrom(b *rt) {
 	b.epilogue()
 
 	a.Mark(none)
-	b.leaRIP(x64.RCX, "cvBuf")
+	b.leaCell(x64.RCX, "cvBuf")
 	a.Xor(x64.RDX, x64.RDX)
 	a.Xor(x64.R8, x64.R8)
 	b.call("@str_sub")
@@ -635,13 +628,13 @@ func fileWriteAt(b *rt) {
 	b.put(xStart, x64.RDX)
 	b.put(xText, x64.R8)
 
-	b.leaRIP(x64.RDX, "wPath")
+	b.leaCell(x64.RDX, "wPath")
 	b.get(x64.RCX, xPath)
 	b.call("@to_wide")
 	a.Test(x64.RAX, x64.RAX)
 	a.Jcc(x64.E, badPath)
 
-	b.leaRIP(x64.RCX, "wPath")
+	b.leaCell(x64.RCX, "wPath")
 	a.MovImm(x64.RDX, genericWrite)
 	a.MovImm(x64.R8, shareAll)
 	a.Xor(x64.R9, x64.R9)
@@ -720,7 +713,7 @@ func fileMkdir(b *rt) {
 	a := b.a
 	b.prologue()
 	b.put(kPath, x64.RCX)
-	b.leaRIP(x64.RDX, "wPath")
+	b.leaCell(x64.RDX, "wPath")
 	b.get(x64.RCX, kPath)
 	b.call("@to_wide")
 	a.Test(x64.RAX, x64.RAX)
@@ -728,7 +721,7 @@ func fileMkdir(b *rt) {
 	cant := b.label()
 	a.Jcc(x64.E, badPath)
 
-	b.leaRIP(x64.RCX, "wPath")
+	b.leaCell(x64.RCX, "wPath")
 	a.Xor(x64.RDX, x64.RDX) // 安全属性给空：这一版没有"给目录带权限"那一问
 	b.impCall("CreateDirectoryW")
 	a.Test(x64.RAX, x64.RAX)
@@ -766,27 +759,27 @@ func fileIsDir(b *rt) {
 	a := b.a
 	b.prologue()
 	b.put(jPath, x64.RCX)
-	b.leaRIP(x64.RDX, "wPath")
+	b.leaCell(x64.RDX, "wPath")
 	b.get(x64.RCX, jPath)
 	b.call("@to_wide")
 	a.Test(x64.RAX, x64.RAX)
 	badPath := b.label()
 	a.Jcc(x64.E, badPath)
 
-	b.leaRIP(x64.RCX, "wPath")
-	b.leaRIP(x64.RDX, "findBuf")
+	b.leaCell(x64.RCX, "wPath")
+	b.leaCell(x64.RDX, "findBuf")
 	b.impCall("FindFirstFileW")
 	a.MovImm(x64.R8, invalidHandle)
 	a.Cmp(x64.RAX, x64.R8)
 	notThere := b.label()
 	a.Jcc(x64.E, notThere)
-	b.storeRIP(x64.RAX, "findH")
+	b.storeCell(x64.RAX, "findH")
 
-	b.leaRIP(x64.RSI, "findBuf")
+	b.leaCell(x64.RSI, "findBuf")
 	a.MovZX32(x64.RAX, x64.RSI, ffdAttr)
 	a.AndImm(x64.RAX, attrDir)
 	b.put(1, x64.RAX)
-	b.loadRIP(x64.RCX, "findH")
+	b.loadCell(x64.RCX, "findH")
 	b.impCall("FindClose")
 	b.get(x64.RAX, 1)
 	a.Test(x64.RAX, x64.RAX)
@@ -805,7 +798,7 @@ func fileIsDir(b *rt) {
 
 // @file_rename(rcx=旧路径, rdx=新路径)：改名或挪到同一台机器上的别处。
 //
-// 两条路径都先翻成本机写法：旧的进 wPath、新的进 aWide，MoveFileW 就收这两个静态缓冲。
+// 两条路径都先翻成本机写法：旧的进 wPath、新的进 aWide，MoveFileW 就收这两块缓冲。
 // 改不成抛 10047 号：新名字已经存在、旧路径不在、跨卷挪不动，都是这一号。
 //
 // en: @file_rename (rcx = old path, rdx = new path): rename, or move elsewhere on the same
@@ -822,20 +815,20 @@ func fileRename(b *rt) {
 	b.prologue()
 	b.put(oOld, x64.RCX)
 	b.put(oNew, x64.RDX)
-	b.leaRIP(x64.RDX, "wPath")
+	b.leaCell(x64.RDX, "wPath")
 	b.get(x64.RCX, oOld)
 	b.call("@to_wide")
 	a.Test(x64.RAX, x64.RAX)
 	badPath := b.label()
 	a.Jcc(x64.E, badPath)
-	b.leaRIP(x64.RDX, "aWide")
+	b.leaCell(x64.RDX, "aWide")
 	b.get(x64.RCX, oNew)
 	b.call("@to_wide")
 	a.Test(x64.RAX, x64.RAX)
 	a.Jcc(x64.E, badPath)
 
-	b.leaRIP(x64.RCX, "wPath")
-	b.leaRIP(x64.RDX, "aWide")
+	b.leaCell(x64.RCX, "wPath")
+	b.leaCell(x64.RDX, "aWide")
 	b.impCall("MoveFileW")
 	a.Test(x64.RAX, x64.RAX)
 	cant := b.label()
@@ -859,13 +852,13 @@ func fileRemoveDir(b *rt) {
 	a := b.a
 	b.prologue()
 	b.put(rPath, x64.RCX)
-	b.leaRIP(x64.RDX, "wPath")
+	b.leaCell(x64.RDX, "wPath")
 	b.get(x64.RCX, rPath)
 	b.call("@to_wide")
 	a.Test(x64.RAX, x64.RAX)
 	badPath := b.label()
 	a.Jcc(x64.E, badPath)
-	b.leaRIP(x64.RCX, "wPath")
+	b.leaCell(x64.RCX, "wPath")
 	b.impCall("RemoveDirectoryW")
 	a.Test(x64.RAX, x64.RAX)
 	cant := b.label()
@@ -903,20 +896,20 @@ func fileCopy(b *rt) {
 	b.prologue()
 	b.put(cFrom, x64.RCX)
 	b.put(cTo, x64.RDX)
-	b.leaRIP(x64.RDX, "wPath")
+	b.leaCell(x64.RDX, "wPath")
 	b.get(x64.RCX, cFrom)
 	b.call("@to_wide")
 	a.Test(x64.RAX, x64.RAX)
 	badPath := b.label()
 	a.Jcc(x64.E, badPath)
-	b.leaRIP(x64.RDX, "aWide")
+	b.leaCell(x64.RDX, "aWide")
 	b.get(x64.RCX, cTo)
 	b.call("@to_wide")
 	a.Test(x64.RAX, x64.RAX)
 	a.Jcc(x64.E, badPath)
 
-	b.leaRIP(x64.RCX, "wPath")
-	b.leaRIP(x64.RDX, "aWide")
+	b.leaCell(x64.RCX, "wPath")
+	b.leaCell(x64.RDX, "aWide")
 	a.Xor(x64.R8, x64.R8) // bFailIfExists＝0：目标在就盖掉
 	b.impCall("CopyFileW")
 	a.Test(x64.RAX, x64.RAX)
@@ -929,7 +922,7 @@ func fileCopy(b *rt) {
 	// 源路径读不到就报"读不到"，否则算"写不进"。
 	// 这里先按 32 位收一次再比：GetFileAttributesW 返回的是 DWORD，
 	// INVALID_HANDLE_VALUE 在那一侧是 0xFFFFFFFF，直接拿 64 位的 -1 比就对不上。
-	b.leaRIP(x64.RCX, "wPath")
+	b.leaCell(x64.RCX, "wPath")
 	b.impCall("GetFileAttributesW")
 	a.MovStore32(x64.RBP, -24, x64.RAX)
 	a.MovZX32(x64.RAX, x64.RBP, -24)
@@ -976,7 +969,7 @@ func fileMkdirs(b *rt) {
 	a := b.a
 	b.prologue()
 	b.put(mI, x64.RCX) // 路径文本先留在这个位置，转宽字符要用它
-	b.leaRIP(x64.RDX, "wPath")
+	b.leaCell(x64.RDX, "wPath")
 	b.get(x64.RCX, mI)
 	b.call("@to_wide")
 	a.Test(x64.RAX, x64.RAX)
@@ -1001,7 +994,7 @@ func fileMkdirs(b *rt) {
 	b.put(mPrev, x64.RAX)
 
 	a.Mark(loop)
-	b.leaRIP(x64.RSI, "wPath")
+	b.leaCell(x64.RSI, "wPath")
 	b.get(x64.RAX, mI)
 	a.Add(x64.RSI, x64.RAX)
 	a.MovZX16(x64.RAX, x64.RSI, 0)
@@ -1018,7 +1011,7 @@ func fileMkdirs(b *rt) {
 	// 上一个位置是冒号就是盘符那一截（"C:"），它不是一个要建的目录
 	b.get(x64.RAX, mI)
 	a.AddImm(x64.RAX, -2)
-	b.leaRIP(x64.RSI, "wPath")
+	b.leaCell(x64.RSI, "wPath")
 	a.Add(x64.RSI, x64.RAX)
 	a.MovZX16(x64.RAX, x64.RSI, 0)
 	a.CmpImm(x64.RAX, ':')
@@ -1039,10 +1032,10 @@ func fileMkdirs(b *rt) {
 	b.get(x64.RAX, mI)
 	a.Cmp(x64.RDX, x64.RAX)
 	a.Jcc(x64.AE, copyDone)
-	b.leaRIP(x64.RSI, "wPath")
+	b.leaCell(x64.RSI, "wPath")
 	a.Add(x64.RSI, x64.RDX)
 	a.MovZX16(x64.R9, x64.RSI, 0)
-	b.leaRIP(x64.RDI, "aWide")
+	b.leaCell(x64.RDI, "aWide")
 	a.Add(x64.RDI, x64.RDX)
 	a.MovStore32(x64.RDI, 0, x64.R9) // 低两格是这个字符，高两格顺手成了结束符（下一轮要么盖掉、要么正是尾巴）
 	b.get(x64.RDX, mCur)
@@ -1051,12 +1044,12 @@ func fileMkdirs(b *rt) {
 	a.Jmp(copyTop)
 
 	a.Mark(copyDone)
-	b.leaRIP(x64.RDI, "aWide")
+	b.leaCell(x64.RDI, "aWide")
 	b.get(x64.RAX, mI)
 	a.Add(x64.RDI, x64.RAX)
 	a.Xor(x64.RAX, x64.RAX)
 	a.MovStore32(x64.RDI, 0, x64.RAX)
-	b.leaRIP(x64.RCX, "aWide")
+	b.leaCell(x64.RCX, "aWide")
 	a.Xor(x64.RDX, x64.RDX)
 	b.impCall("CreateDirectoryW")
 	a.Test(x64.RAX, x64.RAX)
@@ -1075,7 +1068,7 @@ func fileMkdirs(b *rt) {
 	a.Jmp(loop)
 
 	a.Mark(tail)
-	b.leaRIP(x64.RCX, "wPath")
+	b.leaCell(x64.RCX, "wPath")
 	a.Xor(x64.RDX, x64.RDX)
 	b.impCall("CreateDirectoryW")
 	a.Test(x64.RAX, x64.RAX)
@@ -1210,7 +1203,7 @@ func fileWalk(b *rt) {
 	a.Mov(x64.RCX, x64.RSI)
 	b.call("@free") // 这个 24 字节的节点用完就归还
 
-	b.leaRIP(x64.RDX, "enumPat")
+	b.leaCell(x64.RDX, "enumPat")
 	b.get(x64.RCX, wText)
 	b.call("@to_wide")
 	a.Test(x64.RAX, x64.RAX)
@@ -1219,7 +1212,7 @@ func fileWalk(b *rt) {
 	b.put(wDLen, x64.RAX)
 
 	// 尾巴上的分隔符：已经有了就把名字接在那个位置之后，没有就先补一个（与 @file_list 同一段）
-	b.leaRIP(x64.RDI, "enumPat")
+	b.leaCell(x64.RDI, "enumPat")
 	b.get(x64.RAX, wDLen)
 	a.ShlImm(x64.RAX, 1)
 	a.Add(x64.RDI, x64.RAX)
@@ -1255,16 +1248,16 @@ func fileWalk(b *rt) {
 	a.MovStore8(x64.RDI, 2, x64.RCX) // 同上：`*` 后面补一个 0，别让上一轮的名字尾巴跟着
 	a.MovStore8(x64.RDI, 3, x64.RCX)
 
-	b.leaRIP(x64.RCX, "enumPat")
-	b.leaRIP(x64.RDX, "findBuf")
+	b.leaCell(x64.RCX, "enumPat")
+	b.leaCell(x64.RDX, "findBuf")
 	b.impCall("FindFirstFileW")
 	a.MovImm(x64.R8, invalidHandle)
 	a.Cmp(x64.RAX, x64.R8)
 	a.Jcc(x64.E, noDir)
-	b.storeRIP(x64.RAX, "findH")
+	b.storeCell(x64.RAX, "findH")
 
 	a.Mark(entry)
-	b.leaRIP(x64.RSI, "findBuf")
+	b.leaCell(x64.RSI, "findBuf")
 	a.AddImm(x64.RSI, ffdName)
 	a.MovZX16(x64.RAX, x64.RSI, 0)
 	a.CmpImm(x64.RAX, '.')
@@ -1280,7 +1273,7 @@ func fileWalk(b *rt) {
 	a.Mark(body)
 
 	// 属性里"是目录"那一位先记下来：它决定这一条要不要再钻一层
-	b.leaRIP(x64.RAX, "findBuf")
+	b.leaCell(x64.RAX, "findBuf")
 	a.MovZX32(x64.RCX, x64.RAX, ffdAttr)
 	a.AndImm(x64.RCX, attrDir)
 	b.put(wAttr, x64.RCX)
@@ -1288,9 +1281,9 @@ func fileWalk(b *rt) {
 	// 名字抄到分隔符后面（盖掉那个 `*`），整串就是"目录＋名字"
 	b.get(x64.RAX, wSep)
 	a.ShlImm(x64.RAX, 1)
-	b.leaRIP(x64.RDI, "enumPat")
+	b.leaCell(x64.RDI, "enumPat")
 	a.Add(x64.RDI, x64.RAX)
-	b.leaRIP(x64.RSI, "findBuf")
+	b.leaCell(x64.RSI, "findBuf")
 	a.AddImm(x64.RSI, ffdName)
 	a.Mark(cp)
 	a.MovZX16(x64.RAX, x64.RSI, 0)
@@ -1307,7 +1300,7 @@ func fileWalk(b *rt) {
 	a.Xor(x64.RAX, x64.RAX)
 	a.MovStore8(x64.RDI, 0, x64.RAX)
 	a.MovStore8(x64.RDI, 1, x64.RAX)
-	b.leaRIP(x64.RAX, "enumPat")
+	b.leaCell(x64.RAX, "enumPat")
 	b.put(wSrc, x64.RAX)
 
 	// 宽字符翻成 UTF-8 进 cvBuf；长到翻不出去的那一条跳过，这个目录照旧钻完
@@ -1316,7 +1309,7 @@ func fileWalk(b *rt) {
 	a.Xor(x64.RDX, x64.RDX)
 	b.get(x64.R8, wSrc)
 	a.MovImm(x64.R9, -1)
-	b.leaRIP(x64.RAX, "cvBuf")
+	b.leaCell(x64.RAX, "cvBuf")
 	a.AddImm(x64.RAX, strHead)
 	a.MovStore(x64.RBP, arg5, x64.RAX)
 	a.MovImm(x64.RAX, cvCap)
@@ -1330,7 +1323,7 @@ func fileWalk(b *rt) {
 	a.AddImm(x64.RAX, -1)
 	b.put(wByte, x64.RAX)
 
-	b.leaRIP(x64.RCX, "cvBuf")
+	b.leaCell(x64.RCX, "cvBuf")
 	a.Xor(x64.RDX, x64.RDX)
 	b.get(x64.R8, wByte)
 	b.call("@str_sub")
@@ -1356,13 +1349,13 @@ func fileWalk(b *rt) {
 	push(wTmp, true, 0)
 
 	a.Mark(nxt)
-	b.loadRIP(x64.RCX, "findH")
-	b.leaRIP(x64.RDX, "findBuf")
+	b.loadCell(x64.RCX, "findH")
+	b.leaCell(x64.RDX, "findBuf")
 	b.impCall("FindNextFileW")
 	a.Test(x64.RAX, x64.RAX)
 	a.Jcc(x64.NE, entry)
 
-	b.loadRIP(x64.RCX, "findH")
+	b.loadCell(x64.RCX, "findH")
 	b.impCall("FindClose")
 	b.get(x64.RCX, wText)
 	b.call("@free") // 这个目录的文本是本例程自己的拷贝

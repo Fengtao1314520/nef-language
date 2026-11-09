@@ -38,7 +38,7 @@
 //
 // 拆分的理由：一次请求要调用系统九步，中间还要拆头部、循环接收正文——全部塞进一条例程，
 // 帧上的槽要二十几个，寄存器每一次 call 之后都要重新装载，错一处就覆写别人的内存。
-// 拆开之后每一段只使用自己的那几个槽；句柄与网址保存在静态槽里（没有线程，
+// 拆开之后每一段只使用自己的那几个槽；句柄与网址保存在这一条线程的状态块里（没有线程，
 // 同一时刻只有一件事在运行，与 wPath／aBuf 同一个道理）。拆成五段同时把归属理清：
 // 三样值都由运行期直接写入那一块，降级侧没有中间值要登记，句子结束时析构的是那一块，
 // 按形状表递归。
@@ -110,36 +110,25 @@ const (
 	httpPathCap = 2048 // 路径缓冲：同上（查询串就在路径末尾，一并收下）
 	httpChunk   = 4096 // 一次 WinHttpReadData 最多读取这么多字节
 	httpFirst   = 8192 // 正文累加缓冲的初始档位
-	// 头部区转成 UTF-8 后写入静态的 aBuf（正文侧是 lineCap=65536 个字节）。
+	// 头部区转成 UTF-8 后写入这一条线程的 aBuf（正文侧是 lineCap=65536 个字节）。
 	// 一个码点最多三个字节，所以最多转换 65536/3 个宽字符——超过该长度的头部只转换前面这一截。
 	httpHdrChars = 21845
 )
 
-// httpData 定义本组的静态数据。本组不需要新的报错句：状态码、头部、正文都是数据，
-// 失败路径沿用 `net` 那六句，所以报错文案表没有任何新增。
+// httpData 定义本组的静态数据：只有随请求发出去的那一个 User-Agent 与两个方法名。
+// 本组不需要新的报错句：状态码、头部、正文都是数据，失败路径沿用 `net` 那六句，
+// 所以报错文案表没有任何新增。三只句柄、网址文本、两个缓冲与四个落点
+// 现在在每一条线程自己的状态块里（stateCells 那张清单）。
 //
-// en: httpData lays out this group's static data. The group needs no new sentences: status
-// code, headers and body are data, and the failure path reuses net's six sentences, so the
-// table of error wording gained not one line.
+// en: httpData lays out this group's static data: only the User-Agent sent with a request and
+// the two method names. The group needs no new sentences - status code, headers and body are
+// data, and the failure path reuses net's six sentences, so the table of error wording gained
+// not one line. The three handles, the url text, the two buffers and the four landing slots now
+// live in each thread's state block (see stateCells).
 func httpData(put func(name string, bs []byte)) {
-	// 三只句柄与网址文本：一次请求之内由 @http_begin 写入，后面几段都使用它们；
-	// @http_close 走完就抹回 0。没有线程，所以同一时刻只有一件事在运行。
-	put("httpSess", make([]byte, 8))
-	put("httpConn", make([]byte, 8))
-	put("httpReq", make([]byte, 8))
-	put("httpU", make([]byte, 8)) // 网址文本：10103 那一句把网址拼进"解析不到 …"里
-	put("httpHost", make([]byte, 2*httpHostCap))
-	put("httpPath", make([]byte, 2*httpPathCap))
-	// 三个落点：httpDw 是"这块缓冲多大"（WinHttpQueryHeaders 进出都用它），
-	// httpGot 是"本次读取的字节数"，httpStatus 是查询返回的状态码。
-	put("httpDw", make([]byte, 8))
-	put("httpGot", make([]byte, 8))
-	put("httpStatus", make([]byte, 8))
-	put("httpErr", make([]byte, 8))                        // 失败路径的号码：关句柄会踩 rax，先写入这个位置
 	put("httpAgent", []byte{'n', 0, 'e', 0, 'f', 0, 0, 0}) // 随请求发送的 User-Agent
 	put("httpGet", []byte{'G', 0, 'E', 0, 'T', 0, 0, 0})
 	put("httpPost", []byte{'P', 0, 'O', 0, 'S', 0, 'T', 0, 0, 0})
-	put("httpChunkBuf", make([]byte, httpChunk))
 }
 
 // copyBytes 发射一段拷贝：rsi＝源、rdi＝目的、rdx＝字节数。只用 rax 作游标、rcx 作临时。
@@ -183,9 +172,9 @@ func copyBytes(b *rt) {
 // httpFail 是本段共同的收尾：先关闭仍打开的句柄，再按 rax 里的号码抛出。
 //
 // 三只句柄各判一次 0：到达这一处的位置不同，有的还没打开任何一只，有的已经打开到第三只。
-// 关完之后把该槽抹回 0——静态槽里留着已关闭的句柄，下一次请求会对其二次关闭。
+// 关完之后把该槽抹回 0——槽里留着已关闭的句柄，下一次请求会对其二次关闭。
 //
-// 号码必须先写入静态槽再去关句柄：WinHttpCloseHandle 返回 BOOL，会踩坏 rax——
+// 号码必须先写入那个位置再去关句柄：WinHttpCloseHandle 返回 BOOL，会踩坏 rax——
 // 直接把 rax 交给 @net_fail，抛出的号码是 1，看起来像系统报了"功能不对"，
 // 而真正的 12002／12007 在关句柄那一步就已丢失（TestHttpCodes 与 TestHttpTimeout 固定这一行为）。
 // 这里不碰任何帧槽：它发在调用方的帧里，写别人的槽就是覆写数据。
@@ -202,12 +191,12 @@ func copyBytes(b *rt) {
 // writing another's slot overwrites live data.
 func httpFail(b *rt) {
 	a := b.a
-	b.leaRIP(x64.RDX, "httpErr")
+	b.leaCell(x64.RDX, "httpErr")
 	a.MovStore(x64.RDX, 0, x64.RAX)
 	httpCloseHandles(b)
-	b.leaRIP(x64.RDX, "httpU")
+	b.leaCell(x64.RDX, "httpU")
 	a.MovLoad(x64.RDX, x64.RDX, 0) // 网址文本：只有 10103 那一句会把它拼进话里
-	b.leaRIP(x64.RCX, "httpErr")
+	b.leaCell(x64.RCX, "httpErr")
 	a.MovLoad(x64.RCX, x64.RCX, 0)
 	b.call("@net_fail")
 }
@@ -221,12 +210,12 @@ func httpCloseHandles(b *rt) {
 	a := b.a
 	for _, name := range []string{"httpReq", "httpConn", "httpSess"} {
 		skip := b.label()
-		b.leaRIP(x64.RCX, name)
+		b.leaCell(x64.RCX, name)
 		a.MovLoad(x64.RCX, x64.RCX, 0)
 		a.Test(x64.RCX, x64.RCX)
 		a.Jcc(x64.E, skip)
 		b.impCallFrom(winhttp, "WinHttpCloseHandle")
-		b.leaRIP(x64.RDX, name)
+		b.leaCell(x64.RDX, name)
 		a.Xor(x64.RCX, x64.RCX)
 		a.MovStore(x64.RDX, 0, x64.RCX)
 		a.Mark(skip)
@@ -234,7 +223,7 @@ func httpCloseHandles(b *rt) {
 }
 
 // @http_begin(rcx=网址文本, rdx=要发送的字节块（GET 传 0）, r8=超时毫秒（0＝不设）)：
-// 一次请求走到"响应已接收"为止，返回 nothing。三只句柄留在静态槽里供后面几段使用。
+// 一次请求走到"响应已接收"为止，返回 nothing。三只句柄留在这一条线程状态块的三格里供后面几段使用。
 //
 // 本例程是本组最长的一条，但没有一圈循环：识别家族、拆三段、打开会话、设置超时、连接、
 // 打开请求、发送、接收响应，八步直线走完。两圈循环在 @http_headers 与 @http_body 里，
@@ -263,7 +252,7 @@ func httpBegin(b *rt) {
 	b.put(sURL, x64.RCX)
 	b.put(sSend, x64.RDX)
 	b.put(sMS, x64.R8)
-	b.leaRIP(x64.RDX, "httpU")
+	b.leaCell(x64.RDX, "httpU")
 	a.MovStore(x64.RDX, 0, x64.RCX) // 失败那一句要把网址拼进"解析不到 …"里
 	// 先清理上一次可能遗留的：上一次若以抛出离开就没走到 @http_close，
 	// 这三格里还留着已无人需要的句柄。各判一次 0，无遗留时即空转。
@@ -290,7 +279,7 @@ func httpBegin(b *rt) {
 	sendIt := b.label()
 
 	// 1) 网址转成宽字符。为空与超出 wPath 容量的都算"这个地址不行"，无需调用系统。
-	b.leaRIP(x64.RDX, "wPath")
+	b.leaCell(x64.RDX, "wPath")
 	b.get(x64.RCX, sURL)
 	b.call("@to_wide")
 	a.Test(x64.RAX, x64.RAX)
@@ -299,7 +288,7 @@ func httpBegin(b *rt) {
 	// 2) 家族与前缀：识别 wPath 开头的宽字符——只接受 "http:" 与 "https:"，
 	//    其余一律拒绝（ftp／gopher 本版没有实现）。
 	//    大小写都识别：or 上 0x20 只会设置字母位，不影响宽字符的高字节与冒号。
-	b.leaRIP(x64.RAX, "wPath")
+	b.leaCell(x64.RAX, "wPath")
 	a.MovZX32(x64.RCX, x64.RAX, 0) // 前两个宽字符当一个数读：'h' 0 't' 0
 	a.OrImm(x64.RCX, 0x00200020)
 	a.CmpImm(x64.RCX, 0x00740068)
@@ -333,7 +322,7 @@ func httpBegin(b *rt) {
 	//    不调用 WinHttpCrackUrl：它要求 URL_COMPONENTS 整个结构体的字节布局，
 	//    按 C 头文件自行布置一遍，布置错一处就是往别人的槽里写数据。这里只认自己算出的偏移。
 	//    识别的写法只有 scheme://主机[:端口][/路径[?查询串]]——百分号转义、用户名密码本版不支持。
-	b.leaRIP(x64.RAX, "wPath")
+	b.leaCell(x64.RAX, "wPath")
 	b.get(x64.RSI, sSkip)
 	a.ShlImm(x64.RSI, 1) // 一个宽字符两个字节
 	a.Add(x64.RSI, x64.RAX)
@@ -417,14 +406,14 @@ func httpBegin(b *rt) {
 	a.CmpImm(x64.RDX, 2*(httpHostCap-1))
 	a.Jcc(x64.A, badURL)
 	b.get(x64.RSI, sHost)
-	b.leaRIP(x64.RDI, "httpHost")
+	b.leaCell(x64.RDI, "httpHost")
 	copyBytes(b)
 	a.Jmp(hCut)
 	a.Mark(hCut)
 	b.get(x64.RAX, sEnd)
 	b.get(x64.RCX, sHost)
 	a.Sub(x64.RAX, x64.RCX) // 已搬入的字节数
-	b.leaRIP(x64.RCX, "httpHost")
+	b.leaCell(x64.RCX, "httpHost")
 	a.Add(x64.RAX, x64.RCX)
 	a.Xor(x64.RCX, x64.RCX)
 	a.MovStore8(x64.RAX, 0, x64.RCX) // 结尾 0：宽字符两个字节，逐字节抹
@@ -434,7 +423,7 @@ func httpBegin(b *rt) {
 	b.get(x64.RSI, sPathP)
 	a.Test(x64.RSI, x64.RSI)
 	a.Jcc(x64.NE, pTop)
-	b.leaRIP(x64.RAX, "httpPath")
+	b.leaCell(x64.RAX, "httpPath")
 	a.MovImm(x64.RCX, 0x2F) // '/'
 	a.MovStore8(x64.RAX, 0, x64.RCX)
 	a.Xor(x64.RCX, x64.RCX)
@@ -454,12 +443,12 @@ func httpBegin(b *rt) {
 	a.Sub(x64.RDX, x64.RSI)
 	a.CmpImm(x64.RDX, 2*httpPathCap)
 	a.Jcc(x64.A, badURL)
-	b.leaRIP(x64.RDI, "httpPath")
+	b.leaCell(x64.RDI, "httpPath")
 	copyBytes(b)
 	a.Mark(pathDone)
 
 	// 4) 打开会话。User-Agent 写 `nef`；代理沿用本机设置；同步模式（不设置异步标志）。
-	b.leaRIP(x64.RCX, "httpAgent")
+	b.leaCell(x64.RCX, "httpAgent")
 	a.MovImm(x64.RDX, accessDefaultProxy)
 	a.Xor(x64.R8, x64.R8)
 	a.Xor(x64.R9, x64.R9)
@@ -468,7 +457,7 @@ func httpBegin(b *rt) {
 	b.impCallFrom(winhttp, "WinHttpOpen")
 	a.Test(x64.RAX, x64.RAX)
 	a.Jcc(x64.E, sessFail)
-	b.leaRIP(x64.RDX, "httpSess")
+	b.leaCell(x64.RDX, "httpSess")
 	a.MovStore(x64.RDX, 0, x64.RAX)
 	a.Jmp(timeout)
 	a.Mark(sessFail)
@@ -482,7 +471,7 @@ func httpBegin(b *rt) {
 	b.get(x64.RAX, sMS)
 	a.Test(x64.RAX, x64.RAX)
 	a.Jcc(x64.E, connect)
-	b.leaRIP(x64.RCX, "httpSess")
+	b.leaCell(x64.RCX, "httpSess")
 	a.MovLoad(x64.RCX, x64.RCX, 0)
 	a.Mov(x64.RDX, x64.RAX)
 	a.Mov(x64.R8, x64.RAX)
@@ -492,28 +481,28 @@ func httpBegin(b *rt) {
 
 	// 6) 连接目标：主机名缓冲区是上面填好的宽字符，自带结尾那个 0。
 	a.Mark(connect)
-	b.leaRIP(x64.RCX, "httpSess")
+	b.leaCell(x64.RCX, "httpSess")
 	a.MovLoad(x64.RCX, x64.RCX, 0)
-	b.leaRIP(x64.RDX, "httpHost")
+	b.leaCell(x64.RDX, "httpHost")
 	b.get(x64.R8, sPort)
 	a.Xor(x64.R9, x64.R9)
 	b.impCallFrom(winhttp, "WinHttpConnect")
 	a.Test(x64.RAX, x64.RAX)
 	a.Jcc(x64.E, lastFail)
-	b.leaRIP(x64.RDX, "httpConn")
+	b.leaCell(x64.RDX, "httpConn")
 	a.MovStore(x64.RDX, 0, x64.RAX)
 
 	// 7) 打开请求。传入字节块即 POST，否则 GET。
 	//    版本、来源、接受类型三个参数都传 0：版本由系统选择（1.1），重定向与证书全部由 winhttp 处理。
-	b.leaRIP(x64.RCX, "httpConn")
+	b.leaCell(x64.RCX, "httpConn")
 	a.MovLoad(x64.RCX, x64.RCX, 0)
-	b.leaRIP(x64.RDX, "httpGet")
+	b.leaCell(x64.RDX, "httpGet")
 	b.get(x64.RAX, sSend)
 	a.Test(x64.RAX, x64.RAX)
 	a.Jcc(x64.E, verbSet)
-	b.leaRIP(x64.RDX, "httpPost")
+	b.leaCell(x64.RDX, "httpPost")
 	a.Mark(verbSet)
-	b.leaRIP(x64.R8, "httpPath")
+	b.leaCell(x64.R8, "httpPath")
 	a.Xor(x64.R9, x64.R9)
 	a.Xor(x64.RAX, x64.RAX)
 	a.MovStore(x64.RBP, arg5, x64.RAX)
@@ -523,7 +512,7 @@ func httpBegin(b *rt) {
 	b.impCallFrom(winhttp, "WinHttpOpenRequest")
 	a.Test(x64.RAX, x64.RAX)
 	a.Jcc(x64.E, lastFail)
-	b.leaRIP(x64.RDX, "httpReq")
+	b.leaCell(x64.RDX, "httpReq")
 	a.MovStore(x64.RDX, 0, x64.RAX)
 
 	// 8) 发送并等待响应。不追加任何请求头：`Host` 与 `Content-Length` 由系统补齐，
@@ -544,12 +533,12 @@ func httpBegin(b *rt) {
 	a.MovStore(x64.RBP, arg5, x64.RAX)
 	a.MovStore(x64.RBP, arg6, x64.RAX)
 	a.Mark(sendIt)
-	b.leaRIP(x64.RCX, "httpReq")
+	b.leaCell(x64.RCX, "httpReq")
 	a.MovLoad(x64.RCX, x64.RCX, 0)
 	b.impCallFrom(winhttp, "WinHttpSendRequest")
 	a.Test(x64.RAX, x64.RAX)
 	a.Jcc(x64.E, lastFail)
-	b.leaRIP(x64.RCX, "httpReq")
+	b.leaCell(x64.RCX, "httpReq")
 	a.MovLoad(x64.RCX, x64.RCX, 0)
 	a.Xor(x64.RDX, x64.RDX)
 	b.impCallFrom(winhttp, "WinHttpReceiveResponse")
@@ -569,7 +558,7 @@ func httpBegin(b *rt) {
 // @http_status(rcx=那块 `Response`)：把状态码写入第一个槽（偏移 0），返回 nothing。
 //
 // `WINHTTP_QUERY_STATUS_CODE | WINHTTP_QUERY_FLAG_NUMBER` 直接返回数值，无需逐字符解析
-// "200" 三个字符。缓冲区是静态槽，进入之前先把"大小"写为 4、把该槽清零（返回的是
+// "200" 三个字符。缓冲区在状态块里，进入之前先把"大小"写为 4、把该槽清零（返回的是
 // 四个字节，块头里剩下的四个字节必须为 0 才读得正确）。
 //
 // en: @http_status (rcx = that `Response` block): writes the status code into the first slot
@@ -581,18 +570,18 @@ func httpStatus(b *rt) {
 	a := b.a
 	b.prologue()
 	b.put(0, x64.RCX) // 那块 Response
-	b.leaRIP(x64.RAX, "httpDw")
+	b.leaCell(x64.RAX, "httpDw")
 	a.MovImm(x64.RDX, 4)
 	a.MovStore(x64.RAX, 0, x64.RDX)
-	b.leaRIP(x64.RAX, "httpStatus")
+	b.leaCell(x64.RAX, "httpStatus")
 	a.Xor(x64.RDX, x64.RDX)
 	a.MovStore(x64.RAX, 0, x64.RDX)
-	b.leaRIP(x64.RCX, "httpReq")
+	b.leaCell(x64.RCX, "httpReq")
 	a.MovLoad(x64.RCX, x64.RCX, 0)
 	a.MovImm(x64.RDX, queryStatusCode|queryFlagNumber)
 	a.Xor(x64.R8, x64.R8) // 查询的不是具名头部
-	b.leaRIP(x64.R9, "httpStatus")
-	b.leaRIP(x64.RAX, "httpDw")
+	b.leaCell(x64.R9, "httpStatus")
+	b.leaCell(x64.RAX, "httpDw")
 	a.MovStore(x64.RBP, arg5, x64.RAX)
 	a.Xor(x64.RAX, x64.RAX)
 	a.MovStore(x64.RBP, arg6, x64.RAX) // WINHTTP_NO_HEADER_INDEX
@@ -603,7 +592,7 @@ func httpStatus(b *rt) {
 	b.impCall("GetLastError")
 	httpFail(b)
 	a.Mark(asked)
-	b.leaRIP(x64.RDX, "httpStatus")
+	b.leaCell(x64.RDX, "httpStatus")
 	a.MovLoad(x64.RDX, x64.RDX, 0)
 	b.get(x64.RAX, 0)
 	a.MovStore(x64.RAX, 0, x64.RDX) // status 槽：字段表的第一格（internal/check/check.go 的 responseFields）
@@ -658,20 +647,20 @@ func httpHeaders(b *rt) {
 
 	// 1) 第一趟查询尺寸：缓冲区传 NULL，系统把"需要几个字节"写进 httpDw。
 	//    没有任何头部的答复返回"成功"，尺寸槽保持 0，下面按该分支处理。
-	b.leaRIP(x64.RAX, "httpDw")
+	b.leaCell(x64.RAX, "httpDw")
 	a.Xor(x64.RDX, x64.RDX)
 	a.MovStore(x64.RAX, 0, x64.RDX)
-	b.leaRIP(x64.RCX, "httpReq")
+	b.leaCell(x64.RCX, "httpReq")
 	a.MovLoad(x64.RCX, x64.RCX, 0)
 	a.MovImm(x64.RDX, queryRawHeadersCRLF)
 	a.Xor(x64.R8, x64.R8)
 	a.Xor(x64.R9, x64.R9)
-	b.leaRIP(x64.RAX, "httpDw")
+	b.leaCell(x64.RAX, "httpDw")
 	a.MovStore(x64.RBP, arg5, x64.RAX)
 	a.Xor(x64.RAX, x64.RAX)
 	a.MovStore(x64.RBP, arg6, x64.RAX)
 	b.impCallFrom(winhttp, "WinHttpQueryHeaders")
-	b.leaRIP(x64.RAX, "httpDw")
+	b.leaCell(x64.RAX, "httpDw")
 	a.MovLoad(x64.RAX, x64.RAX, 0)
 	b.put(hSz, x64.RAX)
 	a.CmpImm(x64.RAX, 2) // 连结尾那个 0 都装不下＝没有任何头部
@@ -682,19 +671,19 @@ func httpHeaders(b *rt) {
 	a.Xor(x64.RDX, x64.RDX)
 	b.call("@alloc")
 	b.put(hRaw, x64.RAX)
-	b.leaRIP(x64.RCX, "httpReq")
+	b.leaCell(x64.RCX, "httpReq")
 	a.MovLoad(x64.RCX, x64.RCX, 0)
 	a.MovImm(x64.RDX, queryRawHeadersCRLF)
 	a.Xor(x64.R8, x64.R8)
 	b.get(x64.R9, hRaw)
-	b.leaRIP(x64.RAX, "httpDw")
+	b.leaCell(x64.RAX, "httpDw")
 	a.MovStore(x64.RBP, arg5, x64.RAX)
 	a.Xor(x64.RAX, x64.RAX)
 	a.MovStore(x64.RBP, arg6, x64.RAX)
 	b.impCallFrom(winhttp, "WinHttpQueryHeaders")
 	a.Test(x64.RAX, x64.RAX)
-	a.Jcc(x64.E, noBuf)         // 失败：释放该缓冲，按 GetLastError 抛出
-	b.leaRIP(x64.RAX, "httpDw") // 成功：该槽现在是实际写入的字节数（含结尾那个 0）
+	a.Jcc(x64.E, noBuf)          // 失败：释放该缓冲，按 GetLastError 抛出
+	b.leaCell(x64.RAX, "httpDw") // 成功：该槽现在是实际写入的字节数（含结尾那个 0）
 	a.MovLoad(x64.RAX, x64.RAX, 0)
 	b.put(hSz, x64.RAX)
 	a.Jmp(haveRaw)
@@ -718,7 +707,7 @@ func httpHeaders(b *rt) {
 	b.put(hChar, x64.RAX)
 	b.get(x64.RAX, hRaw)
 	b.put(hWide, x64.RAX)
-	wideToText(b, hWide, hChar) // 返回 rax=新文本（落点是静态的 aBuf，生成后即成为对象）
+	wideToText(b, hWide, hChar) // 返回 rax=新文本（落点是这一条线程的 aBuf，生成后即成为对象）
 	b.put(hText, x64.RAX)
 	b.get(x64.RCX, hRaw) // 宽字符缓冲用完即释放：文本已另建一块
 	b.call("@free")
@@ -868,17 +857,17 @@ func httpBody(b *rt) {
 	b.put(bTotal, x64.RAX)
 
 	a.Mark(rTop)
-	// 每趟最多读取 httpChunk 字节，落入静态缓冲：这样"容量是否足够"与"搬运"各自计算，
+	// 每趟最多读取 httpChunk 字节，落入状态块里的那一块缓冲：这样"容量是否足够"与"搬运"各自计算，
 	// 也避免直接读入一块本身还要参与翻倍的缓冲——翻倍一搬运，已读到的内容就丢失了。
-	b.leaRIP(x64.RCX, "httpReq")
+	b.leaCell(x64.RCX, "httpReq")
 	a.MovLoad(x64.RCX, x64.RCX, 0)
-	b.leaRIP(x64.RDX, "httpChunkBuf")
+	b.leaCell(x64.RDX, "httpChunkBuf")
 	a.MovImm(x64.R8, httpChunk)
-	b.leaRIP(x64.R9, "httpGot")
+	b.leaCell(x64.R9, "httpGot")
 	b.impCallFrom(winhttp, "WinHttpReadData")
 	a.Test(x64.RAX, x64.RAX)
 	a.Jcc(x64.E, readFail)
-	b.leaRIP(x64.RAX, "httpGot")
+	b.leaCell(x64.RAX, "httpGot")
 	a.MovLoad(x64.RAX, x64.RAX, 0)
 	a.Test(x64.RAX, x64.RAX)
 	a.Jcc(x64.E, rDone) // 0 字节＝该流已读完
@@ -917,7 +906,7 @@ func httpBody(b *rt) {
 	b.get(x64.RDI, bBuf)
 	b.get(x64.RAX, bTotal)
 	a.Add(x64.RDI, x64.RAX)
-	b.leaRIP(x64.RSI, "httpChunkBuf")
+	b.leaCell(x64.RSI, "httpChunkBuf")
 	b.get(x64.RDX, bGot)
 	copyBytes(b)
 	b.get(x64.RAX, bTotal) // 已接收字节数：加上本次
@@ -965,7 +954,7 @@ func httpClose(b *rt) {
 	a := b.a
 	b.prologue()
 	httpCloseHandles(b)
-	b.leaRIP(x64.RCX, "httpU")
+	b.leaCell(x64.RCX, "httpU")
 	a.Xor(x64.RDX, x64.RDX)
 	a.MovStore(x64.RCX, 0, x64.RDX)
 	b.epilogue()

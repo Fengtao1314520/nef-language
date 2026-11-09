@@ -67,8 +67,15 @@ func winsockData(put func(name string, bs []byte)) {
 func winsockStart(b *rt) {
 	a := b.a
 	b.prologue()
+	b.loadCell(x64.RAX, "wsaOnce")
+	again := b.label()
+	a.Test(x64.RAX, x64.RAX)
+	a.Jcc(x64.NE, again)
+	a.MovImm(x64.RAX, 1)
+	b.storeCell(x64.RAX, "wsaOnce")
 	a.MovImm(x64.RCX, wantVer)
-	b.leaRIP(x64.RDX, "wsadata")
+	b.leaCell(x64.RDX, "wsadata")
 	b.impCallFrom(ws2, "WSAStartup")
+	a.Mark(again)
 	b.epilogue()
 }

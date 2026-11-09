@@ -25,11 +25,14 @@
 | `Socket` | 引用（内建句柄） | 操作系统分配的编号，不是堆上的一块内存 | `null`（未连接或者已关闭） | `net.connect(host, port, timeout_ms)`、`listener.accept()`（[TCP 套接字](/stdlib/057_net)） |
 | `Listener` | 引用（内建句柄） | 同上 | `null`（已关闭） | `net.listen(port)`（[TCP 套接字](/stdlib/057_net)） |
 | `Process` | 引用（内建句柄） | 同上 | `null`（启动失败或者已经回收） | `process.start(command_line)`（[进程](/stdlib/053_process)） |
+| `Thread<T>` | 引用（内建句柄） | 同上 | `null`（已经等过一次，或者没起成） | `thread.start(worker, argument)`（[线程](/stdlib/067_thread)） |
 | `Response` | 值（内建 `struct`） | 8 字节的句柄；堆上的数据块 24 字节 | 三个字段都是默认值 | 只能由 `http.get`、`http.post` 得到（[HTTP 客户端](/stdlib/058_http)） |
 | `fn(参数类型):返回类型` | 值 | 8 字节（一个入口地址） | 没有空值可取；`new C()` 没填过的那个位置是 0，照着它调用会抛出 10092 号 | 把顶层函数的名字交进一个 `fn` 位置（[函数与调用](/reference/039_functions)） |
 | `null` | 特殊值 | — | — | `null` |
 
 `type Name = T` 不在上面这张表里：它不是一种新类型，只是给表中已有的类型另起一个名称，展开后仍然是原来的类型（见[定义](/reference/040_definitions)）。
+
+`struct` 与 `class` 两行也可以带类型参数，写成 `Basket<int>`、`Pair<int, string>` 这样：定义只写一份，程序用到哪一种类型就生成那一种。这种名称同样能出现在表中任何“类型”的位置上，只是 `Basket` 自己不是一种类型（写法与规则见[定义](/reference/040_definitions)）。
 
 值类型不可为 `null`，引用类型可以。`struct` 属于值类型，但名称中保存的是 8 字节的句柄，字段数据在堆上；整份拷贝与逐字段判等的详细说明见[值与存放](/reference/038_memory)。
 
@@ -164,4 +167,4 @@ console.print(1 << 4, -16 >> 2)
 
 ## 未提供的写法
 
-本节列出的写法都不提供：可选类型语法 `T?`、`void`、泛型的 `struct` 和方法、匿名函数与闭包，以及从右侧的值推导类型。函数可以当值交出去，那种写法见[函数与调用](/reference/039_functions)。
+本节列出的写法都不提供：可选类型语法 `T?`、`void`、匿名函数与闭包，以及从右侧的值推导类型。函数可以当值交出去，那种写法见[函数与调用](/reference/039_functions)。

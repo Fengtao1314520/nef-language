@@ -42,7 +42,8 @@ func TestStateCellsAreNotStatic(t *testing.T) {
 //
 // 2026-11-08 段 5 加三格（默认处理的落点、释放的重入护栏、这一条线程自己的错误号），
 // 252,200 变 252,224；同日再加一格 `selfEntry`（栈用完那一路要认自己走的是哪一条线程），
-// 252,224 变 252,232。
+// 252,224 变 252,232。2026-11-10 HTTP 那一组加两个（应答正文的字节上限、本层自己那四个号要抛
+// 的那一句）：上限由打开请求那一步写下、由读正文那一步读，那一句要先落格是因为关句柄踩过寄存器。
 //
 // en: TestStateBlockBytes pins how large the block adds up to. Every thread asks for this block
 // as it starts, so its size is part of what a thread costs, and every cell in the list counts
@@ -50,9 +51,12 @@ func TestStateCellsAreNotStatic(t *testing.T) {
 // memory layout has to move with it. Segment 5 added three cells - the default handler's landing
 // point, the release re-entry mark and this thread's own error number - taking 252,200 to 252,224;
 // the same day added selfEntry, the cell the exhausted-stack path reads to tell which thread it is
-// on, taking 252,224 to 252,232.
+// on, taking 252,224 to 252,232. On 2026-11-10 the HTTP group added two more, taking 252,232 to
+// 252,248: the byte cap on the response body, written where the request is opened and read where
+// the body is read, and the sentence this layer raises itself, which needs a cell because closing
+// handles clobbers the registers.
 func TestStateBlockBytes(t *testing.T) {
-	const want = 252232
+	const want = 252248
 	if got := StateBytes(); got != want {
 		t.Errorf("每一条线程的状态块现在是 %d 字节，先前钉的是 %d", got, want)
 	}

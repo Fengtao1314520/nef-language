@@ -36,7 +36,11 @@
 // or V rather than an ellipsis; a variadic parameter is written (...values).
 package check
 
-import "strings"
+import (
+	"strings"
+
+	"neflang.org/nf/internal/ast"
+)
 
 // stdParamNames 是每一条内建动作的参数名，键是落点名：组函数是"组名.函数名"，
 // 容器与文本的成员是"形状.名字"（`list.add`、`string.slice`）。
@@ -163,6 +167,8 @@ var stdParamNames = map[string][]string{
 	"net.listen":  {"port"},
 	"http.get":    {"url", "timeout_ms"},
 	"http.post":   {"url", "body", "timeout_ms"},
+	"http.request": {"method", "url", "headers", "body", "timeout_ms",
+		"ignore_cert_error", "max_body_bytes"},
 
 	// 起进程那一档
 	"process.start": {"command_line"},
@@ -346,10 +352,44 @@ func paramLabel(key string, i int, p Param) string {
 	}
 	switch {
 	case name != "" && text != "":
-		return head + name + ": " + text
+		text = head + name + ": " + text
 	case name != "":
-		return head + name
+		text = head + name
 	default:
-		return head + text
+		text = head + text
 	}
+	// 带默认值的位置照源码写出来：省掉这一个实参是合法的，屏幕上那一行要说得清。
+	if p.Default != nil {
+		text += " = " + defaultText(p.Default)
+	}
+	return text
+}
+
+// defaultText 把参数默认值写回它在签名里的那一段。检查器只许这个位置写字面量、顶层 const
+// 名字与这两者的算术，所以认得这四种节点就够了。
+//
+// en: defaultText writes a parameter's default back into its signature text. The checker only
+// allows a literal, a top-level const name, or arithmetic over those two in this position, so
+// recognising these four node kinds is enough.
+func defaultText(e ast.Expr) string {
+	switch v := e.(type) {
+	case *ast.Lit:
+		switch v.Kind {
+		case "string":
+			return `"` + v.Text + `"`
+		case "char":
+			return "'" + v.Text + "'"
+		case "int", "float":
+			return v.Text
+		default:
+			return v.Kind // true、false、null 三种的写法就是它们自己
+		}
+	case *ast.Name:
+		return v.Text
+	case *ast.Binary:
+		return defaultText(v.Left) + " " + v.Op + " " + defaultText(v.Right)
+	case *ast.Unary:
+		return v.Op + defaultText(v.What)
+	}
+	return ""
 }

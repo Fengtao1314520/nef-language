@@ -113,22 +113,101 @@ const (
 	// 头部区转成 UTF-8 后写入这一条线程的 aBuf（正文侧是 lineCap=65536 个字节）。
 	// 一个码点最多三个字节，所以最多转换 65536/3 个宽字符——超过该长度的头部只转换前面这一截。
 	httpHdrChars = 21845
+
+	// 自动解压、忽略证书错误、不跟随重定向这三个开关，加上一个追加头的动作。数值取自 Windows SDK 的 `winhttp.h`
+	// （10.0.10240.0 与 10.0.14393.0 两份一致）；弱签名那一个该头文件里没有，
+	// 值取自 mingw-w64 的 `wininet.h:597`，与 Microsoft 文档列在 WINHTTP_OPTION_SECURITY_FLAGS
+	// 下面的那五个名字对得上。
+	optSecurityFlags  = 31         // WINHTTP_OPTION_SECURITY_FLAGS
+	optRedirectPolicy = 88         // WINHTTP_OPTION_REDIRECT_POLICY
+	optDecompression  = 118        // WINHTTP_OPTION_DECOMPRESSION（Windows 8.1 起）
+	redirectNever     = 0          // WINHTTP_OPTION_REDIRECT_POLICY_NEVER
+	decompressAll     = 3          // WINHTTP_DECOMPRESSION_FLAG_GZIP | DEFLATE
+	addReqAdd         = 0x20000000 // WINHTTP_ADDREQ_FLAG_ADD
+	// 五个 SECURITY_FLAG_IGNORE_* 或起来：未知 CA 0x100、用途不符 0x200、
+	// 名字不符 0x1000、过期 0x2000、弱签名 0x10000。
+	ignoreCertAll = 0x13300
+
+	// 本层自己给的四个号（不走 netCodeOf 那张系统号码折算表）。
+	codeHttpOverBody = 10106 // 应答正文超过给出的上限
+	codeHttpNegLimit = 10107 // 给出的上限是负数
+	codeHttpBadVerb  = 10108 // 方法不在那七个词里
+	codeHttpBadHdr   = 10109 // 头那一行不是 名字: 值
 )
 
-// httpData 定义本组的静态数据：只有随请求发出去的那一个 User-Agent 与两个方法名。
-// 本组不需要新的报错句：状态码、头部、正文都是数据，失败路径沿用 `net` 那六句，
-// 所以报错文案表没有任何新增。三只句柄、网址文本、两个缓冲与四个落点
-// 现在在每一条线程自己的状态块里（stateCells 那张清单）。
+// httpVerbs 是那七个方法：宽字符那一份交给系统，小写那一份用来比对（大小写不敏感）。
+// 数据段与比对那两段共用这一张表，词长因此只有一处出处。
 //
-// en: httpData lays out this group's static data: only the User-Agent sent with a request and
-// the two method names. The group needs no new sentences - status code, headers and body are
-// data, and the failure path reuses net's six sentences, so the table of error wording gained
-// not one line. The three handles, the url text, the two buffers and the four landing slots now
-// live in each thread's state block (see stateCells).
+// en: httpVerbs are the seven methods: the wide-character copy goes to the system and the
+// lowercase copy is what the comparison reads (case-insensitively). The data section and the
+// comparison share this one table, so the word length has a single source.
+var httpVerbs = []struct{ wide, data, upper, lower string }{
+	{"httpGet", "httpVerbGet", "GET", "get"},
+	{"httpPost", "httpVerbPost", "POST", "post"},
+	{"httpPut", "httpVerbPut", "PUT", "put"},
+	{"httpDelete", "httpVerbDelete", "DELETE", "delete"},
+	{"httpPatch", "httpVerbPatch", "PATCH", "patch"},
+	{"httpHead", "httpVerbHead", "HEAD", "head"},
+	{"httpOptions", "httpVerbOptions", "OPTIONS", "options"},
+}
+
+// httpCredNames 是那三个凭据头的名字：给了其中之一，这一次请求就不自动跟随重定向。
+//
+// en: httpCredNames are the three credential header names: supplying any one of them turns off
+// automatic redirects for that request.
+var httpCredNames = []struct{ data, lower string }{
+	{"httpNameAuth", "authorization"},
+	{"httpNameCookie", "cookie"},
+	{"httpNameProxy", "proxy-authorization"},
+}
+
+// httpData 定义本组的静态数据：随请求发出去的那一个 User-Agent、七个方法名（宽字符一份、
+// 比对用的小写字节一份）、三个凭据头的名字、三个开关要用的 DWORD，以及本层自己那四句报错的文案。
+// 三只句柄、网址文本、两个缓冲与四个落点在每一条线程自己的状态块里（stateCells 那张清单）。
+//
+// en: httpData lays out this group's static data: the User-Agent sent with a request, the seven
+// method names (one wide-character copy and one lowercase byte copy for comparison), the three
+// credential header names, the DWORDs the three switches need, and the wording of the four
+// sentences this layer raises itself. The three handles, the url text, the two buffers and the
+// four landing slots live in each thread's state block (see stateCells).
 func httpData(put func(name string, bs []byte)) {
 	put("httpAgent", []byte{'n', 0, 'e', 0, 'f', 0, 0, 0}) // 随请求发送的 User-Agent
-	put("httpGet", []byte{'G', 0, 'E', 0, 'T', 0, 0, 0})
-	put("httpPost", []byte{'P', 0, 'O', 0, 'S', 0, 'T', 0, 0, 0})
+	for _, v := range httpVerbs {
+		put(v.wide, wideText(v.upper))
+		put(v.data, []byte(v.lower))
+	}
+	// 凭据那三个名字：给了其中之一，这一次就不自动跟随重定向。
+	for _, v := range httpCredNames {
+		put(v.data, []byte(v.lower))
+	}
+	// 三个开关的取值：WinHttpSetOption 收的是指向一个 DWORD 的指针，长度四个字节。
+	put("httpSecFlags", []byte{0x00, 0x33, 0x01, 0x00})     // ignoreCertAll，小端
+	put("httpSecFlagsFour", []byte{0x00, 0x33, 0x00, 0x00}) // 去掉弱签名那一位：系统不认时退到这一个
+	put("httpDecomp", []byte{decompressAll, 0, 0, 0})
+	put("httpNoRedirect", []byte{redirectNever, 0, 0, 0})
+	// 本层那四句报错。拼数字与拼方法名时逐段拼起来，静态池那几条 @free 走到即空操作，
+	// 所以"手里是写死的那一句"与"手里是刚拼出来的一块"走同一条收尾（与 netFail 同一个道理）。
+	put("sHttpLimitNeg", strObject("给出的应答上限不能是负数"))
+	put("sHttpOver", strObject("应答超过给出的上限（上限 "))
+	put("sHttpOverMid", strObject("，已收 "))
+	put("sHttpVerb", strObject("不认得 "))
+	put("sHttpVerbTail", strObject(" 这个方法"))
+	put("sHttpHdr", strObject("第 "))
+	put("sHttpHdrTail", strObject(" 行请求头要写成 名字: 值"))
+	put("sHttpColon", strObject(": "))
+}
+
+// wideText 把一段 ASCII 写成宽字符再补结尾那个 0。方法名与 User-Agent 都是 ASCII，
+// 所以一个字节配一个 0 就是它的双字节写法。
+//
+// en: wideText writes an ASCII string as wide characters plus the terminating zero. Method names
+// and the User-Agent are ASCII, so one byte paired with one zero is its two-byte form.
+func wideText(s string) []byte {
+	bs := make([]byte, 0, 2*len(s)+2)
+	for i := 0; i < len(s); i++ {
+		bs = append(bs, s[i], 0)
+	}
+	return append(bs, 0, 0)
 }
 
 // copyBytes 发射一段拷贝：rsi＝源、rdi＝目的、rdx＝字节数。只用 rax 作游标、rcx 作临时。
@@ -222,19 +301,90 @@ func httpCloseHandles(b *rt) {
 	}
 }
 
-// @http_begin(rcx=网址文本, rdx=要发送的字节块（GET 传 0）, r8=超时毫秒（0＝不设）)：
+// httpTextIs 发射一段比对：帧槽 slot 里那一条文本与静态数据 data 处那 n 个字节是不是同一个词。
+// 大小写不敏感，只适用于 ASCII 名字：逐字节 or 上 0x20 再比，字母因此都落到小写，
+// 而 '-'（0x2D）本来就带着那一位，or 之后不变。是就跳到 hit，不是就落到下一段。
+// 词长需要单独传进来：data 是那一串字节在数据段里的名字，名字本身的长度与词长没有关系。
+// 踩 rax／rcx／rdx／rsi／rdi／r8，调用方别在这几个里留东西。
+//
+// en: httpTextIs emits one comparison: whether the text in frame slot `slot` is the same word as
+// the n bytes at static data `data`. Case-insensitive and ASCII-only: each byte is ORed with 0x20
+// before comparing, which folds letters to lowercase while '-' (0x2D) already carries that bit
+// and stays unchanged. Equal jumps to hit, otherwise control falls through to the next block.
+// The word length is passed separately: `data` is the name of those bytes in the data section,
+// and the length of that name has nothing to do with the length of the word.
+// Clobbers rax/rcx/rdx/rsi/rdi/r8, so the caller must not keep anything live in those.
+func httpTextIs(b *rt, slot int, data string, n int, hit x64.Label) {
+	a := b.a
+	no, top := b.label(), b.label()
+	b.get(x64.RAX, slot)
+	a.MovLoad(x64.RCX, x64.RAX, 0) // 文本的第一格就是字节数
+	a.CmpImm(x64.RCX, int32(n))
+	a.Jcc(x64.NE, no)
+	a.LeaMem(x64.RSI, x64.RAX, strHead)
+	b.leaCell(x64.RDI, data)
+	a.Xor(x64.RDX, x64.RDX)
+	a.Mark(top)
+	a.CmpImm(x64.RDX, int32(n))
+	a.Jcc(x64.AE, hit)
+	a.MovZX8(x64.RCX, x64.RSI, 0)
+	a.OrImm(x64.RCX, 0x20)
+	a.MovZX8(x64.R8, x64.RDI, 0)
+	a.Cmp(x64.RCX, x64.R8)
+	a.Jcc(x64.NE, no)
+	a.AddImm(x64.RSI, 1)
+	a.AddImm(x64.RDI, 1)
+	a.AddImm(x64.RDX, 1)
+	a.Jmp(top)
+	a.Mark(no)
+}
+
+// httpOwnFail 是本层自己那四个号的收尾：rcx＝号、rdx＝已经拼好的那一句（交给 @throw）。
+// 与 httpFail 的分别是号码不进 netCodeOf 那张系统折算表。两样先写进状态格再去关句柄：
+// WinHttpCloseHandle 会踩坏 rcx 与 rdx，理由与 httpFail 那一段相同。
+//
+// en: httpOwnFail is the tail for the four codes this layer raises itself: rcx = the code,
+// rdx = the sentence already assembled (handed to @throw). Unlike httpFail the number does not
+// go through netCodeOf's system-number table. Both are stored in state cells before closing
+// handles: WinHttpCloseHandle clobbers rcx and rdx, for the same reason as in httpFail.
+func httpOwnFail(b *rt) {
+	a := b.a
+	b.leaCell(x64.RAX, "httpErr")
+	a.MovStore(x64.RAX, 0, x64.RCX)
+	b.leaCell(x64.RAX, "httpMsg")
+	a.MovStore(x64.RAX, 0, x64.RDX)
+	httpCloseHandles(b)
+	b.leaCell(x64.RCX, "httpErr")
+	a.MovLoad(x64.RCX, x64.RCX, 0)
+	b.leaCell(x64.RDX, "httpMsg")
+	a.MovLoad(x64.RDX, x64.RDX, 0)
+	b.call("@throw")
+}
+
+// @http_begin(rcx=网址文本, rdx=要发送的字节块（没有则 0）, r8=超时毫秒（0＝不设）,
+// r9=方法文本（0＝按有没有正文选 GET/POST，封装那两条走这一条）,
+// 第五个入参＝头列表（0＝不追加任何头）, 第六个＝忽略证书错误, 第七个＝应答正文的字节上限)：
 // 一次请求走到"响应已接收"为止，返回 nothing。三只句柄留在这一条线程状态块的三格里供后面几段使用。
 //
-// 本例程是本组最长的一条，但没有一圈循环：识别家族、拆三段、打开会话、设置超时、连接、
-// 打开请求、发送、接收响应，八步直线走完。两圈循环在 @http_headers 与 @http_body 里，
-// 各带自己的那几个槽。
+// 识别家族、拆三段、打开会话、设置超时、连接、打开请求、追加头、设三个开关、发送、接收响应。
+// 方法名与七个写死的词逐个比（大小写不敏感），中了就用那一份宽字符，一个都不中报 10108；
+// 头列表逐条校验再追加，一行不是 名字: 值 就报 10109 并说是第几行。
+// 上限那一个数存进状态格 httpMax：读正文的是另一条例程，它要从那里取。
+// 三圈循环分别在这一条的头列表那一段、@http_headers 与 @http_body 里，各带自己的那几个槽。
 //
-// en: @http_begin (rcx = url text, rdx = the byte block to send (0 for GET), r8 = timeout ms, 0
-// meaning unset): runs one request up to "response received" and returns nothing. The three
-// handles stay in the three static slots for the later stages. This is the longest routine of
-// the group but has no loop at all: recognise the scheme, crack three segments, open the
-// session, set timeouts, connect, open the request, send, receive - eight steps in a straight
-// line. The two loops live in @http_headers and @http_body, each with its own few slots.
+// en: @http_begin (rcx = url text, rdx = the byte block to send (0 when there is none), r8 =
+// timeout ms (0 meaning unset), r9 = method text (0 means pick GET/POST by whether there is a
+// body, which is what the two wrappers pass), fifth argument = the header list (0 adds none),
+// sixth = ignore certificate errors, seventh = the byte cap on the response body): runs one
+// request up to "response received" and returns nothing. The three handles stay in three cells
+// of this thread's state block for the later stages. The steps are: recognise the scheme, crack
+// three segments, open the session, set timeouts, connect, open the request, append headers, set
+// the three switches, send, receive. The method is compared against seven hard-written words
+// (case-insensitively); a match uses that wide-character copy and no match raises 10108. Each
+// header line is validated before being appended; a line that is not name: value raises 10109
+// naming the line number. The cap goes into the state cell httpMax because the routine that
+// reads the body is a different one and takes it from there. The three loops live in this
+// routine's header-list section, in @http_headers and in @http_body, each with its own slots.
 func httpBegin(b *rt) {
 	const (
 		sURL   = 0 // 网址文本
@@ -246,17 +396,64 @@ func httpBegin(b *rt) {
 		sHost  = 6 // 主机段的起点
 		sEnd   = 7 // 主机段的终点（遇到冒号、斜杠或结尾时停下的位置）
 		sPathP = 8 // 路径段的起点（0＝网址未写路径，补一个 '/'）
+
+		// 后面四个入参与头列表那一段要用的几个位置。帧一共 0x100 字节，
+		// 而出参区 arg5～arg10 占的是第 22～27 格那一段，所以本地槽只用到 21。
+		sMethod  = 9  // 方法文本（0＝封装那两条，按有没有正文选）
+		sHdrList = 10 // 头列表（0＝不追加）
+		sIgnore  = 11 // 忽略证书错误
+		sMax     = 12 // 应答正文的字节上限（0＝不限）
+		sCred    = 13 // 头里有没有那三个凭据名字
+		sLine    = 14 // 第几行头（1 起，报错时说得出）
+		sIdx     = 15 // 头列表走到第几条
+		sElem    = 16 // 当前这一条头文本
+		sLen     = 17 // 它的字节数
+		sColon   = 18 // 第一个冒号在第几个字节
+		sNameA   = 19 // 名字从第几个字节起
+		sNameB   = 20 // 名字到第几个字节为止（不含）
+		sValA    = 21 // 值从第几个字节起
+
+		// 请求打开之后，网址那几格与 TLS 标志都不再有人读，头这一段借用它们放临时句柄。
+		// 两段先后执行、不重叠，所以同一个槽两个名字指的是同一格。
+		hName  = sSkip  // 切出来的名字那一条文本
+		hValue = sHost  // 切出来的值那一条文本
+		hNorm  = sEnd   // 拼好的那一行（名字: 值）
+		hTmp   = sPathP // 拼接的累加器
+		hTmp2  = sPort  // 拼接时新造的那一块
+		hScan  = sFlags // 扫描游标
 	)
 	a := b.a
 	b.prologue()
 	b.put(sURL, x64.RCX)
 	b.put(sSend, x64.RDX)
 	b.put(sMS, x64.R8)
+	b.put(sMethod, x64.R9)
+	// 路径起点先摆 0：网址写了端口却没写路径时，拆网址那一段从 atColon 直接到 cut，
+	// 不会经过给它赋值的两条分支。这个位置不先摆 0，下面读到的就是栈上残留——
+	// 残留非 0 时拿着一个野指针去扫宽字符（TestHttpRequestUrlPortWithoutPath 钉住）。
+	a.Xor(x64.RAX, x64.RAX)
+	b.put(sPathP, x64.RAX)
+	// 第五个起走正偏移：调用方放在它自己的 [rsp+0x20]，call 与 push rbp 一共往下挪 0x10。
+	// 要在任何一次出去调用之前读完，那几格随后就是本帧的出参区。
+	a.MovLoad(x64.RAX, x64.RBP, inArg5)
+	b.put(sHdrList, x64.RAX)
+	a.MovLoad(x64.RAX, x64.RBP, inArg6)
+	b.put(sIgnore, x64.RAX)
+	a.MovLoad(x64.RAX, x64.RBP, inArg7)
+	b.put(sMax, x64.RAX)
+	b.leaCell(x64.RDX, "httpMax")
+	a.MovStore(x64.RDX, 0, x64.RAX) // 读正文那一条例程要从状态格里取这个数
 	b.leaCell(x64.RDX, "httpU")
 	a.MovStore(x64.RDX, 0, x64.RCX) // 失败那一句要把网址拼进"解析不到 …"里
 	// 先清理上一次可能遗留的：上一次若以抛出离开就没走到 @http_close，
 	// 这三格里还留着已无人需要的句柄。各判一次 0，无遗留时即空转。
 	httpCloseHandles(b)
+
+	// 上限是负数就是写错了：当场抛，不必先连出去。0 表示不限，与封装那两条交上来的 0 同义。
+	negLimit := b.label()
+	b.get(x64.RAX, sMax)
+	a.Test(x64.RAX, x64.RAX)
+	a.Jcc(x64.S, negLimit)
 
 	badURL := b.label()   // 网址本身即不合法：为空、拆不出主机、端口非法、超出缓冲
 	lastFail := b.label() // 来自系统的失败：号码取自 GetLastError
@@ -275,8 +472,38 @@ func httpBegin(b *rt) {
 	sessFail := b.label()
 	timeout := b.label()
 	connect := b.label()
-	verbSet := b.label()
+	verbWrap := b.label()  // 方法那个位置是 0：封装那两条，按有没有正文选
+	verbReady := b.label() // rdx 里已经是方法那一串宽字符
+	badVerb := b.label()   // 七个词都不中
 	sendIt := b.label()
+
+	// 头列表那一段与三个开关
+	hdrTop, hdrDone, hdrNext := b.label(), b.label(), b.label()
+	nullElem := b.label() // 列表里那一条是空句柄
+	scanTop, scanDone, scanNext := b.label(), b.label(), b.label()
+	badLine := b.label() // 这一行不是 名字: 值
+	nameTop, nameDone, nameStep := b.label(), b.label(), b.label()
+	backTop, backDone, backStep := b.label(), b.label(), b.label()
+	valTop, valDone, valStep := b.label(), b.label(), b.label()
+	credHit, credDone := b.label(), b.label()
+	tooLong := b.label() // 拼好的那一行装不进宽字符缓冲
+	hdrFail := b.label() // 追加头那一次系统调用失败
+	skipCert := b.label()
+	certSet := b.label()
+	skipRedirect := b.label()
+
+	// cat 把一段拼到累加器后面：piece 负责把那一段放进 rdx。旧块当场释放——
+	// 静态池那几条块头尺寸是 0，@free 走到即空操作，所以写死的那一句与刚拼出来的一块走同一条路。
+	cat := func(acc int, piece func()) {
+		b.get(x64.RCX, acc)
+		piece()
+		b.call("@str_cat")
+		b.put(hTmp2, x64.RAX)
+		b.get(x64.RCX, acc)
+		b.call("@free")
+		b.get(x64.RAX, hTmp2)
+		b.put(acc, x64.RAX)
+	}
 
 	// 1) 网址转成宽字符。为空与超出 wPath 容量的都算"这个地址不行"，无需调用系统。
 	b.leaCell(x64.RDX, "wPath")
@@ -492,16 +719,33 @@ func httpBegin(b *rt) {
 	b.leaCell(x64.RDX, "httpConn")
 	a.MovStore(x64.RDX, 0, x64.RAX)
 
-	// 7) 打开请求。传入字节块即 POST，否则 GET。
-	//    版本、来源、接受类型三个参数都传 0：版本由系统选择（1.1），重定向与证书全部由 winhttp 处理。
-	b.leaCell(x64.RCX, "httpConn")
-	a.MovLoad(x64.RCX, x64.RCX, 0)
+	// 7) 打开请求。方法那一串宽字符先定下来：底层那一条把方法文本交进来，与七个写死的词
+	//    逐个比（大小写不敏感），中了就用那一份宽字符；封装那两条交 0，按有没有正文选 GET 或 POST。
+	//    版本、来源、接受类型三个参数都传 0：版本由系统选择（1.1）。
+	b.get(x64.RAX, sMethod)
+	a.Test(x64.RAX, x64.RAX)
+	a.Jcc(x64.E, verbWrap)
+	verbs := httpVerbs
+	hits := make([]x64.Label, len(verbs))
+	for i, v := range verbs {
+		hits[i] = b.label()
+		httpTextIs(b, sMethod, v.data, len(v.lower), hits[i])
+	}
+	a.Jmp(badVerb) // 七个都不中
+	for i, v := range verbs {
+		a.Mark(hits[i])
+		b.leaCell(x64.RDX, v.wide)
+		a.Jmp(verbReady)
+	}
+	a.Mark(verbWrap)
 	b.leaCell(x64.RDX, "httpGet")
 	b.get(x64.RAX, sSend)
 	a.Test(x64.RAX, x64.RAX)
-	a.Jcc(x64.E, verbSet)
+	a.Jcc(x64.E, verbReady)
 	b.leaCell(x64.RDX, "httpPost")
-	a.Mark(verbSet)
+	a.Mark(verbReady)
+	b.leaCell(x64.RCX, "httpConn")
+	a.MovLoad(x64.RCX, x64.RCX, 0)
 	b.leaCell(x64.R8, "httpPath")
 	a.Xor(x64.R9, x64.R9)
 	a.Xor(x64.RAX, x64.RAX)
@@ -515,8 +759,260 @@ func httpBegin(b *rt) {
 	b.leaCell(x64.RDX, "httpReq")
 	a.MovStore(x64.RDX, 0, x64.RAX)
 
-	// 8) 发送并等待响应。不追加任何请求头：`Host` 与 `Content-Length` 由系统补齐，
-	//    发送的只有正文块（GET 时相应参数全部传 0）。
+	// 7.1) 追加自定义头。列表是 0 就整段跳过：封装那两条与不带头的请求走这一条。
+	//      逐条先校验再拼成 名字: 值，转宽字符之后交给系统追加。校验都在分配之前做完，
+	//      所以报 10109 那一条路上没有要释放的临时块。
+	a.Xor(x64.RAX, x64.RAX)
+	b.put(sCred, x64.RAX)
+	b.get(x64.RAX, sHdrList)
+	a.Test(x64.RAX, x64.RAX)
+	a.Jcc(x64.E, hdrDone)
+	a.Xor(x64.RAX, x64.RAX)
+	b.put(sIdx, x64.RAX)
+	a.MovImm(x64.RAX, 1)
+	b.put(sLine, x64.RAX)
+	a.Mark(hdrTop)
+	b.get(x64.RDI, sHdrList)
+	a.MovLoad(x64.RCX, x64.RDI, cLen)
+	b.get(x64.RAX, sIdx)
+	a.Cmp(x64.RAX, x64.RCX)
+	a.Jcc(x64.AE, hdrDone)
+	b.get(x64.RCX, sHdrList)
+	b.get(x64.RDX, sIdx)
+	b.call("@list_at")
+	a.MovLoad(x64.RAX, x64.RAX, 0) // 那个位置里装的是文本句柄
+	a.Test(x64.RAX, x64.RAX)
+	a.Jcc(x64.E, nullElem)
+	b.put(sElem, x64.RAX)
+	a.MovLoad(x64.RAX, x64.RAX, 0) // 文本的第一格就是字节数
+	b.put(sLen, x64.RAX)
+
+	// byteAt 把 sElem 那一条文本的第 slot 个字节读进 rcx（零扩展）。踩 rax 与 rdi。
+	byteAt := func(slot int) {
+		b.get(x64.RDI, sElem)
+		a.AddImm(x64.RDI, strHead)
+		b.get(x64.RAX, slot)
+		a.Add(x64.RDI, x64.RAX)
+		a.MovZX8(x64.RCX, x64.RDI, 0)
+	}
+
+	// 扫一遍：记下第一个冒号的位置，同时拒绝回车与换行——混进去就能多拼出一行请求头。
+	a.Xor(x64.RAX, x64.RAX)
+	b.put(hScan, x64.RAX)
+	a.MovImm(x64.RAX, -1)
+	b.put(sColon, x64.RAX)
+	a.Mark(scanTop)
+	b.get(x64.RAX, hScan)
+	b.get(x64.RCX, sLen)
+	a.Cmp(x64.RAX, x64.RCX)
+	a.Jcc(x64.AE, scanDone)
+	byteAt(hScan)
+	a.CmpImm(x64.RCX, crByte)
+	a.Jcc(x64.E, badLine)
+	a.CmpImm(x64.RCX, 10)
+	a.Jcc(x64.E, badLine)
+	a.CmpImm(x64.RCX, 0x3A) // ':'
+	a.Jcc(x64.NE, scanNext)
+	b.get(x64.RAX, sColon)
+	a.Test(x64.RAX, x64.RAX)
+	a.Jcc(x64.NS, scanNext) // 已经记过一个冒号：后面的不算
+	b.get(x64.RAX, hScan)
+	b.put(sColon, x64.RAX)
+	a.Mark(scanNext)
+	b.get(x64.RAX, hScan)
+	a.AddImm(x64.RAX, 1)
+	b.put(hScan, x64.RAX)
+	a.Jmp(scanTop)
+	a.Mark(scanDone)
+	b.get(x64.RAX, sColon)
+	a.Test(x64.RAX, x64.RAX)
+	a.Jcc(x64.S, badLine) // 一个冒号都没有
+
+	// 名字从第一个非空白起。
+	a.Xor(x64.RAX, x64.RAX)
+	b.put(sNameA, x64.RAX)
+	a.Mark(nameTop)
+	b.get(x64.RAX, sNameA)
+	b.get(x64.RCX, sColon)
+	a.Cmp(x64.RAX, x64.RCX)
+	a.Jcc(x64.AE, nameDone)
+	byteAt(sNameA)
+	a.CmpImm(x64.RCX, 0x20)
+	a.Jcc(x64.E, nameStep)
+	a.CmpImm(x64.RCX, 9)
+	a.Jcc(x64.NE, nameDone)
+	a.Mark(nameStep)
+	b.get(x64.RAX, sNameA)
+	a.AddImm(x64.RAX, 1)
+	b.put(sNameA, x64.RAX)
+	a.Jmp(nameTop)
+	a.Mark(nameDone)
+
+	// 名字到冒号之前最后一个非空白为止。
+	b.get(x64.RAX, sColon)
+	b.put(sNameB, x64.RAX)
+	a.Mark(backTop)
+	b.get(x64.RAX, sNameB)
+	b.get(x64.RCX, sNameA)
+	a.Cmp(x64.RAX, x64.RCX)
+	a.Jcc(x64.BE, backDone)
+	a.AddImm(x64.RAX, -1)
+	b.put(hScan, x64.RAX)
+	byteAt(hScan)
+	a.CmpImm(x64.RCX, 0x20)
+	a.Jcc(x64.E, backStep)
+	a.CmpImm(x64.RCX, 9)
+	a.Jcc(x64.NE, backDone)
+	a.Mark(backStep)
+	b.get(x64.RAX, sNameB)
+	a.AddImm(x64.RAX, -1)
+	b.put(sNameB, x64.RAX)
+	a.Jmp(backTop)
+	a.Mark(backDone)
+	b.get(x64.RAX, sNameB)
+	b.get(x64.RCX, sNameA)
+	a.Cmp(x64.RAX, x64.RCX)
+	a.Jcc(x64.BE, badLine) // 名字全是空白，等于没有名字
+
+	// 值从冒号之后第一个非空白起，右侧空白照原样留着。
+	b.get(x64.RAX, sColon)
+	a.AddImm(x64.RAX, 1)
+	b.put(sValA, x64.RAX)
+	a.Mark(valTop)
+	b.get(x64.RAX, sValA)
+	b.get(x64.RCX, sLen)
+	a.Cmp(x64.RAX, x64.RCX)
+	a.Jcc(x64.AE, valDone)
+	byteAt(sValA)
+	a.CmpImm(x64.RCX, 0x20)
+	a.Jcc(x64.E, valStep)
+	a.CmpImm(x64.RCX, 9)
+	a.Jcc(x64.NE, valDone)
+	a.Mark(valStep)
+	b.get(x64.RAX, sValA)
+	a.AddImm(x64.RAX, 1)
+	b.put(sValA, x64.RAX)
+	a.Jmp(valTop)
+	a.Mark(valDone)
+
+	// 名字与值各切一份再拼成 名字: 值。切与拼都新造块，用完即释放：
+	// 列表里那一条文本归调用方，本层只读它一次。
+	b.get(x64.RCX, sElem)
+	b.get(x64.RDX, sNameA)
+	b.get(x64.R8, sNameB)
+	a.Sub(x64.R8, x64.RDX)
+	b.call("@str_sub")
+	b.put(hName, x64.RAX)
+
+	// 凭据那三个名字：中了就把 sCred 摆成 1，这一次请求不自动跟随重定向。
+	for _, v := range httpCredNames {
+		httpTextIs(b, hName, v.data, len(v.lower), credHit)
+	}
+	a.Jmp(credDone)
+	a.Mark(credHit)
+	a.MovImm(x64.RAX, 1)
+	b.put(sCred, x64.RAX)
+	a.Mark(credDone)
+
+	b.get(x64.RCX, sElem)
+	b.get(x64.RDX, sValA)
+	b.get(x64.R8, sLen)
+	a.Sub(x64.R8, x64.RDX)
+	b.call("@str_sub")
+	b.put(hValue, x64.RAX)
+	b.get(x64.RCX, hName)
+	b.leaCell(x64.RDX, "sHttpColon")
+	b.call("@str_cat")
+	b.put(hTmp, x64.RAX)
+	b.get(x64.RCX, hName)
+	b.call("@free")
+	b.get(x64.RCX, hTmp)
+	b.get(x64.RDX, hValue)
+	b.call("@str_cat")
+	b.put(hNorm, x64.RAX)
+	b.get(x64.RCX, hTmp)
+	b.call("@free")
+	b.get(x64.RCX, hValue)
+	b.call("@free")
+
+	// 转宽字符之后交给系统追加。一行装不进 wideCap 个宽字符也算这一行不行。
+	b.get(x64.RCX, hNorm)
+	b.leaCell(x64.RDX, "aWide")
+	b.call("@to_wide")
+	a.Test(x64.RAX, x64.RAX)
+	a.Jcc(x64.E, tooLong)
+	b.leaCell(x64.RCX, "httpReq")
+	a.MovLoad(x64.RCX, x64.RCX, 0)
+	b.leaCell(x64.RDX, "aWide")
+	a.MovImm(x64.R8, -1) // 长度传 -1：按结尾那个 0 自己算
+	a.MovImm(x64.R9, addReqAdd)
+	b.impCallFrom(winhttp, "WinHttpAddRequestHeaders")
+	a.Test(x64.RAX, x64.RAX)
+	a.Jcc(x64.E, hdrFail)
+	b.get(x64.RCX, hNorm)
+	b.call("@free")
+	a.Mark(hdrNext)
+	b.get(x64.RAX, sIdx)
+	a.AddImm(x64.RAX, 1)
+	b.put(sIdx, x64.RAX)
+	b.get(x64.RAX, sLine)
+	a.AddImm(x64.RAX, 1)
+	b.put(sLine, x64.RAX)
+	a.Jmp(hdrTop)
+	a.Mark(hdrDone)
+
+	// 7.2) 三个开关都设在请求句柄上，发送之前。
+	//      忽略证书错误：五个 SECURITY_FLAG_IGNORE_* 一起给。
+	//      实测（Windows 10 19045）：弱签名那一位 0x10000 系统不认，整个值回 ERROR_INVALID_PARAMETER(87)；
+	//      去掉它就是 winhttp.h 里那四个（0x3300），收。所以先试五个，不认再退四个，两次都不成才报。
+	//      会话句柄这条路走不通：请求已打开之后设在它上面回 12018（句柄状态不对）。
+	b.get(x64.RAX, sIgnore)
+	a.Test(x64.RAX, x64.RAX)
+	a.Jcc(x64.E, skipCert)
+	b.leaCell(x64.RCX, "httpReq")
+	a.MovLoad(x64.RCX, x64.RCX, 0)
+	a.MovImm(x64.RDX, optSecurityFlags)
+	b.leaCell(x64.R8, "httpSecFlags")
+	a.MovImm(x64.R9, 4)
+	b.impCallFrom(winhttp, "WinHttpSetOption")
+	a.Test(x64.RAX, x64.RAX)
+	a.Jcc(x64.NE, certSet)
+	b.leaCell(x64.RCX, "httpReq")
+	a.MovLoad(x64.RCX, x64.RCX, 0)
+	a.MovImm(x64.RDX, optSecurityFlags)
+	b.leaCell(x64.R8, "httpSecFlagsFour")
+	a.MovImm(x64.R9, 4)
+	b.impCallFrom(winhttp, "WinHttpSetOption")
+	a.Test(x64.RAX, x64.RAX)
+	a.Jcc(x64.E, lastFail)
+	a.Mark(certSet)
+	a.Mark(skipCert)
+
+	//      自动解压：系统自己解压，还自己写 Accept-Encoding 覆盖调用方给的那一条。
+	//      返回值不看：Windows 8.1 以下没有这个选项，设不成就当这一项没有。
+	b.leaCell(x64.RCX, "httpReq")
+	a.MovLoad(x64.RCX, x64.RCX, 0)
+	a.MovImm(x64.RDX, optDecompression)
+	b.leaCell(x64.R8, "httpDecomp")
+	a.MovImm(x64.R9, 4)
+	b.impCallFrom(winhttp, "WinHttpSetOption")
+
+	//      给了凭据头就不自动跟随：30x 原样返回给调用方。
+	b.get(x64.RAX, sCred)
+	a.Test(x64.RAX, x64.RAX)
+	a.Jcc(x64.E, skipRedirect)
+	b.leaCell(x64.RCX, "httpReq")
+	a.MovLoad(x64.RCX, x64.RCX, 0)
+	a.MovImm(x64.RDX, optRedirectPolicy)
+	b.leaCell(x64.R8, "httpNoRedirect")
+	a.MovImm(x64.R9, 4)
+	b.impCallFrom(winhttp, "WinHttpSetOption")
+	a.Test(x64.RAX, x64.RAX)
+	a.Jcc(x64.E, lastFail)
+	a.Mark(skipRedirect)
+
+	// 8) 发送并等待响应。头已在上面逐条追加，这里的附加头位置传 0；
+	//    `Host` 与 `Content-Length` 由系统补齐，发送的只有正文块（没有正文时相应参数全部传 0）。
 	b.get(x64.RAX, sSend)
 	a.Mov(x64.R9, x64.RAX) // lpOptional＝块的正文；为 0 即什么都不发送
 	a.Xor(x64.RDX, x64.RDX)
@@ -552,6 +1048,54 @@ func httpBegin(b *rt) {
 
 	a.Mark(lastFail)
 	b.impCall("GetLastError")
+	httpFail(b)
+
+	// 本层自己那四个号与两种半途失败。文案逐段拼起来，拼完交给 httpOwnFail：
+	// 它先关句柄再抛，所以拼出来的那一句与号码都先落状态格。
+	a.Mark(negLimit)
+	a.MovImm(x64.RCX, codeHttpNegLimit)
+	b.leaCell(x64.RDX, "sHttpLimitNeg")
+	httpOwnFail(b)
+
+	a.Mark(badVerb)
+	b.leaCell(x64.RAX, "sHttpVerb")
+	b.put(hTmp, x64.RAX)
+	cat(hTmp, func() { b.get(x64.RDX, sMethod) })
+	cat(hTmp, func() { b.leaCell(x64.RDX, "sHttpVerbTail") })
+	a.MovImm(x64.RCX, codeHttpBadVerb)
+	b.get(x64.RDX, hTmp)
+	httpOwnFail(b)
+
+	a.Mark(nullElem)
+	a.MovImm(x64.RCX, codeNullRef)
+	b.leaCell(x64.RDX, "sNullRef")
+	httpOwnFail(b)
+
+	a.Mark(tooLong)
+	b.get(x64.RCX, hNorm) // 拼好的那一行由本层造：抛之前释放
+	b.call("@free")
+	a.Jmp(badLine)
+
+	a.Mark(badLine)
+	b.leaCell(x64.RAX, "sHttpHdr")
+	b.put(hTmp, x64.RAX)
+	b.get(x64.RCX, sLine)
+	b.call("@int_str")
+	b.put(hValue, x64.RAX) // 到达这里时名字与值那两块都已释放，这个位置借来放数字串
+	cat(hTmp, func() { b.get(x64.RDX, hValue) })
+	b.get(x64.RCX, hValue)
+	b.call("@free")
+	cat(hTmp, func() { b.leaCell(x64.RDX, "sHttpHdrTail") })
+	a.MovImm(x64.RCX, codeHttpBadHdr)
+	b.get(x64.RDX, hTmp)
+	httpOwnFail(b)
+
+	a.Mark(hdrFail)
+	b.impCall("GetLastError") // 号码先取：下面那一次 @free 会把它洗掉
+	b.put(hScan, x64.RAX)
+	b.get(x64.RCX, hNorm)
+	b.call("@free")
+	b.get(x64.RAX, hScan)
 	httpFail(b)
 }
 
@@ -840,11 +1384,27 @@ func httpBody(b *rt) {
 		bNew   = 4 // 翻倍时的新缓冲
 		bBody  = 5 // 返回的 bytes 块
 		bGot   = 6 // 本次读取的字节数
+		bMsg   = 7 // 超上限那一句的累加器
+		bTmp   = 8 // 拼接时新造的那一块
+		bNum   = 9 // 拼进句子的那个数字串
 	)
 	a := b.a
 	b.prologue()
 	b.put(bOut, x64.RCX)
 	rTop, rDone, grow, fitted, readFail := b.label(), b.label(), b.label(), b.label(), b.label()
+	noCap, overCap := b.label(), b.label()
+
+	// cat 与 @http_begin 里那一个同一条：把一段拼到累加器后面，旧块当场释放。
+	cat := func(acc int, piece func()) {
+		b.get(x64.RCX, acc)
+		piece()
+		b.call("@str_cat")
+		b.put(bTmp, x64.RAX)
+		b.get(x64.RCX, acc)
+		b.call("@free")
+		b.get(x64.RAX, bTmp)
+		b.put(acc, x64.RAX)
+	}
 
 	// 初始档位先申请 8192 字节：绝大多数响应一次即可容纳，不必预先按正文大小估算。
 	a.MovImm(x64.RCX, httpFirst)
@@ -872,7 +1432,20 @@ func httpBody(b *rt) {
 	a.Test(x64.RAX, x64.RAX)
 	a.Jcc(x64.E, rDone) // 0 字节＝该流已读完
 	b.put(bGot, x64.RAX)
+	// 上限那一个数从状态格取（@http_begin 写下的）：0 表示不限。已收加上本次超过上限
+	// 就抛 10106，这一次拿不到 Response——不交半个值，理由与 net 那六个号相同。
+	b.leaCell(x64.RAX, "httpMax")
+	a.MovLoad(x64.RAX, x64.RAX, 0)
+	a.Test(x64.RAX, x64.RAX)
+	a.Jcc(x64.E, noCap)
+	b.get(x64.RDX, bTotal)
+	b.get(x64.RCX, bGot)
+	a.Add(x64.RDX, x64.RCX)
+	a.Cmp(x64.RDX, x64.RAX)
+	a.Jcc(x64.A, overCap)
+	a.Mark(noCap)
 	// 容量判断：已接收加上本次的，超过容量时要先更换缓冲
+	b.get(x64.RAX, bGot) // 上面那一段比对踩过 rax，重新取本次的字节数
 	b.get(x64.RDX, bTotal)
 	a.Add(x64.RDX, x64.RAX)
 	b.get(x64.RCX, bCap)
@@ -937,6 +1510,33 @@ func httpBody(b *rt) {
 	b.call("@free")
 	b.impCall("GetLastError")
 	httpFail(b)
+
+	// 超上限：话里带上限与已收两个数，读者据此知道差多少。
+	a.Mark(overCap)
+	b.get(x64.RCX, bBuf)
+	b.call("@free")
+	b.leaCell(x64.RAX, "sHttpOver")
+	b.put(bMsg, x64.RAX)
+	b.leaCell(x64.RCX, "httpMax")
+	a.MovLoad(x64.RCX, x64.RCX, 0)
+	b.call("@int_str")
+	b.put(bNum, x64.RAX)
+	cat(bMsg, func() { b.get(x64.RDX, bNum) })
+	b.get(x64.RCX, bNum)
+	b.call("@free")
+	cat(bMsg, func() { b.leaCell(x64.RDX, "sHttpOverMid") })
+	b.get(x64.RCX, bTotal)
+	b.get(x64.RDX, bGot)
+	a.Add(x64.RCX, x64.RDX)
+	b.call("@int_str")
+	b.put(bNum, x64.RAX)
+	cat(bMsg, func() { b.get(x64.RDX, bNum) })
+	b.get(x64.RCX, bNum)
+	b.call("@free")
+	cat(bMsg, func() { b.leaCell(x64.RDX, "sNetClose") })
+	a.MovImm(x64.RCX, codeHttpOverBody)
+	b.get(x64.RDX, bMsg)
+	httpOwnFail(b)
 }
 
 // @http_close()：依次关闭本次请求的三只句柄，返回 nothing。

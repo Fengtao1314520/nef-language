@@ -16,7 +16,7 @@ npm install
 npm run package
 ```
 
-前一条的产物是仓库根的 `nf.exe`（Windows x64），后一条的产物是 `vscode/nef-0.6.0.vsix`，文件名里的号跟着插件版本走。要求 VS Code 1.90 以上。
+前一条的产物是仓库根的 `nf.exe`（Windows x64），后一条的产物是 `vscode/nef-0.7.0.vsix`，文件名里的号跟着插件版本走。要求 VS Code 1.90 以上。
 
 在 VS Code 的扩展面板里点右上角的 `...`，选“从 VSIX 安装”，指到这个文件。
 

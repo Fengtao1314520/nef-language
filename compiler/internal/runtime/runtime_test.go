@@ -1001,11 +1001,11 @@ func TestImportTableIsGroupedByModule(t *testing.T) {
 		// 再加堆锁与打印锁那两条（拿与放）、"只结束这一条线程"那一条，
 		// 再加起线程那两条（CreateThread 与归还那块状态块要用的 VirtualFree）；
 		// 加 winsock 那 17 个：开机与收尾两个，加 `net` 那一组十五个；
-		// 再加 winhttp 那 9 个（`http` 那一组）。
-		namesBefore   = 68
+		// 再加 winhttp 那 11 个（`http` 那一组：九条走一次请求，加追加请求头与设开关各一条）。
+		namesBefore   = 70
 		kernel32Names = 42
 		winsockNames  = 17
-		winhttpNames  = 9
+		winhttpNames  = 11
 	)
 	imps := runtime.Build().Imports
 	if len(imps) != namesBefore {

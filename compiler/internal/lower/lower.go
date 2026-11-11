@@ -838,6 +838,81 @@ func (c *fc) noteBorrowed(v ir.Val, t check.Type) {
 	c.temps = append(c.temps, own{slot: v, desc: d, direct: t.Kind == check.Str, closer: closerOf(t)})
 }
 
+// noteFreshValue 登记"这一个式子当场造出来的那一块"，只登记在最上面那一层窗口属于
+// 一条只读借用的标准库动作的那一种场合。
+//
+// 走得到的形状是 `length(s.trim())`、`"甲乙".to_bytes().to_base64()`、`json.count(json.parse(…))`、
+// `console.print(["甲","乙"])` 这一类：交进去的那一块是这一刻才要出来的，外面那一条只读它一次、
+// 不收留它，语言里又没有名字接住——不登记就每一轮遗留一块（实测每轮 40 到 312 字节）。
+// 收的式子只有这六种：一次调用、`new`、清单／字典／集合／struct 四种字面量。
+//
+// 三道限制各有各的理由：
+//   - 窗口那一道（`stdWin == borrow`）：语句那一层还管着 `xs.add(s.trim())` 那一种写法，
+//     交出去的那一块住进容器的槽位、持有者是那个位置，在语句尽头归还它就是拆容器还在用的那一块。
+//   - 句柄那几种类型：套接字、监听、子进程、线程到作用域尽头是**关一次**而不是拆一块，
+//     那几条要不要在调用尽头关上尚未定。
+//   - `fresh` 那一判：把"读现成的那一个位置"的那几条挡在外面（`xs.first()`、`xs.last()`、
+//     `d.get(键, 默认)`、`json.at`、`json.item`），它们返回的是别人那一份，
+//     检查器记在 `Facts.BorrowRead`。
+//
+// `list.slice`、`list.to_set`、`dict.keys`、`dict.values` 与集合那三条运算新表里的位置是从
+// 接收者搬过来的，看着像不能还——搬得过来的只有值类型与文本两种（容器与句柄当元素在检查那一步
+// 就被拒），而文本那一种运行期逐格另拷一份（那一个 `way` 开关）。两头因此从来没有指向同一块，
+// 这一族一起收。钉它的是 `argtempfree_e2e_test.go` 的 `TestDerivedContainersKeepTheirSource`。
+//
+// 用户函数与方法是跟着一起收的：`fresh` 对它们要的是 `handsBackFresh` 那道证明
+// （每一条带值的 return 返回的都是当场新造的一块，除接住结果的那个位置外无人持有）。
+// 有了那道证明，交进只读借用那一步之后这一块确实再没人认得。
+// 拼出来的那一段文本不在上面那六种里：`binary` 那一条自己已经登记过，重复登记会把同一块还两次。
+//
+// en: noteFreshValue registers "the block this expression built on the spot", and only when the
+// topmost open window belongs to a read-only-borrow standard-library action. The shapes it reaches are
+// `length(s.trim())`, `"ab".to_bytes().to_base64()`, `json.count(json.parse(...))`,
+// `console.print(["a","b"])`: what goes in was asked for at this moment, the action above reads it
+// once and keeps nothing, and no name holds it - unregistered, each round leaves one block behind
+// (measured 40 to 312 bytes a round). Six node kinds qualify: a call, `new`, and the four literals
+// list／dict／set／struct. The three limits each have their reason. The window test: the
+// sentence-level window also covers `xs.add(s.trim())`, where the block handed over lives in a
+// container position whose holder is that position, so returning it at the end of the sentence would
+// dismantle a block the container uses. The handle kinds: a socket, listener, process or thread ENDS
+// by closing once rather than returning a block, and whether the call's end is that moment is not
+// settled. The fresh test keeps out the actions that READ an existing position (`xs.first()`,
+// `xs.last()`, `d.get(key, default)`, `json.at`, `json.item`) - they return somebody else's block,
+// recorded by the checker in Facts.BorrowRead. Custom functions and methods come along: for them
+// fresh demands the handsBackFresh proof (every return with a value gives back a block made on the
+// spot, held by nothing but the position that catches the result), and with that proof the block is
+// genuinely unknown to anyone after a read-only borrow has read it. Assembled text is not among the
+// six kinds: binary registers that one itself, and registering twice would return the same block twice.
+// The seven actions whose new table MOVES positions out of the receiver (`list.slice`, `list.to_set`,
+// `dict.keys`, `dict.values` and the three set operations) are included after all: what may be an
+// element is a value type or text - the checker refuses a container or a handle - and text is copied
+// position by position by the runtime (that `way` switch), so the two sides never point at one block.
+// TestDerivedContainersKeepTheirSource in argtempfree_e2e_test.go is what holds that open.
+func (c *fc) noteFreshValue(e ast.Expr, v ir.Val, t check.Type) {
+	if v == nil || c.borrow == 0 || c.stdWin != c.borrow || !reclaimable(t) || isHandle(t) {
+		return
+	}
+	switch x := e.(type) {
+	case *ast.Call:
+		ref, ok := c.l.f.Calls[x]
+		if !ok {
+			return
+		}
+		switch ref.Kind {
+		case check.CallStd, check.CallUser:
+		default:
+			return
+		}
+	case *ast.New, *ast.ListLit, *ast.MapLit, *ast.SetLit, *ast.StructLit:
+	default:
+		return
+	}
+	if !c.fresh(e, t) {
+		return
+	}
+	c.noteBorrowed(v, t)
+}
+
 // freeTemps 把 n 之后登记的那些临时槽当场还掉（反序，与块尾那一条同一规则）。
 //
 // en: freeTemps returns the temporary slots registered after n on the spot, in reverse order -
@@ -2059,6 +2134,16 @@ type fc struct {
 	// 因为它们那一侧已经有持有者在等着了。
 	borrow int
 	temps  []own
+	// stdWin 记最外面那一条"只读借用"的标准库动作开在哪一层（与 borrow 同一数法），没有开着的那一条
+	// 就是 0。判"此刻最上面那一层窗口是不是它那一层"用的是 `stdWin == borrow && borrow > 0`：
+	// 上面再压一层（语句、交给用户函数的参数、进容器槽位那几处）就不相等，那一层自己的账由那一层结。
+	//
+	// en: stdWin records at which layer the outermost read-only-borrow standard-library action opened
+	// its window (the same numbering as borrow), and 0 means none is open. "Is that layer the one on
+	// top right now" is the test stdWin == borrow && borrow > 0: once another layer is pushed over it -
+	// a sentence, a user function's arguments, a container position - the two differ, and that other
+	// layer settles its own ledger.
+	stdWin int
 	// posSet 是已经摆进运行期那个位置的源码位置：同一个位置连着发只发一次（见 markPos）。
 	posSet ast.Pos
 }
@@ -3078,7 +3163,28 @@ func (c *fc) rt(t check.Type) ir.T {
 	return ir.TInt
 }
 
+// expr 是每一条表达式求值的唯一出口：降完一个式子，就把"这一刻才造出来的那一块"按
+// `noteFreshValue` 那一条判据登记给此刻最上面那一层窗口。
+//
+// 放在这一层而不是各条分派里，是因为判据要的三件事此刻都齐了：降完之后的那个槽位、它的类型，
+// 以及"上面那一条动作是不是只读借用"。里面那一条先降、外面这一条后登记，登记自然落在
+// **调用方**那一层窗口上，被谁调用就由谁在尽头归还。
+//
+// en: expr is the single exit of every expression lowering: once a node is lowered, the block it
+// built on the spot goes to the topmost open window under noteFreshValue's rule. This layer, and not
+// the individual dispatches, is where the rule's three ingredients are all present: the slot the
+// lowering produced, its type, and whether the action above it borrows read-only. The inner node
+// lowers first and the outer registration happens after, so the entry lands on the CALLER's window -
+// whoever asked for the block returns it at that layer's end.
 func (c *fc) expr(e ast.Expr) (ir.Val, check.Type, error) {
+	v, t, err := c.exprAt(e)
+	if err == nil {
+		c.noteFreshValue(e, v, t)
+	}
+	return v, t, err
+}
+
+func (c *fc) exprAt(e ast.Expr) (ir.Val, check.Type, error) {
 	t, ok := c.l.f.Types[e]
 	if !ok {
 		return nil, t, fmt.Errorf("%s 这一处的类型没记上，前端与后端对不上号", describe(e))
@@ -4008,9 +4114,12 @@ func (c *fc) call(x *ast.Call, t check.Type) (ir.Val, check.Type, error) {
 	// 容器那几条（add／remove／contains）不在内：add 会把值留在位置里，另有持有者。
 	if ref.Kind == check.CallStd && stdBorrowsArgs(ref.Std) {
 		base := len(c.temps)
+		saved := c.stdWin
 		c.borrow++
+		c.stdWin = c.borrow
 		defer func() {
 			c.borrow--
+			c.stdWin = saved
 			c.freeTemps(base)
 		}()
 	}
@@ -4836,7 +4945,8 @@ func (c *fc) threadAction(x *ast.Call, ref check.CallRef, t check.Type) (ir.Val,
 	return d, t, nil
 }
 
-// httpAction 落那两条：`http.get(网址, 超时毫秒)` 与 `http.post(网址, 字节块, 超时毫秒)`。
+// httpAction 落那三条：底层 `http.request(方法, 网址, 头, 字节块, 超时毫秒, 忽略证书错误, 应答上限)`
+// 与它的两个封装 `http.get(网址, 超时毫秒)`、`http.post(网址, 字节块, 超时毫秒)`。
 //
 // 一次请求由运行期那五条排成一条直路（那张表写在 `internal/runtime/http.go` 头上）。顺序是有
 // 讲究的：`@http_begin` 排第一，问系统那七步全在这一条里——它不成的话那块 `Response` 还没造，
@@ -4845,11 +4955,14 @@ func (c *fc) threadAction(x *ast.Call, ref check.CallRef, t check.Type) (ir.Val,
 // 另起一块、直接落进字段，这一侧因此没有中间值要登记，到句尽头该拆的是那一块，按
 // 形状表递归（`headers` 与 `body` 两格归它）。
 //
-// GET 那一条第二个位置交 0：运行期按"没有正文"办，动词也就成 GET。
-// 实参一律按只读借用算：网址与正文系统都只读一次。
+// 封装那两条把方法、头与两个开关四格都交 0：运行期见到方法那个位置是 0，就按"有没有正文"
+// 选 GET 或 POST，头那个位置是 0 就不追加任何头。末两个位置省掉时这一侧补 0（检查器只许省
+// 带默认值的那几个，见 `internal/check/expr.go` 的 `omitsOnlyDefaults`）。
+// 实参一律按只读借用算：网址、头与正文系统都只读一次。
 //
-// en: httpAction lowers the two members: `http.get(url, timeout_ms)` and `http.post(url,
-// bytes, timeout_ms)`. One request is laid out as a straight line by five runtime routines
+// en: httpAction lowers the three members: the primitive `http.request(method, url, headers,
+// bytes, timeout_ms, ignore_cert_error, max_body_bytes)` and its two wrappers `http.get(url,
+// timeout_ms)` and `http.post(url, bytes, timeout_ms)`. One request is laid out as a straight line by five runtime routines
 // (that table is at the top of internal/runtime/http.go) and the order is deliberate:
 // @http_begin goes first and asks the system all seven steps inside it - if it fails, the
 // `Response` block has not been created yet, so nothing registered is in hand when the throw
@@ -4858,41 +4971,76 @@ func (c *fc) threadAction(x *ast.Call, ref check.CallRef, t check.Type) (ir.Val,
 // into their own field. The header list and the body are allocated inside those runtime
 // routines and land directly in the fields, so this side has no intermediate value to register;
 // at the end of the sentence the block itself is what gets dismantled, by recursion over
-// the shape table (the headers and body two slots belong to it). The GET
-// form passes 0 in the second position: the runtime treats it as "no body" and the verb becomes
-// GET. Arguments are all read-only borrows: the URL and the body are each read once by
-// the system.
+// the shape table (the headers and body two slots belong to it). The two wrappers pass 0 in the
+// method, headers and two switch positions: seeing 0 for the method, the runtime picks GET or
+// POST by "is there a body", and 0 for the headers adds none. Omitted trailing arguments are
+// filled with 0 on this side (the checker only lets a caller omit positions that carry a default,
+// see omitsOnlyDefaults in internal/check/expr.go). Arguments are all read-only borrows: the URL,
+// the headers and the body are each read once by the system.
 func (c *fc) httpAction(x *ast.Call, ref check.CallRef, t check.Type) (ir.Val, check.Type, error) {
-	url, ut, err := c.expr(x.Args[0])
-	if err != nil {
-		return nil, t, err
-	}
-	if !ut.ByValue() {
-		c.guardNotNull(url)
-	}
-	var send ir.Val = ir.K(0)
-	msAt := 1
-	if ref.Std == "http.post" {
-		v, vt, err := c.expr(x.Args[1])
+	// 实参按写出来的先后逐个降：式子里带调用时，先后就是执行的先后。
+	vals := make([]ir.Val, len(x.Args))
+	kinds := make([]check.Type, len(x.Args))
+	for i, ax := range x.Args {
+		v, vt, err := c.expr(ax)
 		if err != nil {
 			return nil, t, err
 		}
-		if !vt.ByValue() {
-			c.guardNotNull(v)
+		vals[i], kinds[i] = v, vt
+	}
+
+	// 三个成员落到同一段码。封装那两条把方法、头与两个开关都交 0：运行期见到方法那个位置是 0
+	// 就按"有没有正文"选 GET 或 POST，与加这一条之前走的是同一条路。
+	//
+	// en: All three members land in the same stretch of code. The two wrappers pass 0 for the
+	// method, the headers and both switches: seeing 0 in the method position, the runtime picks
+	// GET or POST by whether there is a body - the same route as before this member was added.
+	var url, send, ms, method, headers, ignoreV, maxV ir.Val = ir.K(0), ir.K(0), ir.K(0), ir.K(0), ir.K(0), ir.K(0), ir.K(0)
+	switch ref.Std {
+	case "http.get":
+		url, ms = vals[0], vals[1]
+		if !kinds[0].ByValue() {
+			c.guardNotNull(url)
 		}
-		send = v
-		msAt = 2
+	case "http.post":
+		url, send, ms = vals[0], vals[1], vals[2]
+		if !kinds[0].ByValue() {
+			c.guardNotNull(url)
+		}
+		if !kinds[1].ByValue() {
+			c.guardNotNull(send)
+		}
+	default: // http.request：方法与网址那两格不许是空句柄，头与正文写 null 就是"没有"
+		method, url, headers, send, ms = vals[0], vals[1], vals[2], vals[3], vals[4]
+		if !kinds[0].ByValue() {
+			c.guardNotNull(method)
+		}
+		if !kinds[1].ByValue() {
+			c.guardNotNull(url)
+		}
+		if len(vals) > 5 {
+			ignoreV = vals[5]
+		}
+		if len(vals) > 6 {
+			maxV = vals[6]
+		}
 	}
-	ms, _, err := c.expr(x.Args[msAt])
-	if err != nil {
-		return nil, t, err
-	}
+
 	tag, ok := c.l.tagOf(t)
 	if !ok {
 		return nil, t, fmt.Errorf("%s 的类型字没排上", t)
 	}
-	c.f.Emit(&ir.Call{Fn: "@http_begin", Args: []ir.Val{url, send, ms},
-		FT: []ir.T{ir.TInt, ir.TInt, ir.TInt}})
+	c.f.Emit(&ir.Call{Fn: "@http_begin", Args: []ir.Val{url, send, ms, method, headers, ignoreV, maxV},
+		FT: []ir.T{ir.TInt, ir.TInt, ir.TInt, ir.TInt, ir.TInt, ir.TInt, ir.TInt}})
+	// 四个位置都只被读一次（网址拆完就写进状态格、正文发出去就没人再拿、头逐条追加完、
+	// 方法比完就交给系统），所以当场造出来的那几块由 `call` 开头那一层只读借用的窗口归还，
+	// 与其他每一组标准库动作同一条路（`noteFreshValue`）。
+	//
+	// en: All four positions are read once - the URL is cracked into state cells, the body goes out
+	// with the send, the headers are appended line by line, the method is compared and handed to the
+	// system - so a block created on the spot in one of them is returned by the read-only-borrow
+	// window opened at the top of call, the same route every other standard-library group takes
+	// (noteFreshValue).
 	d := c.f.Temp()
 	c.f.Emit(&ir.Call{D: d, HasD: true, Fn: "@alloc",
 		Args: []ir.Val{ir.K(c.l.f.BlockSize(t)), ir.K(tag)},
@@ -5024,8 +5172,8 @@ func (c *fc) stdAction(x *ast.Call, ref check.CallRef, t check.Type) (ir.Val, ch
 		// 端口越界与解析不到都由运行期报（10104／10103），起不成那个程序也是（10111），
 		// 检查这一侧看不到值。
 		return c.netAction(x, ref, t)
-	case "http.get", "http.post":
-		// 两条组函数 `http.get` 与 `http.post`：一次请求由运行期那五步排成一条直路，返回的是内建那只 `Response`。
+	case "http.get", "http.post", "http.request":
+		// 三条组函数：底层 `http.request` 与它的两个封装。一次请求由运行期那五步排成一条直路，返回的是内建那只 `Response`。
 		return c.httpAction(x, ref, t)
 	case "bytes.new":
 		// `bytes.new(容量)` 那一档：造一块连着摆的字节，长度定下之后不再增减。

@@ -564,14 +564,19 @@ var stdDocs = map[string]StdDoc{
 		Eg: `let gate: Listener = net.listen(8080)`,
 	},
 	"http.get": {
-		Zh: "发送一个 GET 请求，等待整个响应接收完成。",
-		En: "Sends a GET request and returns its status, headers and body.",
+		Zh: "发送一个 GET 请求，等待整个响应接收完成。它是 http.request 的封装：不带自定义头，也不发送正文。",
+		En: "Sends a GET request and returns its status, headers and body. A wrapper over http.request: no custom headers, no body.",
 		Eg: `let page: Response = http.get("https://example.com/", 5000)`,
 	},
 	"http.post": {
-		Zh: "发送一个 POST 请求，传入的字节块就是发送出去的正文。",
-		En: "Sends a POST request with the given bytes as the body, unchanged.",
+		Zh: "发送一个 POST 请求，传入的字节块就是发送出去的正文。它是 http.request 的封装：不带自定义头。",
+		En: "Sends a POST request with the given bytes as the body, unchanged. A wrapper over http.request: no custom headers.",
 		Eg: `let page: Response = http.post("https://example.com/", bytes.new(2), 5000)`,
+	},
+	"http.request": {
+		Zh: "发送一个请求，等待整个响应接收完成，返回状态码、头与正文。method 认 GET、POST、PUT、DELETE、PATCH、HEAD、OPTIONS 七个词，大小写不敏感，其余抛 10108。headers 一行一个头，写成 \"名字: 值\"：名字为空、没有冒号、含回车或换行都抛 10109，消息里说是第几行；名字两侧与值左侧的空白去掉，一行最长 4096 个字符。body 是发送出去的字节块，不发送就写 null。ignore_cert_error 写 true 时忽略全部五种证书错误（名字不符、过期、未知 CA、用途不符、弱签名），只在受控测试环境用，默认 false 仍然校验。max_body_bytes 是应答正文的字节上限：0 表示不限，负数抛 10107，超过上限抛 10106 并且这一次拿不到 Response。给了 Authorization、Cookie、Proxy-Authorization 三者之一时，这一次不自动跟随重定向，30x 原样返回；没给这三个头就照旧跟随到底。压缩应答由系统解开，body 交回来的是解开的内容。",
+		En: "Sends one request and returns its status, headers and body. The method is one of GET, POST, PUT, DELETE, PATCH, HEAD, OPTIONS (case-insensitive); anything else throws 10108. Each header is one \"name: value\" line; an empty name, a missing colon or an embedded CR/LF throws 10109 naming the line. A true ignore_cert_error skips all five certificate checks, for controlled test environments only. max_body_bytes caps the body: 0 means no cap, a negative value throws 10107, exceeding it throws 10106. Supplying Authorization, Cookie or Proxy-Authorization turns off automatic redirects for that one request. Compressed responses are decompressed by the system.",
+		Eg: `let r: Response = http.request("GET", "https://example.com/", ["Accept: application/json"], null, 5000)`,
 	},
 
 	// —— process：进程

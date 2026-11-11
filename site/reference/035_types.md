@@ -26,7 +26,7 @@
 | `Listener` | 引用（内建句柄） | 同上 | `null`（已关闭） | `net.listen(port)`（[TCP 套接字](/stdlib/057_net)） |
 | `Process` | 引用（内建句柄） | 同上 | `null`（启动失败或者已经回收） | `process.start(command_line)`（[进程](/stdlib/053_process)） |
 | `Thread<T>` | 引用（内建句柄） | 同上 | `null`（已经等过一次，或者没起成） | `thread.start(worker, argument)`（[线程](/stdlib/067_thread)） |
-| `Response` | 值（内建 `struct`） | 8 字节的句柄；堆上的数据块 24 字节 | 三个字段都是默认值 | 只能由 `http.get`、`http.post` 得到（[HTTP 客户端](/stdlib/058_http)） |
+| `Response` | 值（内建 `struct`） | 8 字节的句柄；堆上的数据块 24 字节 | 三个字段都是默认值 | 只能由 `http.request` 与它的两条封装 `http.get`、`http.post` 得到（[HTTP 客户端](/stdlib/058_http)） |
 | `fn(参数类型):返回类型` | 值 | 8 字节（一个入口地址） | 没有空值可取；`new C()` 没填过的那个位置是 0，照着它调用会抛出 10092 号 | 把顶层函数的名字交进一个 `fn` 位置（[函数与调用](/reference/039_functions)） |
 | `null` | 特殊值 | — | — | `null` |
 

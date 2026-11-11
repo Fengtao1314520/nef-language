@@ -1396,7 +1396,7 @@ func (c *Checker) memberCall(call *ast.Call, m *ast.Member) Type {
 			// （它自己在 thread.go 的 threadStart 里把两个位置都判完）。
 			return c.threadStart(call)
 		}
-		if !mm.sig.VarArg && len(call.Args) != len(mm.sig.Params) {
+		if !mm.sig.VarArg && !omitsOnlyDefaults(call.Args, mm.sig.Params) {
 			c.fail(call.Where(), "%s 收 %d 个参数，这里给了 %d 个", m.NameText, len(mm.sig.Params), len(call.Args))
 		}
 		var got []Type
@@ -2317,12 +2317,21 @@ var stdFuncs = map[string]stdSig{
 	// 解析那一段卡多久由系统的解析器决定——这一句要同步进语言说明与站上那一组。
 	"net.connect": {params: []Param{{Typ: typeStr}, {Typ: typeInt}, {Typ: typeInt}}, ret: typeSocket},
 	"net.listen":  {params: []Param{{Typ: typeInt}}, ret: typeListener},
-	// http 那一组。两条都返回内建那只 `Response`：
-	// 状态码、头、正文三样一次给全，TLS／重定向／证书由系统的 winhttp 做，语言不管。
+	// http 那一组。三条都返回内建那只 `Response`：状态码、头、正文三样一次给全，
+	// TLS／重定向／证书由系统的 winhttp 做，语言不管。
 	// 超时那一个毫秒数这一次管四段（解析、连接、送、收），winhttp 的 `WinHttpSetTimeouts`
 	// 四段都收——与 `net.connect` 那一条"管连接与收发、不管解析"是两样，写在组那一页。
+	// `request` 是底层一条：`get` 与 `post` 是它的封装，降级那一步展开成同一段码。
+	// 末两个位置带默认值，调用时省掉就是"校验证书、不限应答大小"。
 	"http.get":  {params: []Param{{Typ: typeStr}, {Typ: typeInt}}, ret: typeResponse},
 	"http.post": {params: []Param{{Typ: typeStr}, {Typ: typeBytes}, {Typ: typeInt}}, ret: typeResponse},
+	"http.request": {params: []Param{
+		{Typ: typeStr}, {Typ: typeStr},
+		{Typ: Type{Kind: List, Name: "list", Args: []Type{typeStr}}},
+		{Typ: typeBytes}, {Typ: typeInt},
+		{Typ: typeBool, Default: &ast.Lit{Kind: "false"}},
+		{Typ: typeInt, Default: &ast.Lit{Kind: "int", Text: "0"}},
+	}, ret: typeResponse},
 	// process 那一组。这一档只有一条挂在组名上：那一串命令行原样交给
 	// 系统的 `CreateProcessW`，语言不替谁拆参数、也不替谁加引号（带空格的路径自己写成 `"…"`）。
 	// 起不成的那些原因（文件不在、不是一个可执行文件、不让访问）只占一个号，系统原号码带在消息里。

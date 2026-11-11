@@ -83,8 +83,19 @@ const (
 	// 第九、第十个参数往后排：`CreateProcessW` 有十个入参，前四个走寄存器，
 	// 第五到第八已经是 arg5～arg8，起进程那条例程还要两个参数槽位。这一档的帧只用得起
 	// 前二十个槽位的局部量，与这两个槽位（第 23、22 个）不会重叠。
-	arg9    = -0xC0
-	arg10   = -0xB8
+	arg9  = -0xC0
+	arg10 = -0xB8
+	// 上面那一族是本帧作为**调用方**放实参的位置（负偏移）。作为**被调方**读第五个及以后的
+	// 入参走正偏移：调用方放在它自己的 [rsp+0x20]，call 压进返回地址、本帧再 push rbp，
+	// 一共往下挪 0x10，所以那是 [rbp+0x30]。两者方向相反，不可混用（与 codegen 的 inArgOff 同一条）。
+	// en: The family above is where this frame, as the CALLER, puts arguments (negative offsets).
+	// Reading the fifth and later arguments as the CALLEE uses positive offsets: the caller put
+	// them at its own [rsp+0x20], and the return address pushed by call plus this frame's push rbp
+	// moved things down by 0x10, which makes it [rbp+0x30]. The two run in opposite directions and
+	// must not be mixed up (the same rule as codegen's inArgOff).
+	inArg5  = 0x30
+	inArg6  = 0x38
+	inArg7  = 0x40
 	digits  = -0x28 // 数字缓冲区的上界，24 字节到 [rbp-0x40)
 	utf8Buf = -0x20 // 最多四个字节
 
@@ -551,11 +562,12 @@ var imports = groupImports(
 		"setsockopt", "getsockopt", "ioctlsocket", "select", "GetAddrInfoW", "FreeAddrInfoW",
 		"WSAGetLastError"),
 	// `http` 那一组：会话、连接、请求三步各拿一只句柄，送出去、收答复、问状态码与头、
-	// 读正文、摆超时、关句柄——九个名字。网址那三段由这一层自己扫（见 internal/runtime/http.go
-	// 的 @http_begin），不走 WinHttpCrackUrl：那一条要的是 URL_COMPONENTS 的字节形状。
+	// 读正文、摆超时、追加头、设开关、关句柄——十一个名字。网址那三段由这一层自己扫（见
+	// internal/runtime/http.go 的 @http_begin），不走 WinHttpCrackUrl：那一条要的是
+	// URL_COMPONENTS 的字节形状。
 	importsOf(winhttp, "WinHttpOpen", "WinHttpConnect", "WinHttpOpenRequest", "WinHttpSendRequest",
 		"WinHttpReceiveResponse", "WinHttpReadData", "WinHttpQueryHeaders", "WinHttpSetTimeouts",
-		"WinHttpCloseHandle"))
+		"WinHttpAddRequestHeaders", "WinHttpSetOption", "WinHttpCloseHandle"))
 
 // groupImports 把按模块分好的几串导入并成那一张表，并的顺序就是模块排在一起的顺序。
 // 三个模块再往 `append` 里塞就得套两层，这一条把那一层省掉。
@@ -780,7 +792,7 @@ var stateCells = []struct {
 	{"netTv", 8},
 	{"netAddr", sockAddrSize},
 
-	// HTTP 那十一格（http.go）。User-Agent 与两个方法名是编译期就定死的字面量，留静态。
+	// HTTP 那十三格（http.go）。User-Agent、七个方法名与那几句报错文案是编译期就定死的，留静态。
 	{"httpSess", 8},
 	{"httpConn", 8},
 	{"httpReq", 8},
@@ -791,6 +803,8 @@ var stateCells = []struct {
 	{"httpGot", 8},
 	{"httpStatus", 8},
 	{"httpErr", 8},
+	{"httpMax", 8}, // 应答正文的字节上限：@http_begin 写下，@http_body 读
+	{"httpMsg", 8}, // 本层自己那四个号要抛的那一句：关句柄会踩寄存器，先落这个位置
 	{"httpChunkBuf", httpChunk},
 
 	// 起子进程那三格（proc.go）。那张 128 格的句柄表留静态：它记的是"手上还有哪些子进程"，

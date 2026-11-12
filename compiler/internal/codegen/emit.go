@@ -470,7 +470,7 @@ func (e *em) bin(x *ir.Bin) error {
 			e.a.Call(e.l.RtLabel("@fmod"))
 			e.a.MovsdFromGPR(0, x64.RAX)
 		default:
-			return fmt.Errorf("小数没有 %s 这个算绪", x.Op)
+			return fmt.Errorf("小数没有 %s 这个运算", x.Op)
 		}
 		return e.storeX(x.D, 0)
 	}
@@ -508,7 +508,7 @@ func (e *em) bin(x *ir.Bin) error {
 	case ">>>":
 		e.a.Shr(x64.RAX)
 	default:
-		return fmt.Errorf("发射器不认整数算绪 %q", x.Op)
+		return fmt.Errorf("发射器不认整数运算 %q", x.Op)
 	}
 	return e.store(x.D, dst)
 }

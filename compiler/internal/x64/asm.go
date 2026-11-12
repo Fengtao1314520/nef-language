@@ -16,7 +16,7 @@
 
 // Package x64 是 Windows x86-64 的指令编码器。
 //
-// 只覆盖后端真正用得上的那一组指令，不做完整汇编器：所有算绪都走"值在栈槽里、
+// 只覆盖后端真正用得上的那一组指令，不做完整汇编器：所有运算都走"值在栈槽里、
 // 计算在通用寄存器上"的窄模型，所以这里不提供"寄存器对内存"的加减法——
 // 要读内存就先 mov 进寄存器。
 //
@@ -514,7 +514,7 @@ func (a *Asm) ripOp(op []byte, w bool, reg int) int {
 	return at
 }
 
-// 二元算绪：dst = dst op src。
+// 二元运算：dst = dst op src。
 //
 // en: The binary operations: dst = dst op src.
 func (a *Asm) Add(dst, src int) { a.regReg([]byte{0x01}, true, src, dst) }

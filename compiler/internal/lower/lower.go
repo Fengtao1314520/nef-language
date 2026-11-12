@@ -3438,12 +3438,12 @@ func (c *fc) binary(x *ast.Binary, t check.Type) (ir.Val, check.Type, error) {
 			c.throwIf(">", b, ir.K(limit), codeOverflow)
 		}
 	}
-	// 算绪按**这一步的结果类型**发检查：两个 byte 相加的结果是 int，除零与溢出那两道
+	// 运算按**这一步的结果类型**发检查：两个 byte 相加的结果是 int，除零与溢出那两道
 	// 检查就得跟着按 int 带上（byte 单独算时原本一道都没有）。
 	return c.arith(x.Op, a, b, t, x.Where())
 }
 
-// arith 发一条算绪，并把该带的检查带上。
+// arith 发一条算术指令，并把该带的检查带上。
 //
 // en: arith emits one arithmetic instruction together with the required checks.
 func (c *fc) arith(op string, a, b ir.Val, t check.Type, at ast.Pos) (ir.Val, check.Type, error) {
@@ -3467,7 +3467,7 @@ func (c *fc) arith(op string, a, b ir.Val, t check.Type, at ast.Pos) (ir.Val, ch
 		c.f.Emit(&ir.Bin{Op: op, D: d, A: a, B: b, T: ir.TInt})
 		return d, t, nil
 	}
-	return nil, t, fmt.Errorf("还不支持算绪 %q", op)
+	return nil, t, fmt.Errorf("还不支持运算 %q", op)
 }
 
 // returnKeep 说这一句 return 交出去的值可能正位于哪几个已登记的槽位之下——那些位置这一趟不许归还。
@@ -4989,21 +4989,30 @@ func (c *fc) httpAction(x *ast.Call, ref check.CallRef, t check.Type) (ir.Val, c
 		vals[i], kinds[i] = v, vt
 	}
 
-	// 三个成员落到同一段码。封装那两条把方法、头与两个开关都交 0：运行期见到方法那个位置是 0
-	// 就按"有没有正文"选 GET 或 POST，与加这一条之前走的是同一条路。
+	// 三个成员落到同一段码。封装那两条把方法与两个开关都交 0：运行期见到方法那个位置是 0
+	// 就按"有没有正文"选 GET 或 POST，与加这一条之前走的是同一条路。头那一个位置默认也是 0
+	// （"不追加任何头"），写了第三个（get）或第四个（post）实参才把用户那一条 `list<string>` 交下去。
 	//
 	// en: All three members land in the same stretch of code. The two wrappers pass 0 for the
-	// method, the headers and both switches: seeing 0 in the method position, the runtime picks
-	// GET or POST by whether there is a body - the same route as before this member was added.
+	// method and both switches: seeing 0 in the method position, the runtime picks GET or POST by
+	// whether there is a body - the same route as before this member was added. The header slot
+	// also defaults to 0 ("append no headers"); only when the third (get) or fourth (post)
+	// argument is given is the caller's `list<string>` handed down.
 	var url, send, ms, method, headers, ignoreV, maxV ir.Val = ir.K(0), ir.K(0), ir.K(0), ir.K(0), ir.K(0), ir.K(0), ir.K(0)
 	switch ref.Std {
 	case "http.get":
 		url, ms = vals[0], vals[1]
+		if len(vals) > 2 {
+			headers = vals[2]
+		}
 		if !kinds[0].ByValue() {
 			c.guardNotNull(url)
 		}
 	case "http.post":
 		url, send, ms = vals[0], vals[1], vals[2]
+		if len(vals) > 3 {
+			headers = vals[3]
+		}
 		if !kinds[0].ByValue() {
 			c.guardNotNull(url)
 		}

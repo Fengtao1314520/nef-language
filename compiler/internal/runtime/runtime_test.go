@@ -1258,13 +1258,13 @@ func TestReleaseBeginIsPerThread(t *testing.T) {
 }
 
 // TestWaitPathsReleaseStateBlock 钉等过之后的那两条收尾路都要归还那条线程的状态块。
-// 块是 252,232 字节一整块 `VirtualAlloc` 来的，不在堆的账里，所以 `NEF_HEAP` 那张每轮增长表
+// 块是 252,256 字节一整块 `VirtualAlloc` 来的，不在堆的账里，所以 `NEF_HEAP` 那张每轮增长表
 // 看不见它：少了那一句归还，屏幕与退出码一字不变，只有长跑下来提交量一直涨。
 // 钉法取的是发出来的引用清单：`@thread_wait` 与 `@thread_join` 每一份的引用里必须有且只有一格
 // 指向导入表里的 `VirtualFree`。去掉 `threadTail` 里那一句 `impCall("VirtualFree")`，两处同时红。
 //
 // en: TestWaitPathsReleaseStateBlock pins that both waiting tails give that thread's state block
-// back. The block is one 252,232-byte VirtualAlloc, outside the heap's accounting, so the NEF_HEAP
+// back. The block is one 252,248-byte VirtualAlloc, outside the heap's accounting, so the NEF_HEAP
 // per-round growth table cannot see it: drop the release and the screen, the exit code and every
 // heap reading stay identical while committed memory keeps climbing over a long run. The pin reads
 // the emitted reference list instead - each of @thread_wait and @thread_join must reference exactly

@@ -12,11 +12,11 @@
 
 | 写法 | 返回 | 抛出的错误码 | 说明 |
 | --- | --- | --- | --- |
-| `http.request(method, url, headers, body, timeout_ms, ignore_cert_error = false, max_body_bytes = 0)` | `Response` | 10100～10109 | 发送一个请求，等待整个响应接收完成，返回状态码、头与正文 |
-| `http.get(url, timeout_ms)` | `Response` | 10100～10105 | 发送一个 GET 请求，等待整个响应接收完成 |
-| `http.post(url, body, timeout_ms)` | `Response` | 10100～10105 | 发送一个 POST 请求，传入的字节块就是发送出去的正文 |
+| `http.request(method, url, headers, body, timeout_ms, ignore_cert_error = false, max_body_bytes = 0)` | `Response` | 10100～10109、10113 | 发送一个请求，等待整个响应接收完成，返回状态码、头与正文 |
+| `http.get(url, timeout_ms, headers = [])` | `Response` | 10100～10105、10109、10113 | 发送一个 GET 请求，等待整个响应接收完成；`headers` 省掉就是不追加任何头 |
+| `http.post(url, body, timeout_ms, headers = [])` | `Response` | 10100～10105、10109、10113 | 发送一个 POST 请求，传入的字节块就是发送出去的正文；`headers` 省掉就是不追加任何头 |
 
-`http.get` 与 `http.post` 等于把方法写成 `GET` 或 `POST`、把请求头写成空、把后两个开关留默认的 `http.request`，写出来的程序与展开之后的产物没有区别。
+`http.get` 与 `http.post` 等于把方法写成 `GET` 或 `POST`、把后两个开关留默认的 `http.request`，写出来的程序与展开之后的产物没有区别。要发认证头，把那一串 `"名字: 值"` 写进最后的 `headers` 就行。
 
 ```nf
 let page:Response = http.get("http://example.com/", 5000)
@@ -69,9 +69,13 @@ let r:Response = http.request("GET", "http://127.0.0.1:8080/big", [], null, 6000
 console.print(length(r.body))
 ```
 
-压缩的应答由系统解开，`body` 里是解开之后的内容，`headers` 里那一行 `Content-Encoding` 照原样留着。
+压缩的应答会解开之后再交给 `body`，`headers` 里那一行 `Content-Encoding` 照原样留着。gzip 由系统的 winhttp 解开，deflate 由库自己解开，zlib 包裹的与不带包裹的 raw deflate 两种都认。
 
-系统还会自己写上 `Accept-Encoding`，覆盖请求头里写的那一条，所以这一项不用自己管。自动解压要 Windows 8.1 以上，旧系统上库把这一项跳过。
+deflate 不能交给系统：系统只认不带包裹的那一种，而网上多数服务器给的是 zlib 包裹的。
+
+系统还会自己写上 `Accept-Encoding: gzip`，所以这一项不用自己管。gzip 的自动解压要 Windows 8.1 以上，旧系统上库把这一项跳过；deflate 由库自己解，不受这个版本限制。
+
+`max_body_bytes` 按解开之后的大小算：压缩时没超、解开后超了，同样抛 10106。deflate 正文解不开（`Content-Encoding` 说是 deflate，内容却不是合法的 deflate 流）抛 10113。
 
 ## 证书
 
@@ -182,7 +186,7 @@ console.print(q.status)
 
 ## 出错的时候
 
-网络这一类失败共用十个错误码（[错误信息索引](/tools/060_errors)），`net` 组与 `http` 组用的是同一张表。
+网络这一类失败共用十一个错误码（[错误信息索引](/tools/060_errors)），`net` 组与 `http` 组用的是同一张表。
 
 系统那边的错误码有一千多个，逐个分配会把文档写得过长；一个都不分配又只能让读者猜测。折中的办法是一类失败用一个错误码，消息里带上系统的原始错误码：
 
@@ -191,7 +195,7 @@ console.print(q.status)
 出错了（10103）：解析不到 http://nef-没有这个域名.invalid/ 这个地址（系统的号码 12007）
 ```
 
-`10100` 到 `10105` 是 `net` 与 `http` 共用的六条，`10106` 到 `10109` 是 `http.request` 自己给的四条：
+`10100` 到 `10105` 是 `net` 与 `http` 共用的六条，`10106` 到 `10109` 与 `10113` 是 `http.request` 自己给的五条：
 
 | 错误码 | 说的是 |
 | --- | --- |
@@ -205,10 +209,11 @@ console.print(q.status)
 | 10107 | `max_body_bytes` 是负数 |
 | 10108 | `method` 不在那七个词里，消息里带上写进去的那一个 |
 | 10109 | `headers` 里有一行不是 `名字: 值`，消息里带上是第几行 |
+| 10113 | 应答的压缩正文解不开：`Content-Encoding` 说是 `deflate`，正文却不是合法的 deflate 流 |
 
-后四个号是这一组自己给的，不来自系统。
+后五个号是这一组自己给的，不来自系统。
 
-十个错误码都能用 `catch` 捕获（[错误处理](/learn/031_errors)）：
+十一个错误码都能用 `catch` 捕获（[错误处理](/learn/031_errors)）：
 
 ```nf
 try {
@@ -234,4 +239,4 @@ try {
 - [文本处理](/stdlib/046_text)：`text.from_bytes` 把响应体转换成文本
 - [解析 JSON](/stdlib/056_json)：把应答正文拆成值
 - [线程](/stdlib/067_thread)：一边等应答、一边做别的
-- [错误信息索引](/tools/060_errors)：10100 段十个错误码与对应的报错原文
+- [错误信息索引](/tools/060_errors)：10100 段错误码与对应的报错原文

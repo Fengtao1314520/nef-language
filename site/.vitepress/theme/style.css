@@ -37,7 +37,7 @@
    VitePress 的特性标题走 v-html，所以放得进去——`VPFeature.vue:43`）。
    以前给标题首字上色（::first-letter），那是纯装饰：Vue 中文站实测三个标题 h2 与正文同色 rgb(33,53,71)，
    根本没有首字高亮可抄。现在上色的四个词里，机器码、类型标注、交出三个在术语表
-   `reference/045_glossary.md` 里能查到（命中 1／2／7 处），「内核精简」是这张卡自己的概括说法。 */
+   `reference/043_glossary.md` 里能查到（命中 1／2／7 处），「内核精简」是这张卡自己的概括说法。 */
 .VPFeature .title .key {
   color: var(--vp-c-brand-1);
 }

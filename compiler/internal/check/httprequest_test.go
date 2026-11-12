@@ -46,15 +46,21 @@ console.print(length(hs), length(b), r.status)
 `)
 }
 
-// TestHttpWrappersKeepTheirShape 钉住封装那两条：底层那一条加进来之后它们仍然是两个与三个位置，
-// 底下换成 `http.request` 不改变调用方写出来的样子。
+// TestHttpWrappersKeepTheirShape 钉住封装那两条：底层那一条加进来之后它们仍是 get 三个、post 四个
+// 位置（头摊成末尾一个可选位置），底下换成 `http.request` 不改变调用方写出来的样子。
 func TestHttpWrappersKeepTheirShape(t *testing.T) {
 	expectOK(t, `let r:Response = http.get("http://x/", 5000)
 let s:Response = http.post("http://x/", "甲".to_bytes(), 5000)
 console.print(r.status, s.status)
 `)
-	expectErr(t, `let r:Response = http.get("http://x/", [], 5000)`,
-		"get 收 2 个参数，这里给了 3 个")
+	// 末尾那个 headers 现在能写：空表与带几条头都收
+	expectOK(t, `let hs:list<string> = ["X-T: 1"]
+let r:Response = http.get("http://x/", 5000, hs)
+let s:Response = http.post("http://x/", "甲".to_bytes(), 5000, hs)
+console.print(r.status, s.status)
+`)
+	expectErr(t, `let r:Response = http.get("http://x/", 5000, [], 5000)`,
+		"get 收 3 个参数，这里给了 4 个")
 	expectErr(t, `let r:Response = http.post("http://x/", "甲", 5000)`,
 		"这里要的是 bytes，给的是 string；类型之间不自动转换")
 }

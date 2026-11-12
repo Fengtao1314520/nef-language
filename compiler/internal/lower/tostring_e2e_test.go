@@ -88,7 +88,7 @@ console.print(t, length(t))
 	}
 	// 返回值是真正的文本，不是临时缓冲：交出那一步同样要按规则拒绝
 	if err := compileErr("let s:string = number.to_string(1)\nlet t:string = s\nconsole.print(s)\n"); err == nil ||
-		!strings.Contains(err.Error(), "已经交出去") {
+		!strings.Contains(err.Error(), "交出去之后这个名字就空了") {
 		t.Fatalf("to_string 的结果交出后该拦下原名：err=%v", err)
 	}
 }

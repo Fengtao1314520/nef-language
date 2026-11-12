@@ -110,7 +110,7 @@ console.print(full, path.file_name(full), path.extension(full))
 	}
 	// 借用之后原名字仍可使用；反过来"把文本交给一个名字"仍然被拒绝
 	if err := compileErr("let p:string = path.join(\"a\", \"b\")\nlet q:string = p\nconsole.print(p)\n"); err == nil ||
-		!strings.Contains(err.Error(), "已经交出去") {
+		!strings.Contains(err.Error(), "交出去之后这个名字就空了") {
 		t.Fatalf("path 交回的文本交出后该拦下原名：err=%v", err)
 	}
 }

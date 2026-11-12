@@ -135,7 +135,7 @@ func TestGroupMembers(t *testing.T) {
 	if s := detailOf(MembersOn("console", Type{}, nil), "print"); s != "print(...values)" {
 		t.Errorf("console.print 那一行写成 %q，可变参数要写成 (...values)", s)
 	}
-	if s := StdSignature("http.get"); s != "http.get(url: string, timeout_ms: int): Response" {
+	if s := StdSignature("http.get"); s != "http.get(url: string, timeout_ms: int, headers: list<string> = []): Response" {
 		t.Errorf("悬停 http.get 那一行写成 %q", s)
 	}
 	names := GroupNames()

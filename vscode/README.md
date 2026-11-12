@@ -128,7 +128,7 @@ cd ../vscode
 npm install
 npm run check
 npm run package
-code --install-extension nef-0.7.0.vsix
+code --install-extension nef-0.8.0.vsix
 ```
 
 装完还要告诉扩展用哪一份编译器：设置里填 `nf.path`（上面“设置”那一节），或者把 `nf.exe` 所在的目录加进 `PATH`。填了之后重载窗口。

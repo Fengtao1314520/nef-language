@@ -35,13 +35,13 @@ console.print(other)          // 喂
 
 执行到第二行，`txt` 已不再是持有者。
 
-此时再写 `console.print(txt)`，编译器的原文是 `txt 已经交出去了，这个名字不能再写`。
+此时再写 `console.print(txt)`，编译器的原文是 `txt 是文本，交出去之后这个名字就空了：要接着用就交出它的拷贝，写 txt + ""`。
 
 ```nf-bad
 let txt:string = "喂"
 let other:string = txt
 
-console.print(txt)             // 报：txt 已经交出去了，这个名字不能再写
+console.print(txt)             // 报：txt 是文本，交出去之后这个名字就空了：要接着用就交出它的拷贝，写 txt + ""
 ```
 
 一个值只有一个持有者，但**能书写它的名称**不一定只有一个：后面讲到的四种只读借用就是这种情况。读取字段不算只读借用：`class` 的字段装着引用类型时，读出来就是交出，之后读那个字段得到的是 `null`（见下文关于字段交出的说明）。
@@ -57,7 +57,7 @@ method shout(t:string) {
 
 let word:string = "喂"
 shout(word)
-console.print(length(word))    // 报：word 已经交出去了，这个名字不能再写
+console.print(length(word))    // 报：word 是文本，交出去之后这个名字就空了：要接着用就交出它的拷贝，写 word + ""
 ```
 
 `shout` 接收的是文本本身，`word` 从这次调用起不再是持有者。
@@ -138,7 +138,7 @@ method pick(one:string, other:string, take:int) {
     } else {
         shout(other)
     }
-    console.print(one)      // 报：one 已经交出去了，这个名字不能再写
+    console.print(one)      // 报：one 是文本，交出去之后这个名字就空了：要接着用就交出它的拷贝，写 one + ""
 }
 ```
 

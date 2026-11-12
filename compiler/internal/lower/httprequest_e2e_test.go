@@ -3,7 +3,10 @@
 package lower_test
 
 import (
+	"bytes"
+	"compress/flate"
 	"compress/gzip"
+	"compress/zlib"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -44,6 +47,38 @@ console.print(s.status, length(hs))
 	}
 	if gotMethod != "DELETE" || gotTrace != "42" || gotAuth != "Bearer abc123" {
 		t.Fatalf("服务器看到的不对：%s trace=%q auth=%q", gotMethod, gotTrace, gotAuth)
+	}
+}
+
+// TestHttpWrappersCarryHeaders 钉住封装那两条新加的末尾 headers：get 与 post 都能带认证头发出去，
+// 省掉那一个位置就是不带任何头（旧的两/三参写法照旧）。
+func TestHttpWrappersCarryHeaders(t *testing.T) {
+	var gotAuth, gotTrace string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get("Authorization") != "" || r.Header.Get("X-Nef") != "" {
+			gotAuth = r.Header.Get("Authorization")
+			gotTrace = r.Header.Get("X-Nef")
+		}
+		_, _ = w.Write([]byte("ok"))
+	}))
+	defer srv.Close()
+	got, code := run(t, `
+let hs:list<string> = ["Authorization: Bearer tok9", "X-Nef: 7"]
+let a:Response = http.get("`+urlOf(srv)+`/", 5000)
+console.print(a.status)
+let b:Response = http.get("`+urlOf(srv)+`/", 5000, hs)
+console.print(b.status, length(hs))
+let c:Response = http.post("`+urlOf(srv)+`/", "x".to_bytes(), 5000, hs)
+console.print(c.status)
+`)
+	if code != 0 {
+		t.Fatalf("这一趟没成：%q 码 %d", got, code)
+	}
+	if !strings.Contains(got, "200\n200 2\n200") {
+		t.Fatalf("输出不对：%q", got)
+	}
+	if gotAuth != "Bearer tok9" || gotTrace != "7" {
+		t.Fatalf("封装没把头发出去：auth=%q trace=%q", gotAuth, gotTrace)
 	}
 }
 
@@ -221,6 +256,109 @@ console.print(r.status, text.from_bytes(r.body))
 `)
 	if code != 0 || !strings.Contains(got, "200 压缩过的正文 甲") {
 		t.Fatalf("压缩应答没解开：%q 码 %d", got, code)
+	}
+}
+
+// TestHttpRequestDeflateZlib 服务器给 zlib 包裹的 deflate（网上多数服务器的那一种）。
+// winhttp 只认 raw deflate，这一种由 @http_inflate 自己解。
+func TestHttpRequestDeflateZlib(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Encoding", "deflate")
+		var buf bytes.Buffer
+		zw := zlib.NewWriter(&buf)
+		_, _ = zw.Write([]byte("zlib 包裹的正文 乙"))
+		_ = zw.Close()
+		_, _ = w.Write(buf.Bytes())
+	}))
+	defer srv.Close()
+	got, code := run(t, `
+let r:Response = http.get("`+urlOf(srv)+`/", 5000)
+console.print(r.status, text.from_bytes(r.body))
+`)
+	if code != 0 || !strings.Contains(got, "200 zlib 包裹的正文 乙") {
+		t.Fatalf("zlib 包裹的 deflate 没解开：%q 码 %d", got, code)
+	}
+}
+
+// TestHttpRequestDeflateRaw 不带包裹的 raw deflate 也认。
+func TestHttpRequestDeflateRaw(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Encoding", "deflate")
+		var buf bytes.Buffer
+		fw, _ := flate.NewWriter(&buf, flate.DefaultCompression)
+		_, _ = fw.Write([]byte("raw deflate 的正文 丙"))
+		_ = fw.Close()
+		_, _ = w.Write(buf.Bytes())
+	}))
+	defer srv.Close()
+	got, code := run(t, `
+let r:Response = http.get("`+urlOf(srv)+`/", 5000)
+console.print(r.status, text.from_bytes(r.body))
+`)
+	if code != 0 || !strings.Contains(got, "200 raw deflate 的正文 丙") {
+		t.Fatalf("raw deflate 没解开：%q 码 %d", got, code)
+	}
+}
+
+// TestHttpRequestDeflateBig 大正文（动态表加匹配回拷）经 http.get 解开后逐字对得上。
+func TestHttpRequestDeflateBig(t *testing.T) {
+	var sb strings.Builder
+	for i := 0; i < 500; i++ {
+		sb.WriteString("第 " + strconv.Itoa(i) + " 行 甲乙丙丁戊己庚辛壬癸\n")
+	}
+	want := sb.String()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Encoding", "deflate")
+		var buf bytes.Buffer
+		zw := zlib.NewWriter(&buf)
+		_, _ = zw.Write([]byte(want))
+		_ = zw.Close()
+		_, _ = w.Write(buf.Bytes())
+	}))
+	defer srv.Close()
+	got, code := run(t, `
+let r:Response = http.get("`+urlOf(srv)+`/", 8000)
+console.print(r.status, length(r.body))
+`)
+	if code != 0 || !strings.Contains(got, "200 "+strconv.Itoa(len(want))) {
+		t.Fatalf("大 deflate 正文长度不对：%q 码 %d（要 %d 字节）", got, code, len(want))
+	}
+}
+
+// TestHttpRequestDeflateOverLimit 压缩时没超上限、解开后超了，也按超上限抛 10106。
+func TestHttpRequestDeflateOverLimit(t *testing.T) {
+	body := strings.Repeat("甲", 5000) // 解开后 15000 字节
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Encoding", "deflate")
+		var buf bytes.Buffer
+		zw := zlib.NewWriter(&buf)
+		_, _ = zw.Write([]byte(body))
+		_ = zw.Close()
+		_, _ = w.Write(buf.Bytes())
+	}))
+	defer srv.Close()
+	got, code := run(t, `
+let r:Response = http.request("GET", "`+urlOf(srv)+`/", [], null, 5000, false, 100)
+console.print(r.status)
+`)
+	if code != 1 || !strings.Contains(got, "出错了（10106）：应答超过给出的上限") {
+		t.Fatalf("解开后超上限该抛 10106：%q 码 %d", got, code)
+	}
+}
+
+// TestHttpRequestDeflateCorrupt Content-Encoding 说是 deflate，正文却是乱字节，抛 10113。
+func TestHttpRequestDeflateCorrupt(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Encoding", "deflate")
+		_, _ = w.Write([]byte{0xFF, 0xFE, 0xFD, 0xFC, 0xFB, 0xFA})
+	}))
+	defer srv.Close()
+	got, code := run(t, `
+let r:Response = http.get("`+urlOf(srv)+`/", 5000)
+console.print(r.status)
+`)
+	if code != 1 || !strings.Contains(got, "出错了（10113）：应答的压缩正文解不开") {
+		t.Fatalf("解不开该抛 10113：%q 码 %d", got, code)
 	}
 }
 

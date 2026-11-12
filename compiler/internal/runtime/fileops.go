@@ -555,7 +555,7 @@ func fileReadFrom(b *rt) {
 	a.Mark(need1)
 	a.MovImm(x64.RCX, 1)
 	a.Mark(check)
-	// 实际有幾格：这个首字节（在 RDI-1）到段尾 R10 之间的距离。
+	// 实际有几格：这个首字节（在 RDI-1）到段尾 R10 之间的距离。
 	a.Mov(x64.RAX, x64.R10)
 	a.Sub(x64.RAX, x64.RDI)
 	a.AddImm(x64.RAX, 1)

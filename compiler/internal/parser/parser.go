@@ -648,6 +648,7 @@ func (p *parser) parseDecl(export bool) (*ast.Decl, error) {
 		if err := p.expectOp("="); err != nil {
 			return nil, err
 		}
+		p.skipLines() // `=` 之后语法必有一个值：换行不算语句结束（见 skipLines 那条规矩）
 		if d.Value, err = p.parseExpr(); err != nil {
 			return nil, err
 		}
@@ -670,6 +671,7 @@ func (p *parser) parseDecl(export bool) (*ast.Decl, error) {
 	if err := p.expectOp("="); err != nil {
 		return nil, err
 	}
+	p.skipLines() // 同上：`=` 之后语法必有一个值，换行不算语句结束
 	if d.Value, err = p.parseExpr(); err != nil {
 		return nil, err
 	}
@@ -896,6 +898,7 @@ func (p *parser) parseStmt() (ast.Stmt, error) {
 	switch {
 	case p.opIs("="):
 		p.advance()
+		p.skipLines() // 与声明同一条：`=` 之后语法必有一个值，换行不算语句结束
 		v, err := p.parseExpr()
 		if err != nil {
 			return nil, err
@@ -1581,6 +1584,8 @@ func (p *parser) parseNameStart() (ast.Expr, error) {
 				return nil, err
 			}
 		}
+		// `new C` 后面语法必有那一对圆括号：名字（或尖括号）与 `(` 之间换行不算语句结束。
+		p.skipLines()
 		if err := p.expectOp("("); err != nil {
 			return nil, err
 		}
@@ -1608,6 +1613,13 @@ func (p *parser) parseNameStart() (ast.Expr, error) {
 
 	// `{` 紧跟在一个具名类型后面，就是 struct 字面量。
 	// 判据：花括号里必须是 `}` 或 `名字 : 值`，否则那个 `{` 是语句块开头（switch 的分支按此区分）。
+	// 名字与花括号之间允许换行：跨行时只有那对花括号确实满足上面的判据才认成字面量，
+	// 不满足就把游标退回换行之前，名字自成一条表达式语句、行尾照常结束一条语句。
+	braceSave := p.i
+	p.skipLines()
+	if !(p.opIs("{") && p.structLitAhead()) {
+		p.i = braceSave
+	}
 	if p.opIs("{") && p.structLitAhead() {
 		return p.parseStructLit(posOf(t), t.Text, nil)
 	}

@@ -165,8 +165,8 @@ var stdParamNames = map[string][]string{
 	// 网络
 	"net.connect": {"host", "port", "timeout_ms"},
 	"net.listen":  {"port"},
-	"http.get":    {"url", "timeout_ms"},
-	"http.post":   {"url", "body", "timeout_ms"},
+	"http.get":    {"url", "timeout_ms", "headers"},
+	"http.post":   {"url", "body", "timeout_ms", "headers"},
 	"http.request": {"method", "url", "headers", "body", "timeout_ms",
 		"ignore_cert_error", "max_body_bytes"},
 
@@ -386,6 +386,8 @@ func defaultText(e ast.Expr) string {
 		}
 	case *ast.Name:
 		return v.Text
+	case *ast.ListLit:
+		return "[]" // 空表默认：`http.get` 与 `http.post` 的 headers 那一个位置
 	case *ast.Binary:
 		return defaultText(v.Left) + " " + v.Op + " " + defaultText(v.Right)
 	case *ast.Unary:

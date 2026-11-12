@@ -117,7 +117,7 @@ func TestMissingReturn(t *testing.T) {
 
 func TestTransferOnCallAndReuse(t *testing.T) {
 	src := "method eat(s:string) {\n}\nlet txt:string = \"喂\"\neat(txt)\neat(txt)\n"
-	expectErr(t, src, "txt 已经交出去了，这个名字不能再写")
+	expectErr(t, src, "txt 是文本，交出去之后这个名字就空了：要接着用就交出它的拷贝，写 txt + \"\"")
 }
 
 func TestLoopBorrowCannotEscape(t *testing.T) {
@@ -201,7 +201,7 @@ func TestContainerLiteralTransfers(t *testing.T) {
 // one bucket position and both names are voided, the same ledger as `d.add(key, value)`. A
 // value-typed key such as `int` is copied, so its name stays usable.
 func TestDictIndexStoreTransfers(t *testing.T) {
-	expectErr(t, "let d:dict<string, int> = {}\nlet k:string = \"甲\" + \"乙\"\nd[k] = 1\nconsole.print(k)\n", "k 已经交出去了，这个名字不能再写")
+	expectErr(t, "let d:dict<string, int> = {}\nlet k:string = \"甲\" + \"乙\"\nd[k] = 1\nconsole.print(k)\n", "k 是文本，交出去之后这个名字就空了：要接着用就交出它的拷贝，写 k + \"\"")
 	expectErr(t, "let src:dict<string, int> = {\"甲\": 1}\nlet dst:dict<string, int> = {}\nfor (k:string in src) {\n    dst[k] = 1\n}\n", "遍历交出的 k 是只读借用，不能交出去")
 	expectOK(t, "let d:dict<string, int> = {}\nlet k:string = \"甲\" + \"乙\"\nd[k] = 1\nconsole.print(length(d))\n")
 	expectOK(t, "let d:dict<int, string> = {}\nlet i:int = 1\nlet v:string = \"甲\" + \"乙\"\nd[i] = v\nconsole.print(i, length(d))\n")
@@ -254,7 +254,7 @@ func TestNewFieldTransfers(t *testing.T) {
 	// 两个名字各交一个，照放行
 	expectOK(t, bag+"class Pair {\n    l:Bag\n    r:Bag\n}\nlet a:Bag = new Bag(n: 1)\nlet b:Bag = new Bag(n: 2)\nlet p:Pair = new Pair(l: a, r: b)\nconsole.print(p)\n")
 	// 文本也是引用类型：交进字段就作废原名
-	expectErr(t, "class Tag {\n    label:string\n}\nlet s:string = \"甲\"\nlet t:Tag = new Tag(label: s)\nconsole.print(s)\n", "s 已经交出去了，这个名字不能再写")
+	expectErr(t, "class Tag {\n    label:string\n}\nlet s:string = \"甲\"\nlet t:Tag = new Tag(label: s)\nconsole.print(s)\n", "s 是文本，交出去之后这个名字就空了：要接着用就交出它的拷贝，写 s + \"\"")
 	// 值类型那个位置是整份拷贝，原名照旧能用
 	expectOK(t, "struct Point {\n    x:int\n}\nclass Held {\n    at:Point\n}\nlet p:Point = Point { x: 1 }\nlet h:Held = new Held(at: p)\nconsole.print(h.at.x, p.x)\n")
 	// 遍历交出的借用交不进字段：报的是借用那一句，不是交出那一句
@@ -321,7 +321,7 @@ if (length(txt) > 0) {
 }
 eat(txt)
 `
-	expectErr(t, later, "txt 已经交出去了，这个名字不能再写")
+	expectErr(t, later, "txt 是文本，交出去之后这个名字就空了：要接着用就交出它的拷贝，写 txt + \"\"")
 	onlyOne := `method eat(s:string) {
 }
 let txt:string = "喂"
@@ -331,7 +331,7 @@ if (length(txt) > 0) {
 eat(txt)
 `
 	// 任一条路交出去，出了 if 就算"可能已经没了"
-	expectErr(t, onlyOne, "txt 已经交出去了，这个名字不能再写")
+	expectErr(t, onlyOne, "txt 是文本，交出去之后这个名字就空了：要接着用就交出它的拷贝，写 txt + \"\"")
 }
 
 // TestTransferResetsPerBinding 覆盖的是"每一个新绑定都从未交出的状态起头"：
@@ -364,7 +364,7 @@ method use(s:string) {
 
 console.print(1)
 `
-	expectErr(t, reuse, "s 已经交出去了，这个名字不能再写")
+	expectErr(t, reuse, "s 是文本，交出去之后这个名字就空了：要接着用就交出它的拷贝，写 s + \"\"")
 }
 
 func TestFloatKeyRejected(t *testing.T) {
@@ -611,7 +611,7 @@ func TestLoopBodyCheckedTwice(t *testing.T) {
 	src := "method eat(s:string) {\n}\nlet items:list<string> = [\"a\"]\nfor (s:string in items) {\n    eat(s)\n    eat(s)\n}\n"
 	expectErr(t, src, "s 是遍历交出的只读借用，不能交给参数")
 	owned := "method eat(s:string) {\n}\nlet items:list<string> = [\"a\"]\nfor (i:int in 0 until 2) {\n    let s:string = items[0]\n    eat(s)\n    console.print(s)\n}\n"
-	expectErr(t, owned, "s 已经交出去了，这个名字不能再写")
+	expectErr(t, owned, "s 是文本，交出去之后这个名字就空了：要接着用就交出它的拷贝，写 s + \"\"")
 }
 
 func TestSharedGlobals(t *testing.T) {

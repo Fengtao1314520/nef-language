@@ -492,10 +492,12 @@ func Build() Blob {
 	b.routine("@net_close", netClose)
 	// `http` 那一组：一次请求由这五条排成一条直路（`httpAction` 那头）。
 	// 顺序要紧：@http_headers 要 @list_new／@str_sub／@free，@http_body 要 @bytes_new／@alloc，
-	// 五条的失败那一路都要 @net_fail，所以全排在 net 那一组之后。
+	// @http_inflate 要 @alloc／@free／@bytes_new，五条的失败那一路都要 @net_fail，
+	// 所以全排在 net 那一组之后。
 	b.routine("@http_begin", httpBegin)
 	b.routine("@http_status", httpStatus)
 	b.routine("@http_headers", httpHeaders)
+	b.routine("@http_inflate", httpInflate)
 	b.routine("@http_body", httpBody)
 	b.routine("@http_close", httpClose)
 	// `process` 那一档：起一个程序、等它跑完拿退出码、不再等待就结束它。
@@ -792,7 +794,7 @@ var stateCells = []struct {
 	{"netTv", 8},
 	{"netAddr", sockAddrSize},
 
-	// HTTP 那十三格（http.go）。User-Agent、七个方法名与那几句报错文案是编译期就定死的，留静态。
+	// HTTP 那十四格（http.go）。User-Agent、七个方法名与那几句报错文案是编译期就定死的，留静态。
 	{"httpSess", 8},
 	{"httpConn", 8},
 	{"httpReq", 8},
@@ -803,8 +805,9 @@ var stateCells = []struct {
 	{"httpGot", 8},
 	{"httpStatus", 8},
 	{"httpErr", 8},
-	{"httpMax", 8}, // 应答正文的字节上限：@http_begin 写下，@http_body 读
-	{"httpMsg", 8}, // 本层自己那四个号要抛的那一句：关句柄会踩寄存器，先落这个位置
+	{"httpMax", 8},     // 应答正文的字节上限：@http_begin 写下，@http_body 读
+	{"httpMsg", 8},     // 本层自己那五个号要抛的那一句：关句柄会踩寄存器，先落这个位置
+	{"httpDeflate", 8}, // 应答是不是 deflate 压缩：@http_body 开头查 Content-Encoding 写下
 	{"httpChunkBuf", httpChunk},
 
 	// 起子进程那三格（proc.go）。那张 128 格的句柄表留静态：它记的是"手上还有哪些子进程"，
@@ -1007,6 +1010,7 @@ func dataBytes() ([]byte, map[string]int) {
 	winsockData(put)
 	netData(put)
 	httpData(put)
+	inflateData(put)
 	procData(put)
 	threadData(put)
 	return out, at
@@ -4104,7 +4108,7 @@ func dictEntries(b *rt) {
 
 // @list_pop_last(rcx=list)：返回 rax=最后那个位置里的值，那个位置写空、数目退一、次数推一。
 //
-// 空的时侯返回 0，并且不推次数——`xs.clear()` 就是一圈一圈取到空为止，
+// 空的时候返回 0，并且不推次数——`xs.clear()` 就是一圈一圈取到空为止，
 // 而"遍历途中改了容器"那一问只看次数变没变，空表上没改过就不该报。
 // 析构那个位置的事留给降级的理由：形状表在编译器手里，运行期这一侧只看得到那 64 位。
 //

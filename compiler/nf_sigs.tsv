@@ -45,8 +45,8 @@ hashset.difference	hashset.difference(other: hashset<T>): hashset<T>
 hashset.intersect	hashset.intersect(other: hashset<T>): hashset<T>
 hashset.remove	hashset.remove(value: T)
 hashset.union	hashset.union(other: hashset<T>): hashset<T>
-http.get	http.get(url: string, timeout_ms: int): Response
-http.post	http.post(url: string, body: bytes, timeout_ms: int): Response
+http.get	http.get(url: string, timeout_ms: int, headers: list<string> = []): Response
+http.post	http.post(url: string, body: bytes, timeout_ms: int, headers: list<string> = []): Response
 json.at	json.at(doc: Json, key: string): Json
 json.count	json.count(doc: Json): int
 json.explain	json.explain(text: string): string

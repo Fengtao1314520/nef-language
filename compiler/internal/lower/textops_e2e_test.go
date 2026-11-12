@@ -94,7 +94,7 @@ console.print(text.join(items, "-"), length(items), items[0])
 	}
 	// 借出去之后原名还能用；反过来"交给一个名字"仍然要拦
 	if err := compileErr("let s:string = \"甲\"\nlet t:string = s\nconsole.print(s.trim())\n"); err == nil ||
-		!strings.Contains(err.Error(), "已经交出去") {
+		!strings.Contains(err.Error(), "交出去之后这个名字就空了") {
 		t.Fatalf("交出后的原名再点东西该被拦：err=%v", err)
 	}
 }

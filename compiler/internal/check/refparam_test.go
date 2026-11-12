@@ -22,7 +22,7 @@ import "testing"
 func TestRefParamKeepsTheCallerName(t *testing.T) {
 	expectOK(t, "method q(ref s:string) { console.print(s) }\nlet a:string = \"甲\"\nq(a)\nq(a)\nconsole.print(a)\n")
 	// 不标 ref 的那个位置照旧交出：加了 ref 也不能松动这一条
-	expectErr(t, "method q(s:string) { console.print(s) }\nlet a:string = \"甲\"\nq(a)\nq(a)\n", "a 已经交出去了，这个名字不能再写")
+	expectErr(t, "method q(s:string) { console.print(s) }\nlet a:string = \"甲\"\nq(a)\nq(a)\n", "a 是文本，交出去之后这个名字就空了：要接着用就交出它的拷贝，写 a + \"\"")
 	// 值类型标 ref 没有意义：传进去本来就是整份拷贝
 	expectErr(t, "method q(ref n:int) { console.print(n) }\n", "值类型的参数不许写 ref：int 传进去本来就是整份拷贝")
 	expectErr(t, "struct P { x:int }\nmethod q(ref p:P) { }\n", "值类型的参数不许写 ref：P 传进去本来就是整份拷贝")

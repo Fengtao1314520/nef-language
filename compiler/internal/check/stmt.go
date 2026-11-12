@@ -257,7 +257,7 @@ func (c *Checker) assignStmt(a *ast.Assign) {
 			c.fail(target.Where(), "%s 是函数名，不能被赋值", target.Text)
 			return
 		}
-		if !c.usable(target) {
+		if !c.usable(target, v.typ) {
 			return
 		}
 		if c.isConstName(target.Text) {

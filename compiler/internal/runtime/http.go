@@ -122,17 +122,20 @@ const (
 	optRedirectPolicy = 88         // WINHTTP_OPTION_REDIRECT_POLICY
 	optDecompression  = 118        // WINHTTP_OPTION_DECOMPRESSION（Windows 8.1 起）
 	redirectNever     = 0          // WINHTTP_OPTION_REDIRECT_POLICY_NEVER
-	decompressAll     = 3          // WINHTTP_DECOMPRESSION_FLAG_GZIP | DEFLATE
+	decompressGzip    = 1          // WINHTTP_DECOMPRESSION_FLAG_GZIP：deflate 不开，见 @http_inflate
 	addReqAdd         = 0x20000000 // WINHTTP_ADDREQ_FLAG_ADD
 	// 五个 SECURITY_FLAG_IGNORE_* 或起来：未知 CA 0x100、用途不符 0x200、
 	// 名字不符 0x1000、过期 0x2000、弱签名 0x10000。
 	ignoreCertAll = 0x13300
 
-	// 本层自己给的四个号（不走 netCodeOf 那张系统号码折算表）。
+	// 本层自己给的五个号（不走 netCodeOf 那张系统号码折算表）。
 	codeHttpOverBody = 10106 // 应答正文超过给出的上限
 	codeHttpNegLimit = 10107 // 给出的上限是负数
 	codeHttpBadVerb  = 10108 // 方法不在那七个词里
 	codeHttpBadHdr   = 10109 // 头那一行不是 名字: 值
+	codeHttpBadZip   = 10113 // deflate 应答解不开（10110～10112 是进程段的号）
+
+	queryContentEncoding = 29 // WINHTTP_QUERY_CONTENT_ENCODING
 )
 
 // httpVerbs 是那七个方法：宽字符那一份交给系统，小写那一份用来比对（大小写不敏感）。
@@ -162,16 +165,17 @@ var httpCredNames = []struct{ data, lower string }{
 }
 
 // httpData 定义本组的静态数据：随请求发出去的那一个 User-Agent、七个方法名（宽字符一份、
-// 比对用的小写字节一份）、三个凭据头的名字、三个开关要用的 DWORD，以及本层自己那四句报错的文案。
+// 比对用的小写字节一份）、三个凭据头的名字、三个开关要用的 DWORD，以及本层自己那五句报错的文案。
 // 三只句柄、网址文本、两个缓冲与四个落点在每一条线程自己的状态块里（stateCells 那张清单）。
 //
 // en: httpData lays out this group's static data: the User-Agent sent with a request, the seven
 // method names (one wide-character copy and one lowercase byte copy for comparison), the three
-// credential header names, the DWORDs the three switches need, and the wording of the four
+// credential header names, the DWORDs the three switches need, and the wording of the five
 // sentences this layer raises itself. The three handles, the url text, the two buffers and the
 // four landing slots live in each thread's state block (see stateCells).
 func httpData(put func(name string, bs []byte)) {
 	put("httpAgent", []byte{'n', 0, 'e', 0, 'f', 0, 0, 0}) // 随请求发送的 User-Agent
+	put("httpDeflateWord", wideText("deflate"))            // 比对 Content-Encoding 用的那一个词
 	for _, v := range httpVerbs {
 		put(v.wide, wideText(v.upper))
 		put(v.data, []byte(v.lower))
@@ -183,9 +187,9 @@ func httpData(put func(name string, bs []byte)) {
 	// 三个开关的取值：WinHttpSetOption 收的是指向一个 DWORD 的指针，长度四个字节。
 	put("httpSecFlags", []byte{0x00, 0x33, 0x01, 0x00})     // ignoreCertAll，小端
 	put("httpSecFlagsFour", []byte{0x00, 0x33, 0x00, 0x00}) // 去掉弱签名那一位：系统不认时退到这一个
-	put("httpDecomp", []byte{decompressAll, 0, 0, 0})
+	put("httpDecomp", []byte{decompressGzip, 0, 0, 0})
 	put("httpNoRedirect", []byte{redirectNever, 0, 0, 0})
-	// 本层那四句报错。拼数字与拼方法名时逐段拼起来，静态池那几条 @free 走到即空操作，
+	// 本层那五句报错。拼数字与拼方法名时逐段拼起来，静态池那几条 @free 走到即空操作，
 	// 所以"手里是写死的那一句"与"手里是刚拼出来的一块"走同一条收尾（与 netFail 同一个道理）。
 	put("sHttpLimitNeg", strObject("给出的应答上限不能是负数"))
 	put("sHttpOver", strObject("应答超过给出的上限（上限 "))
@@ -195,6 +199,7 @@ func httpData(put func(name string, bs []byte)) {
 	put("sHttpHdr", strObject("第 "))
 	put("sHttpHdrTail", strObject(" 行请求头要写成 名字: 值"))
 	put("sHttpColon", strObject(": "))
+	put("sHttpInflate", strObject("应答的压缩正文解不开"))
 }
 
 // wideText 把一段 ASCII 写成宽字符再补结尾那个 0。方法名与 User-Agent 都是 ASCII，
@@ -339,11 +344,11 @@ func httpTextIs(b *rt, slot int, data string, n int, hit x64.Label) {
 	a.Mark(no)
 }
 
-// httpOwnFail 是本层自己那四个号的收尾：rcx＝号、rdx＝已经拼好的那一句（交给 @throw）。
+// httpOwnFail 是本层自己那五个号的收尾：rcx＝号、rdx＝已经拼好的那一句（交给 @throw）。
 // 与 httpFail 的分别是号码不进 netCodeOf 那张系统折算表。两样先写进状态格再去关句柄：
 // WinHttpCloseHandle 会踩坏 rcx 与 rdx，理由与 httpFail 那一段相同。
 //
-// en: httpOwnFail is the tail for the four codes this layer raises itself: rcx = the code,
+// en: httpOwnFail is the tail for the five codes this layer raises itself: rcx = the code,
 // rdx = the sentence already assembled (handed to @throw). Unlike httpFail the number does not
 // go through netCodeOf's system-number table. Both are stored in state cells before closing
 // handles: WinHttpCloseHandle clobbers rcx and rdx, for the same reason as in httpFail.
@@ -988,7 +993,10 @@ func httpBegin(b *rt) {
 	a.Mark(certSet)
 	a.Mark(skipCert)
 
-	//      自动解压：系统自己解压，还自己写 Accept-Encoding 覆盖调用方给的那一条。
+	//      自动解压只开 gzip 那一位：系统自己解压 gzip，还自己写 Accept-Encoding。
+	//      deflate 那一位不开——系统只认不带包裹的 raw deflate，而网上多数服务器给的是
+	//      zlib 包裹的那一种，开了它读到一半就报 0x80004004。deflate 应答原样收下来，
+	//      由 @http_body 末尾的 @http_inflate 自己解（两种包裹都认）。
 	//      返回值不看：Windows 8.1 以下没有这个选项，设不成就当这一项没有。
 	b.leaCell(x64.RCX, "httpReq")
 	a.MovLoad(x64.RCX, x64.RCX, 0)
@@ -1050,7 +1058,7 @@ func httpBegin(b *rt) {
 	b.impCall("GetLastError")
 	httpFail(b)
 
-	// 本层自己那四个号与两种半途失败。文案逐段拼起来，拼完交给 httpOwnFail：
+	// 本层自己那五个号与两种半途失败。文案逐段拼起来，拼完交给 httpOwnFail：
 	// 它先关句柄再抛，所以拼出来的那一句与号码都先落状态格。
 	a.Mark(negLimit)
 	a.MovImm(x64.RCX, codeHttpNegLimit)
@@ -1393,6 +1401,52 @@ func httpBody(b *rt) {
 	b.put(bOut, x64.RCX)
 	rTop, rDone, grow, fitted, readFail := b.label(), b.label(), b.label(), b.label(), b.label()
 	noCap, overCap := b.label(), b.label()
+	bodyStore, inflateFail, inflateOver, inflateUse := b.label(), b.label(), b.label(), b.label()
+
+	// 先问这一次应答的 Content-Encoding 是不是 deflate，把结果落进 httpDeflate 那个位置。
+	// gzip 已由系统在接收时解开（@http_begin 只开 gzip 那一位），这里只认 deflate。
+	// 查不到这一个头（多数应答没有）就保持 0，正文原样收下。
+	encCmp, encMatch, encDone := b.label(), b.label(), b.label()
+	b.leaCell(x64.RAX, "httpDeflate")
+	a.Xor(x64.RDX, x64.RDX)
+	a.MovStore(x64.RAX, 0, x64.RDX)
+	b.leaCell(x64.RAX, "httpDw")
+	a.MovImm(x64.RDX, wideCap*2)
+	a.MovStore(x64.RAX, 0, x64.RDX)
+	b.leaCell(x64.RCX, "httpReq")
+	a.MovLoad(x64.RCX, x64.RCX, 0)
+	a.MovImm(x64.RDX, queryContentEncoding)
+	a.Xor(x64.R8, x64.R8) // 查的不是具名头部
+	b.leaCell(x64.R9, "aWide")
+	b.leaCell(x64.RAX, "httpDw")
+	a.MovStore(x64.RBP, arg5, x64.RAX)
+	a.Xor(x64.RAX, x64.RAX)
+	a.MovStore(x64.RBP, arg6, x64.RAX) // WINHTTP_NO_HEADER_INDEX
+	b.impCallFrom(winhttp, "WinHttpQueryHeaders")
+	a.Test(x64.RAX, x64.RAX)
+	a.Jcc(x64.E, encDone) // 没有这一个头：不是 deflate
+	// aWide 里那一条宽字符与 "deflate" 逐字符比（大小写不敏感），全同才置 1。
+	b.leaCell(x64.RSI, "aWide")
+	b.leaCell(x64.RDI, "httpDeflateWord")
+	a.Mark(encCmp)
+	a.MovZX16(x64.RCX, x64.RSI, 0)
+	a.MovZX16(x64.RDX, x64.RDI, 0)
+	a.Test(x64.RCX, x64.RCX)
+	a.Jcc(x64.E, encMatch) // 源头到结尾：看词是不是也到结尾
+	a.OrImm(x64.RCX, 0x20)
+	a.OrImm(x64.RDX, 0x20)
+	a.Cmp(x64.RCX, x64.RDX)
+	a.Jcc(x64.NE, encDone)
+	a.AddImm(x64.RSI, 2)
+	a.AddImm(x64.RDI, 2)
+	a.Jmp(encCmp)
+	a.Mark(encMatch)
+	a.Test(x64.RDX, x64.RDX)
+	a.Jcc(x64.NE, encDone) // 词比源头长：不是同一个词
+	b.leaCell(x64.RAX, "httpDeflate")
+	a.MovImm(x64.RDX, 1)
+	a.MovStore(x64.RAX, 0, x64.RDX)
+	a.Mark(encDone)
 
 	// cat 与 @http_begin 里那一个同一条：把一段拼到累加器后面，旧块当场释放。
 	cat := func(acc int, piece func()) {
@@ -1500,10 +1554,55 @@ func httpBody(b *rt) {
 	copyBytes(b)
 	b.get(x64.RCX, bBuf)
 	b.call("@free")
+	// 是 deflate 就交给 @http_inflate 解开：它返回新的 bytes 块，解不开返回 0。
+	// 解开之后按解开的大小再核一次上限——压缩时没超、解开后超了也算超。
+	b.leaCell(x64.RAX, "httpDeflate")
+	a.MovLoad(x64.RAX, x64.RAX, 0)
+	a.Test(x64.RAX, x64.RAX)
+	a.Jcc(x64.E, bodyStore)
+	b.get(x64.RCX, bBody)
+	b.call("@http_inflate")
+	a.Test(x64.RAX, x64.RAX)
+	a.Jcc(x64.E, inflateFail)
+	b.put(bNew, x64.RAX)
+	b.leaCell(x64.RAX, "httpMax")
+	a.MovLoad(x64.RAX, x64.RAX, 0)
+	a.Test(x64.RAX, x64.RAX)
+	a.Jcc(x64.E, inflateUse) // 没设上限
+	b.get(x64.RDX, bNew)
+	a.MovLoad(x64.RDX, x64.RDX, BytesLen)
+	a.Cmp(x64.RDX, x64.RAX)
+	a.Jcc(x64.A, inflateOver)
+	a.Mark(inflateUse)
+	b.get(x64.RCX, bBody) // 压缩那一块用完即释放
+	b.call("@free")
+	b.get(x64.RAX, bNew)
+	b.put(bBody, x64.RAX)
+	a.Mark(bodyStore)
 	b.get(x64.RAX, bBody)
 	b.get(x64.RCX, bOut)
 	a.MovStore(x64.RCX, 16, x64.RAX) // body 槽
 	b.epilogue()
+
+	// 解不开：释放压缩那一块，按本层自己的号抛出（关句柄由 httpOwnFail 做）。
+	a.Mark(inflateFail)
+	b.get(x64.RCX, bBody)
+	b.call("@free")
+	a.MovImm(x64.RCX, codeHttpBadZip)
+	b.leaCell(x64.RDX, "sHttpInflate")
+	httpOwnFail(b)
+
+	// 解开后超上限：释放两块，把解开的大小当作"已收"，走与读取时同一条超上限收尾。
+	a.Mark(inflateOver)
+	b.get(x64.RCX, bBody)
+	b.call("@free")
+	b.get(x64.RAX, bNew)
+	b.put(bBuf, x64.RAX) // overCap 那一条会释放它
+	a.MovLoad(x64.RAX, x64.RAX, BytesLen)
+	b.put(bTotal, x64.RAX)
+	a.Xor(x64.RAX, x64.RAX)
+	b.put(bGot, x64.RAX)
+	a.Jmp(overCap)
 
 	a.Mark(readFail)
 	b.get(x64.RCX, bBuf) // 缓冲由本例程分配：抛出前释放

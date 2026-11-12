@@ -266,6 +266,76 @@ func TestStatementStillEndsAtLineFeed(t *testing.T) {
 	}
 }
 
+// TestLiteralsHangOnNextLine 钉住"开符号之前换行"这一档：值整块挂在 `=` 的下一行、struct 的
+// 花括号与 `new` 的圆括号挂在名字下一行，都算同一条语句的继续。判据只在语法明确要求续行的位置
+// 放开（`=` 之后必有值、`new C` 之后必有括号、名字后的花括号确实是 `名字: 值` 或空表）。
+//
+// en: TestLiteralsHangOnNextLine pins the "newline before the opening mark" case: the whole value
+// on the line after `=`, a struct's brace or a new's paren on the line after the name - each is a
+// continuation of the same statement. The relaxation only applies where the grammar forces a
+// continuation (a value must follow `=`, parens must follow `new C`, and the brace after a name
+// really is `name: value` or empty).
+func TestLiteralsHangOnNextLine(t *testing.T) {
+	f := parseString(t, `
+struct P {
+    x:int
+    y:int
+}
+let a:list<int> =
+    [
+        1,
+        2
+    ]
+let b:P = P
+{
+    x: 1,
+    y: 2
+}
+class B {
+    n:int
+}
+let c:B = new B
+(
+    n: 3
+)
+`)
+	var got []string
+	for _, dc := range decls(f) {
+		switch v := dc.Value.(type) {
+		case *ast.ListLit:
+			got = append(got, "list "+itoa(len(v.Items)))
+		case *ast.StructLit:
+			got = append(got, "struct "+itoa(len(v.Fields)))
+		case *ast.New:
+			got = append(got, "new "+itoa(len(v.Fields)))
+		}
+	}
+	if strings.Join(got, " ") != "list 2 struct 2 new 1" {
+		t.Fatalf("悬挂到下一行的字面量收得不全：%q", strings.Join(got, " "))
+	}
+}
+
+// TestNameThenBraceOnNextLineStaysTwoStatements 是上一条的反面：一个名字后面换行，接的不是
+// `名字: 值` 那一种花括号时，那一对花括号算下一条语句里的集合字面量，名字自成一条表达式语句——
+// 也就是不许把 `flag` 与下一行的 `{...}` 粘成 `flag{...}` 这样一个 struct 字面量。
+//
+// en: TestNameThenBraceOnNextLineStaysTwoStatements is the counterpart: a name, a line feed, then
+// a brace that is not a `name: value` struct body - the brace is the next statement's set literal
+// and the name stands as its own expression statement, so `flag` and the next line's `{...}` must
+// not be glued into one `flag{...}` struct literal.
+func TestNameThenBraceOnNextLineStaysTwoStatements(t *testing.T) {
+	f := parseString(t, "let flag:bool = true\nflag\n{ 1, 2 }\n")
+	stmts := 0
+	for _, s := range f.Stmts {
+		if _, ok := s.(*ast.ExprStmt); ok {
+			stmts++
+		}
+	}
+	if stmts != 2 {
+		t.Fatalf("`flag` 换行接 `{ 1, 2 }` 该是两条表达式语句（名字一条、集合一条），实际 %d 条", stmts)
+	}
+}
+
 func TestMissingTypeAnnotationIsError(t *testing.T) {
 	toks, err := lexer.Lex("let x = 1")
 	if err != nil {

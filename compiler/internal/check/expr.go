@@ -222,7 +222,7 @@ func (c *Checker) nameExpr(n *ast.Name, want Type) Type {
 		if _, ok := c.lookup("args"); !ok {
 			c.declareKind("args", t, n.Where(), nil, BindArgs)
 		}
-		if !c.usable(n) {
+		if !c.usable(n, t) {
 			return errType
 		}
 		if c.facts != nil {
@@ -285,7 +285,7 @@ func (c *Checker) nameExpr(n *ast.Name, want Type) Type {
 		c.fail(n.Where(), "没有 %s 这个名字", n.Text)
 		return errType
 	}
-	if !c.usable(n) {
+	if !c.usable(n, v.typ) {
 		return errType
 	}
 	c.markUsed(n.Text)
@@ -321,10 +321,21 @@ func (c *Checker) enumMember(name string) (string, bool) {
 
 // usable 检查交出分析：名字被交出去之后再用就是错。
 //
+// 交出去的是文本时补一句出路：文本交出就作废，交出拷一份（`s + ""`）就还能接着用。别的类型
+// （class、容器、句柄）没有这样一份现成的拷贝，那一种沿用"不能再写"那一句。
+//
 // en: usable checks the handover analysis: using a name after it was handed over is an error.
-func (c *Checker) usable(n *ast.Name) bool {
+// When the handed-over value is a text, the message adds the way out: handing a text away voids
+// the name, while handing away a copy (`s + ""`) leaves it usable. The other types (class,
+// container, handle) have no such ready-made copy, so they keep the plain "cannot write again"
+// sentence.
+func (c *Checker) usable(n *ast.Name, typ Type) bool {
 	if c.moved[n.Text] {
-		c.fail(n.Where(), "%s 已经交出去了，这个名字不能再写", n.Text)
+		if typ.Kind == Str {
+			c.fail(n.Where(), "%s 是文本，交出去之后这个名字就空了：要接着用就交出它的拷贝，写 %s + \"\"", n.Text, n.Text)
+		} else {
+			c.fail(n.Where(), "%s 已经交出去了，这个名字不能再写", n.Text)
+		}
 		return false
 	}
 	return true
@@ -2323,8 +2334,10 @@ var stdFuncs = map[string]stdSig{
 	// 四段都收——与 `net.connect` 那一条"管连接与收发、不管解析"是两样，写在组那一页。
 	// `request` 是底层一条：`get` 与 `post` 是它的封装，降级那一步展开成同一段码。
 	// 末两个位置带默认值，调用时省掉就是"校验证书、不限应答大小"。
-	"http.get":  {params: []Param{{Typ: typeStr}, {Typ: typeInt}}, ret: typeResponse},
-	"http.post": {params: []Param{{Typ: typeStr}, {Typ: typeBytes}, {Typ: typeInt}}, ret: typeResponse},
+	// 封装那两条也把 `headers` 摊成一个末尾可选位置（默认空表）：旧的两/三参写法照旧，
+	// 要多带几个头就把它补在最后，展开出来的码与直接写 `http.request` 一字不差。
+	"http.get":  {params: []Param{{Typ: typeStr}, {Typ: typeInt}, {Typ: Type{Kind: List, Name: "list", Args: []Type{typeStr}}, Default: &ast.ListLit{}}}, ret: typeResponse},
+	"http.post": {params: []Param{{Typ: typeStr}, {Typ: typeBytes}, {Typ: typeInt}, {Typ: Type{Kind: List, Name: "list", Args: []Type{typeStr}}, Default: &ast.ListLit{}}}, ret: typeResponse},
 	"http.request": {params: []Param{
 		{Typ: typeStr}, {Typ: typeStr},
 		{Typ: Type{Kind: List, Name: "list", Args: []Type{typeStr}}},

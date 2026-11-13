@@ -29,7 +29,7 @@ title: 语法速查
 | `import greet from "libs/greet"` | 引入一个包：整个包绑定一个名称，访问其中的成员写 `greet.make()` |
 | `export method helper(n:int):int { }` | 把紧随其后的名称对外导出 |
 | `export shared log:list<string> = []` | 跨文件共用一份可变的容器 |
-| `method total(ref xs:list<string>):int { }` | 参数前面写 `ref`：那一个位置只是借来使用，不接管持有关系，调用方的名称不失效 |
+| `method total(xs:list<string>):int { }` | 参数前面不写任何记号：那一个位置只是借来使用，不接管持有关系，调用方的名称不失效。四种系统句柄的参数除外，那一个位置接手 |
 
 容易忽略的两处：`interface` 里的方法声明不写 `method`，写了是编译错误；`export shared` 必须成对，单独一个 `shared` 不成立。
 
@@ -171,11 +171,11 @@ console.print(
 
 ## 保留名字
 
-36 个关键字，加上 35 个内建名称，一共 71 个词不能用作变量名、字段名、函数名和类型名：
+35 个关键字，加上 35 个内建名称，一共 70 个词不能用作变量名、字段名、函数名和类型名：
 
 | 类别 | 名单 |
 | --- | --- |
-| 关键字 | `let` `const` `method` `struct` `class` `interface` `enum` `type` `fn` `import` `export` `shared` `ref` `base` `this` `new` `return` `as` `is` `throw` `try` `catch` `finally` `if` `else` `while` `for` `in` `until` `switch` `default` `break` `continue` `true` `false` `null` |
+| 关键字 | `let` `const` `method` `struct` `class` `interface` `enum` `type` `fn` `import` `export` `shared` `base` `this` `new` `return` `as` `is` `throw` `try` `catch` `finally` `if` `else` `while` `for` `in` `until` `switch` `default` `break` `continue` `true` `false` `null` |
 | 内建类型 | `boolean` `int` `float` `byte` `unicode` `string` `object` |
 | 容器 | `list` `dict` `hashset` |
 | 内建 `struct` | `Calendar` `Response` |

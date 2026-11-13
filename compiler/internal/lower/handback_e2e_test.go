@@ -47,15 +47,23 @@ console.print(length(mk()))
 	}
 }
 
-// TestReturnOfHandedOverNameIsFreedByCaller 返回的是自己那个位置作废出来的那一份：参数、局部名字、
-// class 的字段、从容器里摘出来的那个位置——四种来路各一段，接住的那一侧读得到、也能正常释放。
+// TestReturnOfHandedOverNameIsFreedByCaller 返回的是自己那个位置作废出来的那一份：文本参数（共用
+// 那一份原样递回去）、局部名字、从清单里摘出来的那一个位置、从字典里摘出来的那一个位置——
+// 四种来路各一段，接住的那一侧读得到、也能正常释放。
+//
+// `class` 的字段也算一种，但只限这个类型自己的方法（`return this.peer`：那一读把字段抹空，
+// 源头不再持有）。`return h.peer`（`h` 是只读借用的参数）在检查阶段就拒，字段没有摘出来的写法；
+// 摘出来的写法只有清单的 `remove_at`、字典的 `take` 与树的 `json.take` 三处。
+//
+// en: the value returned is one that came out of a position being voided - a text argument (the
+// shared block, handed straight back), a local name, a list cell taken away, a dict position
+// taken away. A `class` field counts too, but only from that type's own method (`return this.peer`:
+// that read empties the field, so the source no longer holds it). Returning `h.peer` where `h` is a
+// borrowed parameter is refused by the checker, and a field has no take-out spelling; the three
+// that do are the list's remove_at, the dict's take and the tree's json.take.
 func TestReturnOfHandedOverNameIsFreedByCaller(t *testing.T) {
-	got, code := run(t, `class Holder {
-    peer:list<int>
-
-    method take():list<int> {
-        return this.peer
-    }
+	got, code := run(t, `method fromDict(d:dict<string, list<int>>):list<int> {
+    return d.take("甲")
 }
 method fromParam(x:string):string {
     return x
@@ -67,16 +75,16 @@ method fromLocal():list<int> {
 method fromCell(xs:list<string>):string {
     return xs.remove_at(0)
 }
-let one:Holder = new Holder(peer: [1, 2])
-let kept:list<int> = one.take()
-console.print(length(kept), kept[0])
+let one:dict<string, list<int>> = {"甲": [1, 2]}
+let kept:list<int> = fromDict(one)
+console.print(length(kept), kept[0], length(one), one.contains("甲"))
 console.print(fromParam("参"))
 let second:list<int> = fromLocal()
 console.print(length(second), second[1])
 let box:list<string> = ["格"]
 console.print(fromCell(box))
 `)
-	want := "2 1\n参\n2 8\n格\n"
+	want := "2 1 1 true\n参\n2 8\n格\n"
 	if got != want || code != 0 {
 		t.Fatalf("四种来路交回的值读不对：\n got %q 码 %d\nwant %q", got, code, want)
 	}

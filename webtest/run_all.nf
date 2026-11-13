@@ -18,9 +18,9 @@
 //
 // 退出码：0 全过；1 有用例失败；2 无法完成（cases 目录不在、或某一份没有成功执行）。
 
-let browser:string = args[0] + ""
-let cases_dir:string = args[1] + ""
-let out_root:string = args[2] + ""
+let browser:string = args[0]
+let cases_dir:string = args[1]
+let out_root:string = args[2]
 let nf_path:string = "nf.exe"
 let want:string = ""
 let fixdir:string = path.directory_name(cases_dir) + "fixtures"
@@ -35,19 +35,19 @@ let fail_notes:list<string> = []
 let ran:list<string> = []
 
 if (length(args) > 3) {
-    nf_path = args[3] + ""
+    nf_path = args[3]
 }
 if (length(args) > 4) {
-    want = args[4] + ""
+    want = args[4]
 }
 
-method in_want(ref stem_name:string):boolean {
+method in_want(stem_name:string):boolean {
     if (want == "") {
         return true
     }
     let parts:list<string> = want.split(",")
     for (i:int in 0 until length(parts)) {
-        let one:string = parts[i] + ""
+        let one:string = parts[i]
         if (one == stem_name) {
             return true
         }
@@ -55,7 +55,7 @@ method in_want(ref stem_name:string):boolean {
     return false
 }
 
-method text_of(ref slot:Json):string {
+method text_of(slot:Json):string {
     if (slot == null) {
         return ""
     }
@@ -69,7 +69,7 @@ method text_of(ref slot:Json):string {
 // 一份用例跑完，把它那个位置 report.jsonl 读回来：数进总的账，行拼上文件名写进 all.jsonl。
 // 拼那一行的时候不重新生成 JSON——只在开头插一个 "file" 字段，后面原样带着，
 // 避免二次转义改动原文里的路径与中文。
-method collect(ref target_dir:string, ref stem_name:string) {
+method collect(target_dir:string, stem_name:string) {
     let report:string = target_dir + "/report.jsonl"
     if (!file.exists(report)) {
         console.print("  这一份没有报告：" + report)
@@ -78,7 +78,7 @@ method collect(ref target_dir:string, ref stem_name:string) {
     }
     let rows:list<string> = file.read(report).split("\n")
     for (i:int in 0 until length(rows)) {
-        let row:string = rows[i] + ""
+        let row:string = rows[i]
         if (length(row) < 2) {
             continue
         }
@@ -107,7 +107,7 @@ method collect(ref target_dir:string, ref stem_name:string) {
         let merged:string = "{\"file\":\"" + quoted + "\"," + cut
         all_rows.add(merged)
     }
-    ran.add(stem_name + "")
+    ran.add(stem_name)
 }
 
 if (!file.exists(cases_dir)) {
@@ -123,7 +123,7 @@ file.create_directories(out_root)
 
 let names:list<string> = file.list(cases_dir)
 for (i:int in 0 until length(names)) {
-    let name:string = names[i] + ""
+    let name:string = names[i]
     if (!name.ends_with(".nf")) {
         continue
     }

@@ -35,8 +35,8 @@ method check_true(name:string, got:boolean):boolean {
 }
 
 let bad:int = 0
-let dir:string = args[0] + ""
-let shot:string = args[1] + ""
+let dir:string = args[0]
+let shot:string = args[1]
 
 // 一、二、三：那三条命令的答复里，要的那个位置都在 result 下面
 let created:string = file.read(dir + "/create_target.txt")

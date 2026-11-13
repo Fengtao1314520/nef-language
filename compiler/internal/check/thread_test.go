@@ -46,11 +46,6 @@ let t:Thread<int> = thread.start(n, 1)`,
 	expectErr(t, `method twice<Element>(v:Element):Element { return v }
 let t:Thread<int> = thread.start(twice, 1)`,
 		"twice 是泛型，先填尖括号里的类型再交出去")
-	// 带 ref 的函数类型交不进线程：那一个位置属于起它的那一条线程的帧。
-	expectErr(t, `method w(ref s:string):int { return length(s) }
-let f:fn(ref string):int = w
-let t:Thread<int> = thread.start(f, "甲")`,
-		"thread.start 的第一个入参要的是写出来的函数名或一个 fn 名字")
 	// 类型名那一侧：Thread 只带一个尖括号参数，写法与容器同一条判据。
 	expectErr(t, `let t:Thread = null`, "Thread 需要 1 个尖括号参数，实际 0 个")
 	expectErr(t, `let t:Thread<int, int> = null`, "Thread 需要 1 个尖括号参数，实际 2 个")
@@ -99,7 +94,7 @@ method w(f:fn(int):int):int { return 1 }
 let g:fn(int):int = q
 let t:Thread<int> = thread.start(w, g)`,
 		"fn(int):int 不能交给另一条线程：这一类的归还点还没按线程各一份定下来")
-	// 线程句柄那一族与另三类系统句柄同档：进不了容器、进不了盒子、当不了键、不许写 ref。
+	// 线程句柄那一族与另三类系统句柄同档：进不了容器、进不了盒子、当不了键。
 	expectErr(t, `let xs:list<Thread<int>> = []`,
 		"Thread<int> 进不了 list：它是操作系统给的句柄，只待在名字、实参与返回值里")
 	expectErr(t, `method w(n:int):int { return n }
@@ -108,8 +103,8 @@ let o:object = t as object`,
 		"Thread<int> 装不进盒子：盒子只装 class、struct 和值类型，要混装就一个一个装进去")
 	expectErr(t, `let d:dict<Thread<int>, int> = {}`,
 		"Thread<int> 不能当 dict 的键：这个类型不能当键")
-	expectErr(t, `method w(ref arg:Thread<int>):int { return 1 }`,
-		"Thread<int> 是系统给的句柄，不许写 ref：被调方关一次，调用方那个名字就成了空句柄")
+	// 系统给的句柄当参数走的是交出那一条：那一个位置只有一个能关它的持有者。
+	expectOK(t, `method w(arg:Thread<int>):int { return 1 }`)
 }
 
 // TestThreadArgIsHandedOver 覆盖交进去的那一个实参按现成的"交出"规则处理：

@@ -42,6 +42,101 @@ import (
 	"neflang.org/nf/internal/ast"
 )
 
+// noteThreadEntries 走一遍所有文件，把**被起的那一支函数**认出来登记进 `threadTake`。
+//
+// 为什么要提前一趟：`thread.start(add_up, 101)` 里交出去的那一个实参，接住它的是那一条新线程
+// 帧上的第一个位置。
+// 所以被起的那一支函数那一个参数不是只读借用，而是接手位置——这一点必须在查它的函数体**之前**
+// 就知道，而那一句 `thread.start` 可以写在函数后面、另一份文件甚至另一个包里。
+// `collect` 那一趟已经把全部签名登记好，函数体排在它后面，所以这一趟插在两段中间。
+//
+// 第一个入参写成 `fn` 名字的那一种认不出来（那一个位置里存的是地址，哪一支函数要到运行期才定）。
+// 那种写法交可变的那一份就没人归还：走的是白名单那一句的答复，值类型与文本照旧没问题。
+//
+// en: noteThreadEntries walks every file and records the functions that get started as threads
+// into threadTake. Why an earlier pass: in thread.start(add_up, 101) the argument handed over
+// lands in the first position of the new thread's frame (the handover into a thread's entry position stays a transfer -
+// that thread returns it when it ends), so the started function's parameter is a receiving
+// position, not a read-only borrow, and that must be known BEFORE its body is checked, while the
+// thread.start line may sit after the function, in another file, even in another package.
+// collect has already registered every signature and the bodies follow it, so this pass goes in
+// between. The fn-name spelling cannot be recognised here - that position holds an address and
+// which function it is only shows at run time. Handing something mutable that way leaves nobody
+// to return it, which is the whitelist's answer; value types and text are unaffected.
+func (c *Checker) noteThreadEntries(order []*ast.File) {
+	c.threadTake = map[*ast.Param]bool{}
+	byPath := map[string]*ast.File{}
+	for _, g := range c.prog.Files {
+		byPath[g.Path] = g
+	}
+	for _, f := range order {
+		local := map[string]*ast.Func{}
+		for _, d := range f.Defs {
+			if fn, ok := d.(*ast.Func); ok && !fn.IsMethod {
+				local[fn.NameText] = fn
+			}
+		}
+		fromImport := map[string]*ast.Func{}
+		for _, imp := range f.Imports {
+			var g *ast.File
+			if imp.Package != "" {
+				if path, ok := c.prog.PkgFacades[PkgRefKey(f.Path, imp.Package)]; ok {
+					g = byPath[path]
+				}
+			} else if IsLocalImportPath(imp.Path) {
+				g = byPath[ResolveImportPath(f.Path, imp.Path)]
+			}
+			if g == nil {
+				continue
+			}
+			for _, in := range imp.Names {
+				name := in.Name
+				if in.Alias != "" {
+					name = in.Alias
+				}
+				for _, d := range g.Defs {
+					if fn, ok := d.(*ast.Func); ok && !fn.IsMethod && fn.NameText == in.Name && fn.Export {
+						fromImport[name] = fn
+					}
+				}
+			}
+		}
+		walkFileCalls(f, func(call *ast.Call) {
+			if !isThreadStartCall(call) || len(call.Args) != 2 {
+				return
+			}
+			n, ok := call.Args[0].(*ast.Name)
+			if !ok {
+				return
+			}
+			fn, ok := local[n.Text]
+			if !ok {
+				fn, ok = fromImport[n.Text]
+			}
+			if !ok || len(fn.TypeParams) > 0 {
+				return
+			}
+			for _, p := range fn.Params {
+				c.threadTake[p] = true
+			}
+		})
+	}
+}
+
+// isThreadStartCall 认那一句写出来的 `thread.start(...)`：第一个入参那个位置是它的签名。
+// 走查排在检查之前，所以这里只看形状，不看名字表。
+//
+// en: isThreadStartCall recognises the written thread.start(...) line by its shape. The walk runs
+// before checking, so it looks at nothing but the shape.
+func isThreadStartCall(call *ast.Call) bool {
+	m, ok := call.Callee.(*ast.Member)
+	if !ok || m.NameText != "start" {
+		return false
+	}
+	n, ok := m.What.(*ast.Name)
+	return ok && n.Text == "thread"
+}
+
 // crossThreadOK 说这一个类型能不能交给另一条线程。判据写在文件头那一段，句子写在三个调用点上，
 // 各自带上那一个类型的名字——句子留成写死的一整句，报错清单才收得到它。
 //
@@ -86,11 +181,18 @@ func (c *Checker) threadStart(call *ast.Call) Type {
 		c.fail(call.Args[1].Where(), "%s 不能交给另一条线程：这一类的归还点还没按线程各一份定下来", sig.params[0].Typ)
 	} else {
 		c.exprExpected(call.Args[1], sig.params[0].Typ)
-		// 交进去的那一个按现成的"交出"规则记账：引用类型交出去之后原来那个名字当场作废，
-		// 来自字段的那一种把那个字段写空。`export shared` 的名字与只读借用的那三种
-		// 由 markMoved 自己拒（现成的那三句），这一处不必另写句子。
-		if !c.markFieldTaken(call.Args[1], sig.params[0].Typ) {
-			if n, ok := call.Args[1].(*ast.Name); ok && takesIntoCell(sig.params[0].Typ) {
+		// 交进去的那一个按现成的"交出"规则记账：引用类型交出去之后原来那个名字当场作废。
+		// 读一个位置拿到的那一份（含 `class` 的字段）交不进另一条线程：
+		// 那一块还归原来的容器、树或对象持有，两条线程各拿一份就是两个持有者。
+		// `export shared` 的名字与只读借用的那三种由 markMoved 自己拒（现成的那三句），
+		// 这一处不必另写句子。
+		// 文本不在这一条里：那一条线程拿的是同一块，块头从这一句起带着共享的记号，
+		// 原来那一个名字照旧能用（降级那侧的 shareText 发那一次标记）。
+		if c.borrowRead[call.Args[1]] && !sig.params[0].Typ.ByValue() && sig.params[0].Typ.Kind != Str {
+			c.fail(call.Args[1].Where(), "读出来的那一份是只读借用，不能交给另一条线程：能摘出来的位置用 remove_at、d.take 或 json.take 摘出来")
+		} else if !c.markFieldTaken(call.Args[1], sig.params[0].Typ) {
+			if n, ok := call.Args[1].(*ast.Name); ok && takesIntoCell(sig.params[0].Typ) &&
+				sig.params[0].Typ.Kind != Str {
 				c.markMoved(n)
 			}
 		}
@@ -135,29 +237,20 @@ func (c *Checker) threadTarget(e ast.Expr) (funcInfo, Type, bool) {
 			return funcInfo{}, errType, false
 		}
 		params := make([]Type, 0, len(fi.params))
-		refs := make([]bool, 0, len(fi.params))
-		for i, p := range fi.params {
+		for _, p := range fi.params {
 			params = append(params, p.Typ)
-			refs = append(refs, i < len(fi.fn.Params) && fi.fn.Params[i].Ref)
 		}
-		return fi, funcTypeOf(fi.ret, params, refs), true
+		return fi, funcTypeOf(fi.ret, params), true
 	}
 	v, has := c.lookup(n.Text)
 	if !has || v.typ.Kind != FuncVal {
 		c.fail(e.Where(), "thread.start 的第一个入参要的是写出来的函数名或一个 fn 名字")
 		return funcInfo{}, errType, false
 	}
-	// `fn` 类型那一串：Args[0] 是返回，往后可依次是参数，借用的那一个位置 Kind 是 Borrow。
-	// 借用不能跨线程（那一个位置属于起它的那一条线程的帧），所以带着 ref 的函数类型当场拒。
+	// `fn` 类型那一串：Args[0] 是返回，往后可依次是参数。
 	ret := v.typ.Args[0]
 	params := make([]Param, 0, len(v.typ.Args)-1)
 	for _, p := range v.typ.Args[1:] {
-		if p.Kind == Borrow {
-			// 带着 ref 的那一份函数类型交不进线程：那一个位置属于起它的那一条线程的帧。
-			// 这里借的是同一句答复，不另写一句（"一个 fn 名字"里含不带 ref 的意思）。
-			c.fail(e.Where(), "thread.start 的第一个入参要的是写出来的函数名或一个 fn 名字")
-			return funcInfo{}, errType, false
-		}
 		params = append(params, Param{Typ: p})
 	}
 	return funcInfo{key: n.Text, ret: ret, params: params}, v.typ, true

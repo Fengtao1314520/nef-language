@@ -11,11 +11,11 @@
 // en: Run it with `nf samples/trace.nf`. The last throw is not caught, so the program ends with
 // exit code 1; those indented lines at the end of the screen are the call chain, one per frame.
 
-method read_word(ref words:list<string>, at:int):string {
-    return words[at] + ""         // 读出来的那一份是只读借用，要交出去就先拷一份；越界是 10031，由运行期当场抛出
+method read_word(words:list<string>, at:int):string {
+    return words[at]              // 文本读出来是共用那一块，交出去不作废源位置；越界是 10031，由运行期当场抛出
 }
 
-method first_of(ref words:list<string>):string {
+method first_of(words:list<string>):string {
     return read_word(words, 9)    // 这一层只往下传
 }
 

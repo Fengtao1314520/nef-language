@@ -449,7 +449,7 @@ func TestBreakpointOnALineWithNoStatement(t *testing.T) {
 // dapThrowProgram 是抛出那一条路的样例：第 7 行那一次有人接住，第 12 行那一次没人接住，
 // 两次都由运行期自己抛出（第 2 行那个下标越界 10031）——最常见的就是这一种。
 // 停下时要看的栈顶是 pick 那一帧（第 2 行），上一层是写下那一次调用的第 12 行。
-const dapThrowProgram = "method pick(ref xs: list<int>, at: int): int {\n" +
+const dapThrowProgram = "method pick(xs: list<int>, at: int): int {\n" +
 	"    return xs[at]\n" +
 	"}\n" +
 	"\n" +
@@ -551,7 +551,7 @@ func TestBreakOnThrowStopsOnlyUncaught(t *testing.T) {
 // 只写 `try / finally` 的那一层在处理器链上也是一条接住记录（落点是收尾那一段的开头），
 // 所以 `@throw` 那一步判成"有人接住"、不问；问话落在 `@rethrow` 那一步，
 // 停的位置是这一层收尾，不是最里那一处抛出。同一条抛出只问一次。
-const dapFinallyProgram = "method pick(ref xs: list<int>, at: int): int {\n" +
+const dapFinallyProgram = "method pick(xs: list<int>, at: int): int {\n" +
 	"    return xs[at]\n" +
 	"}\n" +
 	"\n" +

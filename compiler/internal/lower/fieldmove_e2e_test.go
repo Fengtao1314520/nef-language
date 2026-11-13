@@ -7,10 +7,14 @@ import (
 	"testing"
 )
 
-// TestFieldReadMovesOut 验证：读 `class` 的引用类型字段就是**交出**，读完那个字段返回 `null`，
-// 与容器那个位置同一套规则。修改之前同一个字段读两次会拿到两个都能写的名字，
-// 而首页与第 5 课写着"一个值同时只有一个名字能指它"。
-func TestFieldReadMovesOut(t *testing.T) {
+// TestFieldReadIntoNameIsHandover 钉住那一条留着的那一半：把 `class` 的可变引用类型字段读进一个
+// 名字，这一次读就是交出，那一个字段读完空着。
+// 顺着读一次不动那一个位置：`h.leaf.v` 连着两读都在。
+//
+// en: the half of that ruling that stays - reading a `class` mutable reference-typed field into a name
+// IS the handover, and the field reads back empty (The narrowed rule moved only the text tier to
+// sharing). A look-through leaves the position alone: two reads of `h.leaf.v` both get the value.
+func TestFieldReadIntoNameIsHandover(t *testing.T) {
 	got, code := run(t, `
 class Leaf {
     v:int
@@ -19,18 +23,16 @@ class Hold {
     leaf:Leaf
     n:int
 }
-let a:Leaf = new Leaf(v: 7)
-let h:Hold = new Hold(leaf: a, n: 3)
-let b:Leaf = h.leaf
-console.print(h.leaf == null, b.v, h.n)
+let h:Hold = new Hold(leaf: new Leaf(v: 7), n: 3)
+console.print(h.leaf.v, h.leaf.v + 1, h.leaf == null, h.n)
 `)
-	want := "true 7 3\n"
+	want := "7 8 false 3\n"
 	if got != want || code != 0 {
-		t.Fatalf("读走字段之后那个字段该是 null：\n got %q 码 %d\nwant %q", got, code, want)
+		t.Fatalf("同一个字段读三次都该拿得到：\n got %q 码 %d\nwant %q", got, code, want)
 	}
 
-	// 第二次读拿到的是 null，再访问它的成员就是 10092 号
-	second, sc := run(t, `
+	// 接进一个名字：那一个位置交出，读完空着，手里那一份是唯一的持有者
+	got, code = run(t, `
 class Leaf {
     v:int
 }
@@ -39,28 +41,67 @@ class Hold {
 }
 let h:Hold = new Hold(leaf: new Leaf(v: 7))
 let b:Leaf = h.leaf
-let c:Leaf = h.leaf
-console.print(c.v)
+console.print(b.v, h.leaf == null)
 `)
-	if sc != 1 || !strings.Contains(second, "出错了（10092）：对着空句柄取成员或调用方法") {
-		t.Fatalf("同一个字段读第二次该拿到 null：got %q 码 %d", second, sc)
+	if want := "7 true\n"; got != want || code != 0 {
+		t.Fatalf("字段那一份接进名字之后那一个位置该空着：\n got %q 码 %d\nwant %q", got, code, want)
 	}
 
-	// 文本字段遵循同一规则：读走之后那个字段是 null
+	// 方法体里直接写的字段名就是 this.那个字段，同一条
+	got, code = run(t, `
+class Leaf {
+    v:int
+}
+class Hold {
+    leaf:Leaf
+
+    method take_out():Leaf {
+        return leaf
+    }
+}
+let h:Hold = new Hold(leaf: new Leaf(v: 9))
+let out:Leaf = h.take_out()
+console.print(out.v, h.leaf == null)
+`)
+	if want := "9 true\n"; got != want || code != 0 {
+		t.Fatalf("方法体里把字段 return 出去同一条：\n got %q 码 %d\nwant %q", got, code, want)
+	}
+
+	// 文本字段：共用那一块，两处读到的还是同一块
 	text, tc := run(t, `
 class Note {
     name:string
 }
 let n:Note = new Note(name: "甲")
 let a:string = n.name
-console.print(a, n.name == null)
+console.print(a, n.name, n.name == null)
 `)
-	if tc != 0 || strings.TrimSpace(text) != "甲 true" {
-		t.Fatalf("文本字段该照样读走：got %q 码 %d", text, tc)
+	if tc != 0 || strings.TrimSpace(text) != "甲 甲 false" {
+		t.Fatalf("文本字段那一读该照样留着：got %q 码 %d", text, tc)
+	}
+
+	// 每轮增长：一圈把字段读进名字、块尾由那个名字归还，不该留下东西。
+	// heapSlope 会把 NEF_HEAP 设进这一条测试的子进程，跑完再比对别的输出就多一行，所以放最后。
+	tmpl := `class Leaf {
+    v:int
+}
+class Hold {
+    leaf:Leaf
+}
+let total:int = 0
+for (i:int in 0 until @N@) {
+    let h:Hold = new Hold(leaf: new Leaf(v: i))
+    let b:Leaf = h.leaf
+    total = total + b.v
+}
+console.print(total)
+`
+	if slope := heapSlope(t, tmpl); slope >= 8 {
+		t.Errorf("每轮还留 %g 字节：字段里那一份接进名字之后没人归还", slope)
 	}
 }
 
-// TestFieldReadKeepsValueTypes 说明这条规则不适用的另一半：值类型字段仍是普通拷贝，读几次都在。
+// TestFieldReadKeepsValueTypes 说明这条规则的另一半：值类型字段仍是普通拷贝，读几次都在。
 // struct 的字段也不在这条规则里——struct 是值类型，读它的位置是整份拷贝，不是那个位置交出。
 func TestFieldReadKeepsValueTypes(t *testing.T) {
 	got, code := run(t, `
@@ -87,27 +128,62 @@ console.print(x, y, t.name)
 	}
 }
 
-// TestFieldMoveIntoReturn 覆盖这条规则带来的归属结果：方法 `return leaf` 交出去之后，
-// 字段已写空，源头不再持有它，所以接住返回值的那一端是唯一持有者——
-// 此前为"字段里的句柄要留着源头"保留的 104 字节／圈从此归零（每轮分配量表里那一行跟着变）。
-func TestFieldMoveIntoReturn(t *testing.T) {
+// TestFieldOverwriteFreesOld 覆盖字段那一步照旧析构换下来的旧值：那一个位置是它那一块的
+// 唯一出处（读出来只是借看一眼，谁也带不走），所以当场拆掉不会拆到别人持有的内存块。
+//
+// en: overwriting a field still destroys the value it replaces: that position is the block's only
+// source - a reading is only a look, nobody carries it away - so dismantling it on the spot cannot
+// touch a block somebody else holds.
+func TestFieldOverwriteFreesOld(t *testing.T) {
 	got, code := run(t, `
-class Leaf {
-    v:int
+class Row {
+    n:int
 }
-class Holder {
-    leaf:Leaf
-
-    method take():Leaf {
-        return leaf
-    }
+class Box {
+    inner:Row
+    tag:string
 }
-let h:Holder = new Holder(leaf: new Leaf(v: 4))
-let out:Leaf = h.take()
-console.print(out.v, h.leaf == null)
+let b:Box = new Box(inner: new Row(n: 1), tag: "头一份")
+for (i:int in 0 until 200) {
+    b.inner = new Row(n: i)
+    b.tag = "第 " + number.to_string(i)
+}
+console.print(b.inner.n, length(b.tag))
 `)
-	want := "4 true\n"
-	if got != want || code != 0 {
-		t.Fatalf("return 字段就是把那一格交出去：\n got %q 码 %d\nwant %q", got, code, want)
+	if got != "199 5\n" || code != 0 {
+		t.Fatalf("覆盖字段之后再读不对：\n got %q 码 %d\nwant %q", got, code, "199 5\n")
+	}
+}
+
+// TestFieldSelfAssignKeepsOneHolder 钉自赋值（`b.inner = b.inner`、方法体里 `inner = inner`）
+// 不多出一个持有者：等号右边那一次读记成交出，那一个位置当场抹空，读出来的那一份再写回同一个位置——
+// 一圈下来那一个位置仍只有一份持仓，块尾也只析构一次。
+// 从前这一句要在发码那一步比一次句柄才防得住；改之前它是"那一个位置与手里那一份各留一份"。
+//
+// en: self-assignment adds no holder. The read on the right is booked as the handover, so the
+// position is written empty and what was read goes back into the same position - one holding
+// through the round, one destruction at the end. This used to need a handle comparison where the
+// code is emitted; before that, the position and the value read out each kept a copy.
+func TestFieldSelfAssignKeepsOneHolder(t *testing.T) {
+	const pre = "class Row {\n    n:int\n}\nclass Box {\n    inner:Row\n}\nlet b:Box = new Box(inner: new Row(n: 4))\n"
+	got, code := run(t, pre+"b.inner = b.inner\nconsole.print(b.inner.n)\n")
+	if got != "4\n" || code != 0 {
+		t.Fatalf("自赋值之后再读不对：\n got %q 码 %d\nwant %q", got, code, "4\n")
+	}
+	if slope := heapSlope(t, `class Row {
+    n:int
+}
+class Box {
+    inner:Row
+}
+let total:int = 0
+for (i:int in 0 until @N@) {
+    let b:Box = new Box(inner: new Row(n: i))
+    b.inner = b.inner
+    total = total + b.inner.n
+}
+console.print(total)
+`); slope >= 8 {
+		t.Errorf("每轮还留 %g 字节：自赋值那一圈多出一个持有者", slope)
 	}
 }

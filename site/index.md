@@ -22,9 +22,9 @@ features:
     details: 不依赖运行时，也不带垃圾回收器，因此没有回收停顿。
   - title: "<span class=\"key\">类型标注</span>：每个位置都要写"
     details: 变量、参数、返回值与字段一律标注类型。编译器不做类型推断，读任何一行都不必回到上文。
-  - title: "<span class=\"key\">交出</span>：赋值与传参之后，原名称失效"
+  - title: "<span class=\"key\">交出</span>：赋值、写进位置与返回之后，原名称失效"
     details: 不设引用计数、不写生命周期标注，双重释放与悬垂引用在编译期排除。
-  - title: "<span class=\"key\">内核精简</span>：36 个关键字、23 个运算记号"
+  - title: "<span class=\"key\">内核精简</span>：35 个关键字、23 个运算记号"
     details: 十五组标准库函数。计数循环只有一种写法，条件位置仅接受布尔值。
 ---
 

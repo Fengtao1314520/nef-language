@@ -226,7 +226,7 @@ console.print(f())
 			continue
 		}
 		switch c.Fn {
-		case "@free":
+		case "@free", "@free_guarded":
 			freed = append(freed, c.Args[0].String())
 		case "nef.destroy":
 			destroyed = append(destroyed, c.Args[0].String())

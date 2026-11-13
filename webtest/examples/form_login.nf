@@ -10,9 +10,9 @@
 
 import wt from "libs/web_test"
 
-let exe:string = args[0] + ""
-let profile:string = args[1] + ""
-let fixdir:string = args[2] + ""
+let exe:string = args[0]
+let profile:string = args[1]
+let fixdir:string = args[2]
 let shot:string = profile + "/login.png"
 
 // 启动一个 headless 浏览器、连上、开一页。等到那一页真正开始加载并报告 complete 才返回。

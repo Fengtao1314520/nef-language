@@ -38,8 +38,8 @@ method check_int(name:string, got:int, want:int):boolean {
 }
 
 let bad:int = 0
-let exe:string = args[0] + ""
-let profile:string = args[1] + ""
+let exe:string = args[0]
+let profile:string = args[1]
 let shot:string = profile + "/site.png"
 
 let browser:wt.Browser = wt.start(exe, profile, 8000, 15000)

@@ -173,7 +173,7 @@
         },
         {
           "name": "keyword.control.nf",
-          "match": "(?<![\\w$])(let|const|method|struct|class|interface|enum|type|fn|import|export|shared|ref|base|this|new|return|as|is|throw|try|catch|finally|if|else|while|for|in|until|switch|default|break|continue)(?![\\w$])"
+          "match": "(?<![\\w$])(let|const|method|struct|class|interface|enum|type|fn|import|export|shared|base|this|new|return|as|is|throw|try|catch|finally|if|else|while|for|in|until|switch|default|break|continue)(?![\\w$])"
         },
         {
           "name": "storage.type.primitive.nf",

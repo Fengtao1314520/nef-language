@@ -399,10 +399,16 @@ console.print(back.v)
 // TestGenericFunctionInstancesAreSeparateCopies 钉住顶层泛型函数按实参各生成一份：
 // `twice(21)` 与 `twice("甲")` 是两个 IR 函数（`twice<int>`、`twice<string>`），
 // 中间码里也没有模板那一个名字带体的那份。
+// 泛型那一个参数收的是只读借用，所以 `Element` 这里只能配不参与归还的那几样：
+// 值类型与文本。可变的那一种（`class`、容器）交进去之后原样 `return` 出来会在检查那一处拒，
+// 这一族的形状由 `Holder<Item>` 那一条与下面 `TestGenericInstanceFreesItsBlock` 钉。
 //
 // en: TestGenericFunctionInstancesAreSeparateCopies pins one top-level generic function per
 // argument list: twice(21) and twice("甲") become two IR functions (twice<int>, twice<string>),
-// and the template's own name appears nowhere with a body.
+// and the template's own name appears nowhere with a body. That generic parameter is a read-only
+// borrow (the read-only-argument rule), so Element only fits what takes no part in being returned - a value type
+// or text. Handing in something mutable and returning it unchanged is refused at the check, and
+// that shape is pinned by Holder<Item> below together with TestGenericInstanceFreesItsBlock.
 func TestGenericFunctionInstancesAreSeparateCopies(t *testing.T) {
 	src := `method twice<Element>(v:Element):Element {
     return v
@@ -418,9 +424,9 @@ class Box<Content> {
 
 let a:int = twice(21)
 let b:string = twice("甲")
-let c:Box<int> = twice(new Box<int>(v: 7))
+let c:int = twice(new Box<int>(v: 7).get())
 let d:int = twice<int>(8)
-console.print(a, b, c.get(), d)
+console.print(a, b, c, d)
 `
 	got, code := run(t, src)
 	want := "21 甲 7 8\n"
@@ -428,7 +434,7 @@ console.print(a, b, c.get(), d)
 		t.Fatalf("得到 %q 码 %d，要 %q", got, code, want)
 	}
 	dump := dumpIR(t, src)
-	for _, name := range []string{"func twice<int>", "func twice<string>", "func twice<Box<int>>"} {
+	for _, name := range []string{"func twice<int>", "func twice<string>"} {
 		if !strings.Contains(dump, name) {
 			t.Errorf("中间码里缺 %q", name)
 		}

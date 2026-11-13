@@ -136,12 +136,9 @@ console.print(total, held[0])
 // 漏掉这条约束就会每轮 104 字节（heap_e2e_test.go 里那一条故意标着"该漏"的对照）。
 func TestReturnHandleKeepsSource(t *testing.T) {
 	src := `
-class Holder {
-    peer:list<int>
-}
 method hand(n:int):list<int> {
-    let h:Holder = new Holder(peer: [n])
-    return h.peer
+    let kept:list<int> = [n]
+    return kept
 }
 let got:list<int> = hand(5)
 console.print(length(got), got[0])
@@ -152,7 +149,7 @@ console.print(length(got), got[0])
 	}
 	fn := findFn(progOf(t, src), "hand")
 	if n := padBefore(fn, isRet); n != 0 {
-		t.Fatalf("return 交的是读出来的句柄，Ret 之前一笔都不许还，实际 %d 笔", n)
+		t.Fatalf("return 交的是一个作废出来的名字，Ret 之前一笔都不许还，实际 %d 笔", n)
 	}
 }
 

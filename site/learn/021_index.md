@@ -60,7 +60,7 @@ nf hello.nf
 
 | 程序 | 讲什么 | 怎么跑 |
 | --- | --- | --- |
-| `shopping.nf` | 一份购物列表，把每一项的字数加起来：顶层就是一层作用域、参数前的 `ref`、遍历交出的只读借用 | `nf samples/shopping.nf` |
+| `shopping.nf` | 一份购物列表，把每一项的字数加起来：顶层就是一层作用域、参数是只读借用、遍历交出的也是只读借用 | `nf samples/shopping.nf` |
 | `linecount.nf` | 读一个文件，统计每个长度上有几行：命令行参数、`file.read`、`dict`、`try` 与 `catch` | `nf samples/linecount.nf 文件名` |
 | `shapes.nf` | 形状与周长：`interface`、装箱与拆箱、`is` 判类型 | `nf samples/shapes.nf` |
 | `rpn.nf` | 逆波兰式子求值：`class` 的字段与方法、`switch` 的分支不贯穿、除 0 抛出的错误被 `catch` 接住 | `nf samples/rpn.nf` |
@@ -77,7 +77,7 @@ nf hello.nf
 let items:list<string> = ["书包", "笔记本", "雨伞"]
 const want:int = 3
 
-method count_chars(ref xs:list<string>):int {
+method count_chars(xs:list<string>):int {
     let total:int = 0
     for (s:string in xs) {
         total = total + length(s)
@@ -95,7 +95,7 @@ console.print("算完了")
 算完了
 ```
 
-`count_chars` 的参数标了 `ref`，那份列表借进去看一遍，调用之后还在手上；`length(items)` 是标准库的函数，被操作的对象本来就按只读借用处理。这两条都在[第 5 课：值的所有权](/learn/026_ownership)里逐条说明。
+`count_chars` 的参数是只读借用，那份列表借进去看一遍，调用之后还在手上；`length(items)` 是标准库的函数，被操作的对象本来就按只读借用处理。这两条都在[第 5 课：值的所有权](/learn/026_ownership)里逐条说明。
 
 ## 接下来去哪
 

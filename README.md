@@ -9,12 +9,13 @@
 中文说明见 [README.zh-CN.md](README.zh-CN.md).
 
 Nef is a statically typed language with mandatory type annotations and no
-garbage collection. Every value has exactly one owner at any moment: passing a
-value to a function or storing it into a container transfers ownership, while a
-parameter written `ref` borrows the value for the call. The compiler inserts
-each free at the end of the scope of the block's last owner, in reverse
-declaration order. Written in Go, the compiler emits x86-64 machine code
-directly and produces a standalone `.exe`.
+garbage collection. Ownership follows positions: storing a mutable value into a
+name, a field, a container slot, a box or a return transfers it; reading a
+position and passing an argument give out a read-only borrow, which leaves the
+source alone. Immutable text is shared - several handles can use one block.
+The compiler inserts each free at the end of the scope of the block's last
+owner, in reverse declaration order. Written in Go, the compiler emits x86-64
+machine code directly and produces a standalone `.exe`.
 
 Compiled programs ask the operating system for only a handful of capabilities
 (standard output, memory, process exit, and the system libraries for sockets
@@ -35,9 +36,10 @@ and HTTP). No runtime, no installed components, no C runtime linkage.
 
 ## Highlights
 
-- Ownership moves on assignment and on argument passing; write `ref` before a
-  parameter to borrow it instead. The destructor order is the reverse of
-  declaration, decided at compile time.
+- Passing an argument and reading a position borrow the value; ownership moves
+  only when a mutable value is stored into a name, a field, a container slot, a
+  box or a return. Immutable text is shared. The destructor order is the reverse
+  of declaration, decided at compile time.
 - Generics: `class`, `struct`, top-level functions and methods take type
   parameters (`class Basket<Item>`). Each instantiation the program uses is
   monomorphized into its own code and shape; type parameters do not exist at
@@ -107,9 +109,11 @@ console.print("hello, " + name + "; sum = " + number.to_string(total))
 Save it as `hello.nf` and run `./nf.exe hello.nf`. Type annotations are part
 of the declaration; `total = total + x` rebinds the owner of an `int`.
 Reading a list position (`xs[0]`) borrows the value: the slot keeps its
-content, and a borrow cannot be stored into a name, a field, a return or
-another container. Write `xs[0] + ""` to copy a text, or `xs.remove_at(0)`
-to take the element out and own it.
+content. A borrow cannot be stored into a name, a field, a return or another
+container. Text reads differently, because several handles share one block:
+`let s:string = xs[0]` is legal. To take a mutable element out and own it,
+write `xs.remove_at(0)` (a dict has `d.take(key)`, a JSON tree `json.take(tree,
+key)`).
 
 ## Command line
 

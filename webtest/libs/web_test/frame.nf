@@ -5,8 +5,8 @@
 // "这一条连接不能用了"（10105），离协议文本越远越难定位。
 //
 // 两条写法约束（实测）：
-// ① 一个表达式不能跨行，`[` 或 `,` 后面换行就是编译错误。
-// ② take_wire 收进来的那块缓冲标的是 `ref`：只读不交出，调用方那块缓冲仍在它自己
+// ① 写在开括号里面的内容可以换行，`[` 与 `,` 后面换行都收。
+// ② take_wire 收进来的那块缓冲走的是只读借用：只读不交出，调用方那块缓冲仍在它自己
 //    手上。所以没凑成一帧时返回的也是抄的一份（不是原块）：代价是一次拷贝，
 //    换来的是这块缓冲只有一个持有者，不会同一块在两处析构。
 
@@ -26,14 +26,14 @@ export class Wire {
 // 与掩码后的正文。客户端发出的帧一律要带掩码。
 // key 必须正好四个字节：比对结果要写成固定值，就得自带一串固定的密钥。
 // en: Packs one text frame: FIN plus opcode 1, the length in its three widths (one byte below 126, two below 65536, eight beyond that, all big-endian), then the four-byte masking key and the masked body. Everything a client sends is masked, and the key has to be exactly four bytes because the comparison values are written out as fixed text.
-export method encode_text(ref payload:bytes, ref key:bytes):bytes {
+export method encode_text(payload:bytes, key:bytes):bytes {
     return encode_frame(1, payload, key)
 }
 
 // 同上，只是操作码由参数给出：pong 需要 10。
 // 这一条只编码 FIN 置位的一帧——我们发出的命令都装得下整条消息，不分段。
 // en: The same packing with the opcode given from outside, which is what pong needs (10). Only frames with FIN set are packed here: every command we send fits one message, so nothing is continued.
-export method encode_frame(opcode:int, ref payload:bytes, ref key:bytes):bytes {
+export method encode_frame(opcode:int, payload:bytes, key:bytes):bytes {
     if (length(key) != 4) {
         throw (203, "掩码密钥要四个字节")
     }
@@ -77,7 +77,7 @@ export method encode_frame(opcode:int, ref payload:bytes, ref key:bytes):bytes {
 // 没拆成时是整块抄的一份。
 // 浏览器发来的帧不带掩码；带掩码也识别，把四个掩码字节读掉即可。
 // en: Splits the first frame off a block. The block handed in is this function's to dispose of (the caller's name is spent on the way in), and Wire.rest is what is left over: a fresh copy when a frame came off, a copy of what was received when it did not.
-export method take_wire(ref buf:bytes):Wire {
+export method take_wire(buf:bytes):Wire {
     let out:Wire = new Wire()
     out.ready = false
     out.payload = bytes.new(0)

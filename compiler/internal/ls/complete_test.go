@@ -192,14 +192,14 @@ func TestCompletionOfAPlainName(t *testing.T) {
 	// 引进来的那一些名字，右边那一栏写的是它自己：函数写签名、类型写声明那一句、
 	// 常量写一行声明；不写"function X"，也不把出处的绝对路径塞进这一栏。
 	dir := t.TempDir()
-	writeIn(t, dir, "util.nf", "export const limit: int = 8\nexport method twice(n:int):int { return n * 2 }\nexport struct Pair { left:int }\nexport method read_aloud(ref s:string) { console.print(s) }\n")
+	writeIn(t, dir, "util.nf", "export const limit: int = 8\nexport method twice(n:int):int { return n * 2 }\nexport struct Pair { left:int }\nexport method read_aloud(s:string) { console.print(s) }\n")
 	entry := filepath.ToSlash(filepath.Join(dir, "main.nf"))
 	text = "import { limit, twice, read_aloud, Pair } from \"./util.nf\"\n\nmet\nmethod main(): int {\n    return twice(limit)\n}\n"
 	items := Completion(entry, text, cursorAfter(text, "met"))
 	for _, c := range []struct{ label, want string }{
 		{"limit", "const limit: int"},
 		{"twice", "twice(n: int): int"},
-		{"read_aloud", "read_aloud(ref s: string)"},
+		{"read_aloud", "read_aloud(s: string)"},
 		{"Pair", "struct Pair"},
 	} {
 		if d := detailOf(items, c.label); d != c.want {

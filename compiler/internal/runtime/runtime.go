@@ -69,6 +69,10 @@ const (
 	codeNoKey      = 10032 // dict 没有这个键
 	codeNoRoom     = 10091 // 向操作系统要不到内存
 	codeStack      = 10093 // 调用套得太深，栈用完了
+	// 借用表那两条：借出去的那一块不能当场收回。
+	codeBorrowed     = 10097 // 要收回的这一块正被借用
+	codeBorrowFull   = 10098 // 同时挂着的借用超出这一版的表
+	borrowTableSlots = 64    // 每线程那张借用表的格数
 )
 
 // 帧里的位置。
@@ -280,6 +284,13 @@ func Build() Blob {
 	b.routine("@rethrow", rethrow)
 	// struct 的整份拷贝：值类型每次交出都另起一块，标记照抄源的那一个
 	b.routine("@copy_block", copyBlock)
+	// 借用表那两条：@borrow_add 与 @free_guarded 都要叫 @throw（走 throwWith），
+	// @free_guarded 还要叫 @free，所以两条都排在 @throw 之后、叫它们的用户代码之前。
+	b.routine("@borrow_add", borrowAdd)
+	b.routine("@borrow_drop", borrowDrop)
+	b.routine("@free_guarded", freeGuarded)
+	// @str_share 排在 @free 之后只是因为它与那一块的归还同属一本账；它自己谁都不叫。
+	b.routine("@str_share", strShare)
 	// `bytes` 那一档：三条都只要 @alloc 与 @throw，slice 要先有 bytes_new。
 	// 文本与文件那四条换到这一档上来，所以排在那几条之前（@str_to_bytes、@bytes_str、
 	// @file_read_bytes 都要叫 @bytes_new）。
@@ -608,9 +619,10 @@ const (
 // 头上那两个槽（类型字与尺寸）保持完整：从链上取回来时还知道这块有多大、要清零几个字节。
 // 因此数据区至少要有 8 字节可写——@alloc 把不足 8 的请求先垫到 8（见 alloc 里那一句）。
 //
-// 两个直接返回、不做处理的入口是设计的一部分而不是遗漏：头里的尺寸是 0 说明这块不在堆上
+// 三种直接返回、不做处理的入口是设计的一部分而不是遗漏：头里的尺寸是 0 说明这块不在堆上
 // （静态文本池里每条字面量前面那 8 字节占位头正是全 0，见 internal/codegen/data.go），
-// 头里的类型字是 FreeSentinel 说明它已经挂在链上（重复释放变成空操作，而不是把链弄断）。
+// 头里的类型字是 FreeSentinel 说明它已经挂在链上（重复释放变成空操作，而不是把链弄断），
+// 是 SharedTag 说明这一块被共用着（共用之后就不再归还，见 @str_share）。
 //
 // en: The free-list shape. Bands: band k holds blocks whose total size (the 8-byte
 // header included) falls in (8<<k, 8<<(k+1)], and the largest band caps at 8<<16 = 512 KiB.
@@ -620,11 +632,12 @@ const (
 // the first 8 bytes of the data area and the header's two slots (type word and size) stay
 // intact: a block taken back off the chain still says how big it is and how many bytes to zero.
 // That means the data area needs at least 8 writable bytes, which is why @alloc rounds a
-// request below 8 up to 8 (the line inside alloc). The two do-nothing entry points are part of
-// the design, not omissions: size 0 in the header means this block is not on the heap (the
+// request below 8 up to 8 (the line inside alloc). The three do-nothing entry points are part
+// of the design, not omissions: size 0 in the header means this block is not on the heap (the
 // 8-byte placeholder headers in front of each text-pool literal are exactly all zero - see
-// internal/codegen/data.go), and a header type word of FreeSentinel means it already lies on
-// the chain, so returning it twice is a no-op instead of breaking the chain.
+// internal/codegen/data.go), a header type word of FreeSentinel means it already lies on
+// the chain, so returning it twice is a no-op instead of breaking the chain, and a header type
+// word of SharedTag means the block is shared, so it is never returned at all.
 const (
 	// 档分两段：**低段一档一种尺寸**——总尺寸 16～512 每 8 字节
 	// 一档（63 档），往上才是 1024／2048／…／512 KiB 那 10 档。低段精确分档的理由：一档装 (u/2, u]
@@ -657,6 +670,15 @@ const (
 	// （同一块被两处指着、或者字段里指回自己）能被直接识别、跳过——环与菱形引用
 	// 都只析构一次，不必另外记一张"走到哪析构到哪"的表。写完这一块不会再被读，所以盖掉类型字没有代价。
 	DestroyingTag = 0x64657374
+	// SharedTag 是"这一块被共用着"：文本把一个句柄交出去一处，就在同一个槽里写下它。
+	// 从这一句起这一块既不挂进空闲链表也不归还——拿着它的每一方到作用域尽头都还能读，
+	// 而 @free 认得这一个记号，两条归还的路都当空操作走过（见 @str_share）。
+	//
+	// en: SharedTag marks "this block is shared". Handing one text handle to a second position
+	// writes it into that same slot. From then on the block is neither chained nor released:
+	// every holder can still read it at the end of its scope, and @free recognises the mark so
+	// both return paths pass through as no-ops (see @str_share).
+	SharedTag = 0x73687264
 )
 
 // 每一条线程自己那一份运行期状态：TLS 一个槽指着这一块内存，寄存器 R12 在这条线程跑
@@ -821,6 +843,11 @@ var stateCells = []struct {
 	{"outBuf", outBufCap},
 	{"outLen", 8},
 	{"outDir", 8},
+
+	// 借用表：这一帧里借出去的几个句柄。计数由帧开场推入、帧尾按推入的格数减回去，
+	// 所以跨帧的清理记录走完自动清账，不留别的帧的句柄在表里。
+	{"borrowTop", 8},
+	{"borrowTable", 8 * 64},
 }
 
 // stateBlock 是上面那张清单算出来的两个数：每一格的起点与整块的大小。
@@ -983,6 +1010,9 @@ func dataBytes() ([]byte, map[string]int) {
 	put("sNoWrite", strObject("写不进去这个文件"))
 	put("sNoRemove", strObject("删不掉这个文件"))
 	put("sNotUTF8", strObject("文件不是合法的 UTF-8"))
+	// 借用表那两条（10097 与 10098）：借出去的那一块正被收回，与借用表排满。
+	put("sBorrowed", strObject("要收回的这一块正被借用"))
+	put("sBorrowFull", strObject("同时挂着的借用太多"))
 	// M2b 那七条要说的话：10045 号只有一句，10043 号有两句——问属性时遇到目录、与打开目录失败。
 	put("sNoAttrs", strObject("拿不到这个文件的属性"))
 	put("sIsDir", strObject("那是一个目录，不是一个文件"))
@@ -3580,20 +3610,24 @@ func (b *rt) heapClass() {
 
 // @free(rcx=那一块的地址)：还回堆里，返回 nothing。
 //
-// 三种情况不做处理，都是设计而不是遗漏：句柄是空的；头里的尺寸是 0（那说明这块不在堆上——
+// 四种情况不做处理，都是设计而不是遗漏：句柄是空的；头里的尺寸是 0（那说明这块不在堆上——
 // 静态文本池里每条字面量前面挂的正是全 0 的占位头，见 internal/codegen/data.go）；
-// 头里的类型字已经是那个记号（说明它早就挂在链上，重复归还是空操作，而不是把链弄断）。
+// 头里的类型字已经是那个记号（说明它早就挂在链上，重复归还是空操作，而不是把链弄断）；
+// 头里的类型字是 SharedTag（说明这一块被共用着：@str_share 写下它的那一刻起它就不再归还，
+// 拿着它的每一方到作用域尽头都还能读）。
 // 比最大那一档还大的块也不进链：当它已经没了。
 //
 // 归还的块**不清零**——清零是取用那一侧的事（@alloc 从链上摘下来之后抹）。
 // 理由是要释放的块可能很大，而"没人看的内存写零"是纯浪费；两头各管一段，读代码时也分得清。
 //
-// en: @free (rcx = the block's address): return it to the heap, returns nothing. Three cases do
+// en: @free (rcx = the block's address): return it to the heap, returns nothing. Four cases do
 // nothing, all by design rather than omission: the handle is empty; the header's size is 0,
 // meaning the block is not on the heap (the all-zero placeholder headers in front of each
 // static text-pool literal, see internal/codegen/data.go); or the header's type word already is
 // that sentinel, meaning it is already on the chain, so returning it twice is a no-op instead
-// of breaking the chain. A block larger than the biggest band is likewise not chained - it is
+// of breaking the chain; or the type word is SharedTag, written by @str_share, meaning the
+// block is shared and from that moment is never returned, so every holder can still read it at
+// the end of its scope. A block larger than the biggest band is likewise not chained - it is
 // treated as gone. A returned block is NOT zeroed: zeroing is the acquiring side's job (@alloc
 // wipes it after unlinking). The reason is that the block being released may be large, and
 // writing zeroes into memory nobody will read is pure waste, while splitting the two duties
@@ -3610,6 +3644,10 @@ func free(b *rt) {
 	a.Jcc(x64.E, done)
 	a.MovZX32(x64.R8, x64.RCX, -8) // 头里的类型字
 	a.MovImm(x64.R9, FreeSentinel)
+	a.Cmp(x64.R8, x64.R9)
+	a.Jcc(x64.E, done)
+	// 共用着的那一块：既不挂进链也不归还，所以这一句在拿堆锁之前就走出去。
+	a.MovImm(x64.R9, SharedTag)
 	a.Cmp(x64.R8, x64.R9)
 	a.Jcc(x64.E, done)
 	a.AddImm(x64.RAX, 8) // 总尺寸
@@ -3635,8 +3673,156 @@ func free(b *rt) {
 	b.epilogue()
 }
 
-// @copy_block(rcx=源的那一块, rdx=要拷几个字节)：返回 rax=新的一块。
+// @str_share(rcx=那一段文本的地址)：把这一块标成"共用着"，返回 nothing。
 //
+// 文本不可变，所以一个句柄多一个位置拿着它不会多出第二个写入者；剩下的只有"谁归还"这一问，
+// 而这一块从这一刻起不再归还。@free 认得块头里那一个记号，两种持有者走到作用域尽头都当空操作
+// 走过，所以同一个句柄被两处、十处拿着都不会拆第二次。
+// 三种情况不做处理：句柄是空的；头里的尺寸是 0（静态文本池里那一条，本来就不在堆上）；
+// 再往后的每一次都只往那一个槽里写同一个数。这一条不抛、也不碰堆锁——它一个字节也不归还。
+//
+// en: @str_share (rcx = a text's address): mark the block as shared and return nothing. A text
+// is immutable, so a second position holding the same handle adds no second writer; the only
+// question left is who releases the block, and from this moment nobody does. @free knows the
+// mark in the header, so every holder's return path is a no-op and one handle held in two
+// places - or ten - is never dismantled twice. Three cases do nothing: the handle is empty; the
+// header's size is 0 (a text-pool literal, never on the heap); every later call just writes the
+// same number into the same slot. The routine throws nothing and takes no heap lock - it
+// returns no memory at all.
+func strShare(b *rt) {
+	a := b.a
+	b.prologue()
+	done := b.label()
+	a.Test(x64.RCX, x64.RCX)
+	a.Jcc(x64.E, done)              // 空句柄
+	a.MovZX32(x64.RAX, x64.RCX, -4) // 头里的数据尺寸：0 就是那一条字面量
+	a.Test(x64.RAX, x64.RAX)
+	a.Jcc(x64.E, done)
+	a.MovImm(x64.RAX, SharedTag)
+	a.MovStore32(x64.RCX, -8, x64.RAX)
+	a.Mark(done)
+	b.epilogue()
+}
+
+// @borrow_drop(rcx=本帧推入的格数)：帧尾与跨帧那一段清理各叫一次，把借用表收回到本帧开场那一段。
+//
+// 减到负数不可能出现（推几格由被降的那一份函数静态算出来），真出现就是记账错了，
+// 所以这里不放开成负的下标，把计数抹成 0 就当表是空的。
+//
+// en: @borrow_drop (rcx = entries this frame pushed) is called once at the frame tail and once on
+// the unwind path, pulling the table back to where this frame left it. Going below zero cannot
+// happen - the count comes from the function being lowered - but if the books were ever wrong the
+// clamp keeps a negative index from being used, treating the table as empty.
+func borrowDrop(b *rt) {
+	a := b.a
+	b.prologue()
+	done := b.label()
+	clamp := b.label()
+	b.loadCell(x64.RAX, "borrowTop")
+	a.Cmp(x64.RAX, x64.RCX)
+	a.Jcc(x64.B, clamp) // 比本帧推入的还少：记账错了，按空表走
+	a.Sub(x64.RAX, x64.RCX)
+	b.storeCell(x64.RAX, "borrowTop")
+	a.Jmp(done)
+	a.Mark(clamp)
+	a.Xor(x64.RAX, x64.RAX)
+	b.storeCell(x64.RAX, "borrowTop")
+	a.Mark(done)
+	b.epilogue()
+}
+
+// @borrow_add(rcx=借出去的句柄)：把这一个句柄记进这一条线程的借用表。
+//
+// 发借用的三处叫它：实参、方法体的接收者、遍历元素。空句柄不记（归还它是空操作，
+// 没什么可保护）。表满走抛出：静默不记就等于漏掉一次检查，宁可当场说一句"太多"。
+// 计数由帧尾减回本帧推入的格数，跨帧的清理记录走完自动清账。
+//
+// en: @borrow_add (rcx = the handle handed out) records it in this thread's borrow table. The
+// three places that create a borrow call it: an argument, a method receiver, a loop element. A
+// null handle is skipped - releasing it is a no-op, so there is nothing to protect. A full table
+// throws rather than silently skipping, because a skipped entry is a missed check. The frame tail
+// subtracts the count this frame pushed, so unwinding cleans the table by itself.
+func borrowAdd(b *rt) {
+	a := b.a
+	b.prologue()
+	done := b.label()
+	a.Test(x64.RCX, x64.RCX)
+	a.Jcc(x64.E, done)
+	b.loadCell(x64.RAX, "borrowTop")
+	a.MovImm(x64.R8, borrowTableSlots)
+	full := b.label()
+	a.Cmp(x64.RAX, x64.R8)
+	a.Jcc(x64.AE, full)
+	a.Mov(x64.R8, x64.RAX) // 现有格数
+	a.ShlImm(x64.R8, 3)    // 换成字节偏移
+	b.leaCell(x64.RDX, "borrowTable")
+	a.Add(x64.RDX, x64.R8)
+	a.MovStore(x64.RDX, 0, x64.RCX)
+	a.AddImm(x64.RAX, 1)
+	b.storeCell(x64.RAX, "borrowTop")
+	a.Jmp(done)
+	a.Mark(full)
+	b.throwWith(codeBorrowFull, "sBorrowFull")
+	a.Mark(done)
+	b.epilogue()
+}
+
+// @free_guarded(rcx=要归还的句柄)：先查这一条线程的借用表，没借出去过才叫 @free。
+//
+// 检查不能放进 @free 里：@throw_walk 走到空链与帧内清理那一路要释放摘下来的处理器记录，
+// 那一次释放叫的就是 @free；检查在 @free 里抛出会绕回走路，两条互叫成环（这一句的来由写在
+// 例程登记表那一段）。所以归还落点在降级那一侧统一换成这一条，@free 自己不动。
+//
+// 查表之前先看头里的尺寸：0 说明这一块不在堆上（写死在程序里的那一段文本，静态数据段里每条
+// 前面挂的正是全 0 的占位头）。那一种地址本来就不会被 @free 归还，因此也不值得为它报一句
+// "正被借用"——借用表里完全可能同时挂着一个只读借用的参数交进来的同一个地址，那是同一段字面量，不是同一块
+// 堆内存。
+//
+// en: @free_guarded (rcx = the handle being returned) first scans this thread's borrow table and
+// only then calls @free. The check cannot live inside @free: @throw_walk and the per-frame
+// cleanup release the handler record they just popped, and that release calls @free - throwing
+// from inside @free would re-enter the walk and the two would call each other forever. So the
+// lowering side retargets the release points to this routine and @free itself stays as it is.
+// The size in the header is read before the scan: zero means the block is not on the heap at all
+// - text baked into the program carries the all-zero placeholder header of the static data
+// section. Such an address is never returned by @free, so it does not deserve a "still borrowed"
+// complaint: the table can perfectly well hold the same address from a read-only borrow argument, and that is
+// the same literal, not the same heap block.
+func freeGuarded(b *rt) {
+	a := b.a
+	b.prologue()
+	b.put(0, x64.RCX)
+	give := b.label()
+	a.Test(x64.RCX, x64.RCX)
+	a.Jcc(x64.E, give)
+	a.MovZX32(x64.RAX, x64.RCX, -4) // 头里的数据尺寸：0 就是那一段字面量，本来就不归还
+	a.Test(x64.RAX, x64.RAX)
+	a.Jcc(x64.E, give)
+	b.loadCell(x64.RAX, "borrowTop")
+	a.Test(x64.RAX, x64.RAX)
+	a.Jcc(x64.E, give)
+	b.leaCell(x64.RDI, "borrowTable")
+	a.Mov(x64.RSI, x64.RDI)
+	a.ShlImm(x64.RAX, 3)
+	a.Add(x64.RSI, x64.RAX) // 表尾：一格 8 字节
+	scan := b.label()
+	a.Mark(scan)
+	a.MovLoad(x64.RDX, x64.RDI, 0)
+	a.Cmp(x64.RDX, x64.RCX)
+	keep := b.label()
+	a.Jcc(x64.E, keep)
+	a.AddImm(x64.RDI, 8)
+	a.Cmp(x64.RDI, x64.RSI)
+	a.Jcc(x64.B, scan)
+	a.Jmp(give)
+	a.Mark(keep)
+	b.throwWith(codeBorrowed, "sBorrowed")
+	a.Mark(give)
+	b.get(x64.RCX, 0)
+	b.call("@free")
+	b.epilogue()
+}
+
 // `struct` 是值类型，可它在内存里是一整块（句柄模型），所以"整份拷贝"必须
 // 另起一块而不是照抄句柄——抄了句柄就有两个持有者拿着同一块，改这个字段那个字段跟着变，
 // 值类型唯一的理由就没了。标记从源那块的头上读（那 8 字节头：低四字节是类型标识），

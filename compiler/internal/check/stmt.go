@@ -195,6 +195,7 @@ func (c *Checker) declStmt(d *ast.Decl) {
 	}
 	if c.hoistedDecl[d] {
 		// 顶层的名字已经在 hoistTopDecls 里登记过了，这一遍只跑值与交出
+		c.liveTop[d] = true
 		c.moved[d.NameText] = false
 		return
 	}
@@ -329,27 +330,32 @@ func (c *Checker) refuseMidTake(target ast.Expr, at ast.Pos) bool {
 	}
 }
 
-// transferOut 处理写进容器的那个位置：值类型是拷贝，引用类型的值要交出去。
-// dict 的键同一条：`d[键] = 值` 与 `d.add(键, 值)` 收的是同一个位置，键是引用类型时那个位置接手它，
-// 原名当场作废。先前只记值那一笔，键那个名字仍然登记着持有者，作用域尽头就把桶里正在用的那块文本拆掉了。
+// transferOut 处理写进容器的那个位置：值类型是拷贝，引用类型的值要交出去，文本是共用。
+// dict 的键走 putInCell 那一条：可变的那一种（class、容器、句柄）由那个位置接手它，原名当场作废；
+// 文本的键是共用那一块，不作废。先前只记值那一笔、键那一本账漏下时，键的名字仍然登记着持有者，
+// 作用域尽头就把桶里正在用的那块文本拆掉了——那一条改的是记账，不是把文本也算成交出。
 //
 // en: transferOut handles the position written into a container: a value type is copied, a
-// reference-typed value is handed over. A dict key takes the same rule: `d[key] = value` and
-// `d.add(key, value)` fill one and the same position, so a reference-typed key is taken there and
-// its name is voided on the spot. Only the value side used to be recorded, which left the key's
-// name registered as a holder - the scope-end teardown then dismantled the text block a bucket
-// was still using.
+// reference-typed value is handed over, and text is shared. A dict key goes through putInCell:
+// the mutable kinds (class, container, handle) ARE taken by that position and their name is
+// voided on the spot, while a text key only shares the block and keeps its name. Earlier only the
+// value side was booked, which left the key's name registered as a holder - the scope-end
+// teardown then dismantled the text block a bucket was using; what that fix changed is the
+// ledger, not whether a text counts as handed over.
 func (c *Checker) transferOut(base Type, idx *ast.Index, val ast.Expr) {
 	if base.Kind == Dict {
 		c.putInCell(idx.At, base.Args[0])
 	}
 	elem := base.Args[len(base.Args)-1]
-	if elem.ByValue() {
-		return
+	if elem.ByValue() || elem.Kind == Str {
+		return // 文本那一个位置是共用那一块：原名不作废，读来的那一份也写得进去
 	}
 	if c.borrowRead[val] {
-		c.fail(val.Where(), "读出来的那一份是只读借用，不能放进容器那一个位置：文本拷一份，能摘出来的位置用 remove_at 或 json.take 摘出来")
+		c.fail(val.Where(), "读出来的那一份是只读借用，不能放进容器那一个位置：能摘出来的位置用 remove_at、d.take 或 json.take 摘出来")
 		return
+	}
+	if c.markFieldTaken(val, elem) {
+		return // 那一个位置接手的是字段里读出来的一份，读完字段写空
 	}
 	if n, ok := val.(*ast.Name); ok {
 		c.markMoved(n)
@@ -557,22 +563,35 @@ func switchable(t Type) string {
 	return "switch 只能判 enum、int、byte、unicode、boolean、string"
 }
 
-// takeFrom：把引用类型的值赋给一个名字，就是交出。
-// 值类型是拷贝；标准库那些只读借用不走这里。
+// takeFrom：把一个引用类型的值赋给一个名字，就是交出。
+// 值类型是拷贝；标准库那些只读借用不走这里。文本走的是共享：那一个名字不作废、源位置不抹空，
+// 所以它在这一条的最前面就回去了。
 //
-// 来源是 `class` 的一个引用类型字段时，同一笔记录记到字段那个位置上（读完写空）。
+// 来源是容器那个位置或树上那一个位置时读出来的是只读借用，接不进名字。
+// 来源是 `class` 的一个可变引用类型字段时，同一笔记录记到字段那个位置上（读完写空）——
+// 那一条裁定只把文本那一档挪去共用，可变数据照旧跟着位置走。
 //
-// en: takeFrom: assigning a reference-typed value to a name IS the handover. A value
-// type is copied, and the standard library's read-only borrows do not come through here.
-// When the source is a reference-typed field of a `class`, the same entry is recorded
-// against the field's position (read it and the field is written empty).
+// en: takeFrom: assigning a reference-typed value to a name IS the handover. A value type is
+// copied, and the standard library's read-only borrows do not come through here. Text is shared:
+// that name stays alive and the source position keeps its handle, so text turns around at the
+// very top of this rule. When the source is a container position or a spot on the tree, the read
+// yields a read-only borrow and cannot be taken into a name. When the source is a mutable
+// reference-typed field of a `class`, the same entry is recorded against the field's position
+// (read it and the field is written empty) - The narrowed rule moved only the text tier over to
+// sharing; mutable data still follows the position.
 func (c *Checker) takeFrom(v ast.Expr, t Type) {
 	if t.ByValue() || t.Kind == ErrT || t.Kind == Null {
 		return
 	}
+	if t.Kind == Str {
+		// 文本收到一个名字里是共用那一块：源那一个名字不作废，字段与容器的那一个位置也不抹空，
+		// 从那个位置读出来的那一份因此接得进名字。两条路到作用域尽头都不归还那一块
+		// （块头里带着共享的记号，见降级那侧的 shareText）。
+		return
+	}
 	if c.borrowRead[v] {
-		// 读一个位置拿到的那一份归原来的容器或者那棵树，收到名字里就会有两个持有者。
-		c.fail(v.Where(), "读出来的那一份是只读借用，不能收到名字里、写进字段或者交给调用方：文本拷一份，能摘出来的位置用 remove_at 或 json.take 摘出来")
+		// 读一个位置拿到的那一份归原来的容器、那棵树或者那一个字段，收到名字里就会有两个持有者。
+		c.fail(v.Where(), "读出来的那一份是只读借用，不能收到名字里、写进字段或者交给调用方：能摘出来的位置用 remove_at、d.take 或 json.take 摘出来")
 		return
 	}
 	if n, ok := v.(*ast.Name); ok {

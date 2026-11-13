@@ -130,9 +130,6 @@ func (c *Checker) paramsOf(m *ast.Func) []Param {
 		seen[p.NameText] = true
 		t := c.resolveType(p.Typ, p.Pos)
 		c.checkTypeUsable(t, p.Pos)
-		if p.Ref {
-			c.checkRefParam(t, p.Pos)
-		}
 		if p.Default != nil {
 			c.exprExpected(p.Default, t)
 			c.checkDefaultShape(p.Default)
@@ -140,29 +137,6 @@ func (c *Checker) paramsOf(m *ast.Func) []Param {
 		out = append(out, Param{Name: p.NameText, Typ: t, Default: p.Default, Node: p})
 	}
 	return out
-}
-
-// checkRefParam 规定 `ref` 能标在什么样的参数上。两条拒绝：
-// ① 值类型标 ref 没有意义，`int`、`float`、`byte`、`unicode`、`struct`、`enum` 传进去本来就是整份拷贝；
-// ② 系统给的句柄不允许借用（`Socket`、`Listener`、`Process`）：被调方在借来的句柄上关闭一次，
-//
-//	调用方那个名字就成了空句柄，之后再访问它是运行期错误 10092。句柄在类型系统里
-//	单独列为一档，这里沿用同一档。
-//
-// en: checkRefParam pins which parameters `ref` may annotate. Two refusals: a value type
-// gains nothing, since int, float, byte, unicode, struct and enum already travel as a whole copy;
-// and an OS handle (Socket, Listener, Process) may not be borrowed, because closing it once
-// inside the callee leaves the caller's name an empty handle, and the next access is runtime
-// error 10092. Handles form their own tier in the type system; this follows that same tier.
-func (c *Checker) checkRefParam(t Type, pos ast.Pos) {
-	if t.ByValue() {
-		c.fail(pos, "值类型的参数不许写 ref：%s 传进去本来就是整份拷贝", t)
-		return
-	}
-	switch t.Kind {
-	case Socket, Listener, Process, Thread:
-		c.fail(pos, "%s 是系统给的句柄，不许写 ref：被调方关一次，调用方那个名字就成了空句柄", t)
-	}
 }
 
 // checkDefaultShape 规定参数默认值能写成什么：
@@ -418,11 +392,6 @@ func (c *Checker) checkImpl(name string, own []methodSig, ownFields []*ast.Field
 				c.fail(got.Pos, "%s.%s 的第 %d 个参数类型该是 %s",
 					name, want.Name, i+1, want.Params[i].Typ)
 			}
-			// `ref` 也是签名的一部分：接口那边写了，实现这边就得写；一边写一边不写就是两种调用形状。
-			if got.Params[i].takesRef() != want.Params[i].takesRef() {
-				c.fail(got.Pos, "%s.%s 的第 %d 个参数 ref 写法与接口 %s 的声明不一致",
-					name, want.Name, i+1, baseName)
-			}
 		}
 		if !sameType(got.Ret, want.Ret) {
 			c.fail(got.Pos, "%s.%s 的返回类型该是 %s", name, want.Name, want.Ret)
@@ -531,8 +500,16 @@ func (c *Checker) checkFuncBody(fi funcInfo) {
 	}
 	for _, p := range m.Params {
 		c.declareKind(p.NameText, c.resolveType(p.Typ, p.Pos), m.Where(), p, BindParam)
-		if p.Ref {
-			// 标了 ref 的参数与 this、遍历变量同一档：能读、能就地改，拿不到所有权。
+		if pt := c.resolveType(p.Typ, p.Pos); !pt.ByValue() && pt.Kind != Str && !IsSystemHandle(pt.Kind) &&
+			!c.threadTake[p] {
+			if c.facts != nil {
+				c.facts.ParamBorrow[p] = true
+			}
+			// 每一个参数都与 this、遍历变量同一档：能读、能就地改，拿不到所有权。
+			// 三档不在这一条里：文本那一份是共用，落进被调方那一个位置不多出可归还的持有者，
+			// 所以它交得进也 return 得出去；系统给的句柄那一个位置交接出，不然被调方到帧尽头
+			// 关一次、调用方手里那一个名字也跟着关一次；被起的那一支函数那一个参数收的也是
+			// 交过来的一份持仓，那一条线程跑到尽头归还它。
 			c.borrowed[p.NameText] = borrowParam
 		}
 	}
@@ -547,9 +524,7 @@ func (c *Checker) checkFuncBody(fi funcInfo) {
 	c.closeScope()
 	delete(c.borrowed, "this")
 	for _, p := range m.Params {
-		if p.Ref {
-			delete(c.borrowed, p.NameText)
-		}
+		delete(c.borrowed, p.NameText)
 	}
 	c.curFunc, c.retType = prevFunc, prevRet
 }

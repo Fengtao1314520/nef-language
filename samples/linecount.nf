@@ -5,7 +5,7 @@
 // `file`、`path`、`text`、`number`、`time` 是标准库组名，属于保留字，不能用作变量名。
 // en: Reads a file and counts how many lines fall on each length. Covers args at the entry point, file.read, the member form of split, dictionary contains and add, iterating over keys only, try/catch and exit codes from 100 up. The branch that catches an unreadable file ends with exit code 1: this program assumes a path it can read, so failing to read one means the run is broken. Note that file, path, text, number and time are standard-library group names and reserved, so they cannot be used as variable names here.
 
-method tally(ref target:string, width:int) {
+method tally(target:string, width:int) {
     let body:string = file.read(target)
     let lines:list<string> = body.split("\n")
     let by_length:dict<int, int> = {}
@@ -33,7 +33,7 @@ if (length(args) == 0) {
 const print_up_to:int = 20
 
 try {
-    let first:string = args[0] + ""              // 读 args 的第一个值，复制一份留下
+    let first:string = args[0]                  // 读 args 的第一个值：文本共用那一块，那一个位置不动
     tally(first, print_up_to)
 } catch (code, msg, at) {
     console.print("读不了:", code, msg)         // 10041 读不到、10044 不是 UTF-8 都在这一支处理

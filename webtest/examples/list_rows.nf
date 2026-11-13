@@ -7,13 +7,13 @@
 // 这一份要说明的是元素列表那件事：
 // ① 遍历走 for，元素是只读借用，走完列表还是满的；
 // ② 按位置读那一个交出的是只读借用：`rows[1].read_text()` 顺着读可以，读完那一个位置还在；
-//    要把那一份留下来就得拷一份（文本写 `+ ""`）或者用 `remove_at` 摘出来。
+//    文本接给一个名字就是共用同一块，留下来不用拷；可变的那一种才要摘出来（`remove_at`）。
 
 import wt from "libs/web_test"
 
-let exe:string = args[0] + ""
-let profile:string = args[1] + ""
-let fixdir:string = args[2] + ""
+let exe:string = args[0]
+let profile:string = args[1]
+let fixdir:string = args[2]
 
 let browser:wt.Browser = wt.start(exe, profile, 8000, 5000)
 let page:wt.Page = browser.open_page("file:///" + fixdir + "/list.html")

@@ -71,10 +71,10 @@ func jsonBuildFree(l *L) {
 	j.br("==", tag, j.num(runtime.FreeSentinel), done)
 	j.br("==", tag, j.num(runtime.DestroyingTag), done)
 	j.st32(node, -8, j.num(runtime.DestroyingTag))
-	j.void("@free", j.ld(node, jsonText)) // 非文本节点该字段是 0，@free 立即返回
+	j.void("@free_guarded", j.ld(node, jsonText)) // 非文本节点该字段是 0，@free 立即返回
 	j.void(fnJSONFreeKeys, j.ld(node, jsonKeys))
 	j.void(fnJSONFreeVals, j.ld(node, jsonVals))
-	j.void("@free", node)
+	j.void("@free_guarded", node)
 	j.at(done)
 	j.ret0()
 }
@@ -104,12 +104,12 @@ func jsonBuildFreeKeys(l *L) {
 	top := j.fresh()
 	j.at(top)
 	j.br(">=", i, n, done)
-	j.void("@free", j.ld(j.idx(data, i, 8), 0))
+	j.void("@free_guarded", j.ld(j.idx(data, i, 8), 0))
 	j.addOne(i)
 	j.jmp(top)
 	j.at(done)
-	j.void("@free", data)
-	j.void("@free", list)
+	j.void("@free_guarded", data)
+	j.void("@free_guarded", list)
 	j.at(gone)
 	j.ret0()
 }
@@ -139,8 +139,8 @@ func jsonBuildFreeVals(l *L) {
 	j.addOne(i)
 	j.jmp(top)
 	j.at(done)
-	j.void("@free", data)
-	j.void("@free", list)
+	j.void("@free_guarded", data)
+	j.void("@free_guarded", list)
 	j.at(gone)
 	j.ret0()
 }

@@ -182,17 +182,15 @@ console.print(two, two)
 	}
 }
 
-// TestCycleNoLongerBuildable 记录交出规则带来的一个结果：
-// 回环在语言里**已经无法构造**。此前唯一那条正常路径是"把一只 Bag 放进字段，再从字段读出来"
-// （旧规则：读不算交出，那个位置还是持有者）——`let r = w.keep` 之后 `w.keep` 与 `r` 是两个出处。
-// 现行规则下这一读就是交出，读完那个位置为空，绕回来的那条路当场断掉。
-//
-// 打印机"回到同一处印 `...`"那一条、以及 `nef.destroy` 的 dest 标记，从此没有语言层面的路径能走到，
-// 留在机器码里只作护栏（多层保护的同一种做法）。
-// TestPrintDepthCap 仍覆盖 `...` 的另一半——深度上限这条路照旧走得到。
+// TestCycleNoLongerBuildable 记录归属规则带来的一个结果：
+// 回环在语言里**已经无法构造**。构造它要的是"同一个块被两个位置各自持有"，
+// 而读一个可变字段交出的是那一个位置里的值：
+// `let r = w.keep` 把 `w.keep` 那一个位置抹空了，绕回来的那条路当场断掉。
+// 这一读一度改成只读借用，那样一来字段里那一块与 `r` 两个位置各持一份，
+// 打印机"回到同一处印 `...`"那一条与 `nef.destroy` 的 dest 标记就有了语言层面的路径可走；
+// 收窄之后这条路仍旧走不到，两处保护继续只作护栏（多层保护的同一种做法）。
 func TestCycleNoLongerBuildable(t *testing.T) {
-	got, code := run(t, `
-class Bag {
+	const src = `class Bag {
     name:string
     leaves:list<int>
 }
@@ -201,11 +199,30 @@ class Wrap {
 }
 let w:Wrap = new Wrap(keep: new Bag(name: "丙", leaves: []))
 let r:Bag = w.keep
+r.leaves.add(1)
+console.print(r.name, w.keep == null)
+`
+	got, code := run(t, src)
+	if code != 0 {
+		t.Fatalf("那一份接进名字之后打印退出码 %d（要 0）：\n%s", code, got)
+	}
+	if want := "丙 true\n"; got != want {
+		t.Fatalf("接走那一份之后字段里那个位置该空着：\n got %q\nwant %q", got, want)
+	}
+	// 同一份数据顺着读几次都在：拦住的是"接走"那一次，不是"看一眼"
+	got, code = run(t, `class Bag {
+    name:string
+    leaves:list<int>
+}
+class Wrap {
+    keep:Bag
+}
+let w:Wrap = new Wrap(keep: new Bag(name: "丙", leaves: []))
 w.keep.leaves.add(1)
-console.print(r.name)
+console.print(w.keep.name, w.keep.leaves, w.keep.name)
 `)
-	if code != 1 || !strings.Contains(got, "出错了（10092）：对着空句柄取成员或调用方法") {
-		t.Fatalf("接走字段之后源头就空了，这一句该抛 10092：got %q 码 %d", got, code)
+	if code != 0 || got != "丙 [1] 丙\n" {
+		t.Fatalf("顺着字段读与就地改都该照常：got %q 码 %d", got, code)
 	}
 }
 

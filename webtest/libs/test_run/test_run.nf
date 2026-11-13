@@ -5,11 +5,11 @@
 // "标题 → 函数"那张表）。重试写在脚本里，这一层没有"第几遍"这个概念。
 //
 // 三条语言事实决定了下面的写法：
-// ① 参数只读、不把值留下的标 `ref`；要把值留下来的那两处——写字段与进容器——
-//    给一份拷贝（`x + ""`）。这样脚本那边把名字交进来，交完那个名字还在自己手上；
+// ① 参数一律是只读借用，只读、不把值留下；文本给字段、进容器都是共用那一块，交进来之后
+//    原来那一个名字还在脚本那边手上，所以这一层不拷；
 // ② 顶层 `let` 可以在自己写的函数里重新赋值，脚本那边因此能把 `page` 放在顶层、每条用例覆盖一次；
 // ③ 函数的参数名不许与顶层名字重名。
-// 另外表达式不能跨行（`[` 与 `,` 后面换行就是编译错误），所以下面有几行写得比一行宽。
+// 写在开括号里面的内容可以换行（容器与字典的每一项各占一行也收）。
 //
 // 另一条是编译出来的：包的门面只准交出这个包自己定义的东西（编译器原话
 // "Page 是别的包里的类型：门面只能导出这个包自己定义的类型"）。所以 `case_begin` 与
@@ -31,14 +31,14 @@ const state_skip:int = 3
 
 // JSON 里引号内的内容：转义交给标准库，两头加引号由自己完成。
 // 空句柄写成空字符串那一个值，不写 null：读报告的一侧不必防两种空。
-method quoted(ref value:string):string {
+method quoted(value:string):string {
     if (value == null) {
         return "\"\""
     }
     return "\"" + text.escape_json(value) + "\""
 }
 
-method one_line(ref group_name:string, ref title:string, ref state_name:string, ms:int, code:int, ref msg:string, ref shot:string, ref body:string, ref steps_text:string):string {
+method one_line(group_name:string, title:string, state_name:string, ms:int, code:int, msg:string, shot:string, body:string, steps_text:string):string {
     let head:string = "{\"group\":" + quoted(group_name)
     head = head + ",\"case\":" + quoted(title) + ",\"state\":\"" + state_name + "\""
     head = head + ",\"ms\":" + number.to_string(ms) + ",\"code\":" + number.to_string(code)
@@ -57,7 +57,7 @@ method state_name_of(state:int):string {
     return "fail"
 }
 
-method mark_of(ref state_name:string):string {
+method mark_of(state_name:string):string {
     if (state_name == "pass") {
         return "ok"
     }
@@ -98,17 +98,19 @@ export class Run {
 
     // 空清单＝全部跑。名单由脚本那边从命令行解析出标题后交进这里。
     // en: An empty list means everything runs. The script picks those titles out of its arguments and hands them over here.
+    // 实参是只读借用，留一份要自己拷：`slice` 出来的是新的一条 list，
+    // 里面的文本两边共用。
     // 例：
     // run.pick(["登录成功"])
     method pick(names:list<string>) {
-        this.picks = names
+        this.picks = names.slice(0, length(names))
     }
 
     // 判断这个标题在不在挑选名单里；名单为空时全部算在内。
     // en: Whether this title is on the picked list; with an empty list everyone is in.
     // 例：
     // console.print(run.picked("标题对了"))
-    method picked(ref title:string):boolean {
+    method picked(title:string):boolean {
         if (length(this.picks) == 0) {
             return true
         }
@@ -127,10 +129,10 @@ export class Run {
     // en: The once-per-group opening: it records the group name and the start URL and opens one tab to build the group's preconditions (logging in and the like). The answer is that page's number, and the script turns it back into a handle with wt.page_at. An empty start URL opens about:blank.
     // 例：
     // let home: int = run.group_begin("登录这一组", "https://example.com/")
-    method group_begin(ref name:string, ref url:string):int {
-        this.group = name + ""
-        this.group_url = url + ""
-        let start:string = url + ""
+    method group_begin(name:string, url:string):int {
+        this.group = name
+        this.group_url = url
+        let start:string = url
         if (start == "") {
             start = "about:blank"
         }
@@ -165,9 +167,9 @@ export class Run {
     // en: The start of one case: opens another tab in the same browser, so it carries the login the group established, and returns that page's number. The number is kept here, so the screenshot and the page text of a failed case need no help from the script.
     // 例：
     // let index: int = run.case_begin("标题对了")
-    method case_begin(ref title:string):int {
+    method case_begin(title:string):int {
         this.order = this.order + 1
-        this.case_name = title + ""
+        this.case_name = title
         this.state = state_open
         this.code = 0
         this.message = ""
@@ -176,7 +178,7 @@ export class Run {
         this.steps = []
         this.extra = []
         this.begun = time.elapsed()
-        let start:string = this.group_url + ""
+        let start:string = this.group_url
         if (start == "") {
             start = "about:blank"
         }
@@ -189,7 +191,7 @@ export class Run {
     // en: Write one of these for each step you want recorded; a passing case prints nothing, while a failed one lists the steps it got through.
     // 例：
     // run.step("点开登录")
-    method step(ref label:string) {
+    method step(label:string) {
         let ms:int = ((time.elapsed() - this.begun) * 1000.0) as int
         this.steps.add(label + "  " + number.to_string(ms) + " 毫秒")
     }
@@ -208,17 +210,17 @@ export class Run {
     // en: The first case_fail decides the result, so a later assertion failure cannot overwrite the message from the try/catch that already recorded what happened.
     // 例：
     // run.case_fail(205, "没等到那个元素")
-    method case_fail(bad_code:int, ref bad_msg:string) {
+    method case_fail(bad_code:int, bad_msg:string) {
         if (this.state == state_skip) {
             return
         }
         if (this.state != state_fail) {
             this.state = state_fail
             this.code = bad_code
-            this.message = bad_msg + ""
+            this.message = bad_msg
             this.take_scene()
         } else {
-            this.extra.add(bad_msg + "")
+            this.extra.add(bad_msg)
         }
     }
 
@@ -260,7 +262,7 @@ export class Run {
             this.state = state_fail
             this.message = "这一条没报结果就走到了 case_end"
         }
-        let title:string = this.case_name + ""
+        let title:string = this.case_name
         let steps_text:string = text.join(this.steps, "; ")
         if (this.state == state_fail) {
             this.failed = this.failed + 1
@@ -288,7 +290,7 @@ export class Run {
     // en: Skips it: the report keeps one line so a reader can see the case exists and was not checked in this run.
     // 例：
     // run.skip("等那块后出来的", "这一条手工验")
-    method skip(ref title:string, ref reason:string) {
+    method skip(title:string, reason:string) {
         this.order = this.order + 1
         this.skipped = this.skipped + 1
         console.print("  -- " + title + "  跳过：" + reason)
@@ -299,8 +301,8 @@ export class Run {
     // en: One result goes to two places at once: a line of jsonl for machines and a line of terminal text for people.
     // 例：
     // run.write_line(12, "标题对了", "pass", "", "", "", "")
-    method write_line(ms:int, ref title:string, ref state_name:string, ref msg:string, ref shot_path:string, ref body_path:string, ref steps_text:string) {
-        let group_name:string = this.group + ""
+    method write_line(ms:int, title:string, state_name:string, msg:string, shot_path:string, body_path:string, steps_text:string) {
+        let group_name:string = this.group
         let record:string = one_line(group_name, title, state_name, ms, this.code, msg, shot_path, body_path, steps_text)
         file.append(this.dir + "/report.jsonl", record + "\n")
         this.lines.add("[" + mark_of(state_name) + "] " + group_name + " / " + title + "  " + msg + "  " + shot_path)
@@ -345,8 +347,8 @@ export class Run {
 // en: Starts one run: the output directory is cleared and recreated and the browser is launched. The three arguments line up one for one with the three the script read off the command line.
 // 例：
 // let opening: tr.Run = tr.begin_run("nf.exe", "profile", "out")
-export method begin_run(ref exe:string, ref profile:string, ref dir:string):Run {
-    let place:string = dir + ""
+export method begin_run(exe:string, profile:string, dir:string):Run {
+    let place:string = dir
     if (file.exists(place)) {
         file.remove_tree(place)
     }

@@ -63,7 +63,6 @@ func CloneFunc(f *Func) *Func {
 				NameText: p.NameText,
 				Typ:      CloneType(p.Typ),
 				Default:  cloneExpr(p.Default),
-				Ref:      p.Ref,
 			})
 		}
 	}
@@ -259,7 +258,7 @@ func CloneType(t Type) Type {
 		if x.Params != nil {
 			out.Params = make([]FuncParam, 0, len(x.Params))
 			for _, p := range x.Params {
-				out.Params = append(out.Params, FuncParam{Typ: CloneType(p.Typ), Ref: p.Ref})
+				out.Params = append(out.Params, FuncParam{Typ: CloneType(p.Typ)})
 			}
 		}
 		return out

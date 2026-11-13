@@ -70,7 +70,7 @@ var stdMemberNames = []string{
 	"accept", "add", "add_all", "clear", "close", "contains", "difference", "ends_with",
 	"first", "get", "index_of", "insert_at", "intersect", "keys", "last", "last_index_of",
 	"pad_end", "pad_start", "recv_into", "remove", "remove_at", "repeat", "replace", "reverse",
-	"send", "slice", "sort", "split", "starts_with", "to_base64", "to_bytes", "to_list",
+	"send", "slice", "sort", "split", "starts_with", "take", "to_base64", "to_bytes", "to_list",
 	"to_lower", "to_set", "to_upper", "trim", "trim_end", "trim_start", "union", "values", "id",
 	"wait",
 }

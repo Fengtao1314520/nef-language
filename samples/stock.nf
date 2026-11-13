@@ -14,7 +14,7 @@ let by:dict<string, Stock> = {}
 
 for (r:string in rows) {
     let cells:list<string> = r.split(":")
-    let what:string = cells[0] + ""
+    let what:string = cells[0]
     let num:int = text.to_int(cells[1])
     let key:string = what.slice(0, length(what))
     if (by.contains(key)) {

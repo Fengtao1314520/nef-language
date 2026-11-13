@@ -621,6 +621,8 @@ func (c *fc) mapLit(x *ast.MapLit, t check.Type) (ir.Val, check.Type, error) {
 		if err != nil {
 			return nil, t, err
 		}
+		c.shareText(k, p.Key, kt)   // 桶里那一个位置与来路那一边共用一块
+		c.shareText(v, p.Value, vt) // 值那一个位置同理
 		pairs = append(pairs, pair{k: k, v: v, kt: kt, vt: vt})
 	}
 	d, err := c.newMap(int64(len(pairs)), t, tagDict)
@@ -653,6 +655,7 @@ func (c *fc) setLit(x *ast.SetLit, t check.Type) (ir.Val, check.Type, error) {
 		if err != nil {
 			return nil, t, err
 		}
+		c.shareText(v, it, vt) // 那一个成员的位置与来路那一边共用一块
 		vals = append(vals, v)
 		ets = append(ets, vt)
 	}
@@ -780,14 +783,15 @@ func cellWidth(bt check.Type) int {
 	return 0
 }
 
-// readCell 是"从容器位置里取值"的那一半：拿到位置之后怎么读、struct 要另起一份、
-// 句柄读完把那个位置抹空。`a[i]`、`xs.first()`、`xs.last()`、`d.get(键, 默认)`
-// 走的是同一条，读法不许有四份。
+// readCell 是"从容器位置里取值"的那一半：拿到位置之后怎么读、struct 要另起一份。
+// `a[i]`、`xs.first()`、`xs.last()`、`d.get(键, 默认)` 走的是同一条，读法不许有四份。
+// 引用类型读完不动那一个位置：那一份还归容器持有，接住的那一侧只是多一个读者。
 //
 // en: readCell is the "take a value out of a container position" half: how to read once the
-// position is found, a struct needs its own copy, and a handle leaves the position emptied.
-// `a[i]`, `xs.first()`, `xs.last()`, `d.get(key, default)` all go through this one path -
-// the read must not exist in four copies.
+// position is found, and a struct needs its own copy. `a[i]`, `xs.first()`, `xs.last()`,
+// `d.get(key, default)` all go through this one path - the read must not exist in four copies.
+// A reference type leaves the position untouched: the container still holds it and the receiving
+// side is one more reader (the sharing tier for text).
 func (c *fc) readCell(cell ir.Val, bt check.Type, t check.Type) (ir.Val, check.Type, error) {
 	d := c.f.Temp()
 	c.f.Emit(&ir.Load{D: d, Base: cell, Off: 0, T: c.rt(t), Size: cellWidth(bt)})
@@ -1007,6 +1011,7 @@ func (c *fc) structLit(x *ast.StructLit, t check.Type) (ir.Val, check.Type, erro
 		if err != nil {
 			return nil, t, err
 		}
+		c.shareText(v, f.Value, vt) // 那一个字段位置与来路那一边共用一块
 		c.f.Emit(&ir.Store{Base: d, Off: int(off), S: v, T: c.rt(vt), Size: c.l.narrow(vt)})
 	}
 	return d, t, nil
@@ -1165,6 +1170,7 @@ func (c *fc) listLit(x *ast.ListLit, t check.Type) (ir.Val, check.Type, error) {
 		if err != nil {
 			return nil, t, err
 		}
+		c.shareText(v, it, vt) // 那一个位置与来路那一边共用一块
 		vals[i] = v
 	}
 	elem := check.Type{}
@@ -1197,7 +1203,7 @@ func containerAction(name string) bool {
 	case "length", "list.add", "list.remove", "list.sort", "list.index_of",
 		"list.first", "list.last", "list.clear",
 		"list.reverse", "list.add_all", "list.to_set", "list.slice", "list.insert_at", "list.remove_at",
-		"dict.add", "dict.remove", "dict.contains", "dict.keys", "dict.values", "dict.get",
+		"dict.add", "dict.remove", "dict.contains", "dict.keys", "dict.values", "dict.get", "dict.take",
 		"hashset.add", "hashset.remove", "hashset.contains",
 		"hashset.union", "hashset.intersect", "hashset.difference",
 		"bytes.slice", "bytes.to_base64",
@@ -1225,7 +1231,7 @@ func containerAction(name string) bool {
 // the unused default is returned at the end of the sentence.
 func stdBorrowsArgs(name string) bool {
 	switch name {
-	case "list.add", "list.remove", "dict.add", "dict.remove", "dict.contains",
+	case "list.add", "list.remove", "dict.add", "dict.remove", "dict.contains", "dict.take",
 		"hashset.add", "hashset.remove", "hashset.contains",
 		"list.sort", "list.index_of", "dict.keys", "dict.values",
 		"list.first", "list.last", "list.clear",
@@ -1309,6 +1315,7 @@ func (c *fc) stdContainer(x *ast.Call, ref check.CallRef, t check.Type) (ir.Val,
 		if err != nil {
 			return nil, t, err
 		}
+		c.shareText(v, x.Args[0], vt) // 那一个位置与来路那一边共用一块
 		c.closeWindow(addOuter, addFrom, v)
 		c.f.Emit(&ir.Call{Fn: "@list_add", Args: []ir.Val{recv, c.bitsOf(v, vt)},
 			FT: []ir.T{ir.TInt, ir.TInt}})
@@ -1444,6 +1451,27 @@ func (c *fc) stdContainer(x *ast.Call, ref check.CallRef, t check.Type) (ir.Val,
 		c.f.Emit(&ir.Mov{D: d, S: dv, T: c.rt(t)})
 		c.f.Emit(&ir.Lbl{At: done})
 		return d, t, nil
+	case "dict.take":
+		// 键只读一眼；值从桶里那一个位置摘出来，交给接住它的那一边，那一个位置当场写空。
+		// 那一条记录留在容器里：`contains` 仍然为真、`length` 不少一，只有再读那一个位置拿到的是 null。
+		// 键不存在由 `cellOf` 抛现成的 10032 号，那一步排在写空之前，摘不走半份。
+		// 值那一种是拷贝（struct 与值类型）时前端就不开这一条，走不到这里。
+		kv, kt, err := c.expr(x.Args[0])
+		if err != nil {
+			return nil, t, err
+		}
+		c.guardNotNull(kv)
+		key := c.bitsOf(kv, kt)
+		cell, err := c.cellOf(recv, rt, key)
+		if err != nil {
+			return nil, t, err
+		}
+		d, _, err := c.readCell(cell, rt, t)
+		if err != nil {
+			return nil, t, err
+		}
+		c.f.Emit(&ir.Store{Base: cell, Off: 0, S: ir.K(0), T: ir.TInt})
+		return d, t, nil
 	case "list.reverse":
 		c.f.Emit(&ir.Call{Fn: "@list_reverse", Args: []ir.Val{recv}, FT: []ir.T{ir.TInt}})
 		return nil, t, nil
@@ -1570,6 +1598,7 @@ func (c *fc) stdContainer(x *ast.Call, ref check.CallRef, t check.Type) (ir.Val,
 		if err != nil {
 			return nil, t, err
 		}
+		c.shareText(v, x.Args[1], vt) // 那一个位置与来路那一边共用一块
 		c.closeWindow(insOuter, insFrom, v)
 		c.f.Emit(&ir.Call{Fn: "@list_insert",
 			Args: []ir.Val{recv, at, c.bitsOf(v, vt)}, FT: []ir.T{ir.TInt, ir.TInt, ir.TInt}})
@@ -1719,6 +1748,8 @@ func (c *fc) mapAction(x *ast.Call, ref check.CallRef, t check.Type) (ir.Val, ch
 		if err != nil {
 			return nil, t, err
 		}
+		c.shareText(k, x.Args[0], kt) // 键与值那两个位置各与自己的来路共用一块
+		c.shareText(v, x.Args[1], vt)
 		c.closeWindow(mapOuter, mapFrom, k, v)
 		if err := c.mapStore(recv, key, c.bitsOf(v, vt), true, vt, x.Args[0], kt); err != nil {
 			return nil, t, err
@@ -1726,6 +1757,7 @@ func (c *fc) mapAction(x *ast.Call, ref check.CallRef, t check.Type) (ir.Val, ch
 		return nil, t, nil
 	case "hashset.add":
 		// 值那个位置空着：成员在不在只看键
+		c.shareText(k, x.Args[0], kt) // 那一个键的位置与来路那一边共用一块
 		c.closeWindow(mapOuter, mapFrom, k)
 		if err := c.mapStore(recv, key, ir.K(0), false, check.Type{}, x.Args[0], kt); err != nil {
 			return nil, t, err
@@ -2046,6 +2078,7 @@ func (l *L) function(file *ast.File, owner string, fn *ast.Func, globals map[str
 		// this 就是那一份句柄；方法体里直接写字段名与写 this.字段名等价
 		rv := f.Temp()
 		c.bind("this", rv, dbgOf(check.Type{Kind: c.l.objKind[owner], Name: owner}))
+		c.borrowIn(rv)
 		f.Params++
 		f.PT = append(f.PT, ir.TInt)
 	}
@@ -2076,6 +2109,12 @@ func (l *L) function(file *ast.File, owner string, fn *ast.Func, globals map[str
 			shape = dbgOf(sig.Params[i].Typ)
 		}
 		c.bind(p.NameText, v, shape)
+		// 每一个参数都是借来看一眼：可变的那几种登记进这张借用表，
+		// 本帧走到尽头不许归还它——归还的还是调用方那一个名字的责任。
+		// 值类型与 struct 是拷进来的另一块，文本走的是共用，两种都不必登记。
+		if l.f.ParamBorrow[p] {
+			c.borrowIn(v)
+		}
 		f.Params++
 		f.PT = append(f.PT, pt)
 		// 参数有没有默认值在被调方一侧不产生影响：缺失的那个实参由调用点补上（见 argsOf）
@@ -2091,6 +2130,64 @@ func (l *L) function(file *ast.File, owner string, fn *ast.Func, globals map[str
 
 // ---- 表达式与语句 ----
 
+// borrowIn 把这一个位置记进这一条线程的借用表：本帧拿着的是别人那一块，帧尾按推入的格数减回去。
+//
+// en: borrowIn records this slot in the thread's borrow table - the frame holds someone else's
+// block - and the frame tail subtracts the entries it pushed.
+func (c *fc) borrowIn(v ir.Val) {
+	c.f.Emit(&ir.Call{Fn: "@borrow_add", Args: []ir.Val{v}, FT: []ir.T{ir.TInt}})
+	c.borrows++
+}
+
+// dropBorrows 发一次减回：n 是本帧开场推入的格数，零就什么都不发。
+//
+// en: dropBorrows emits the subtract-back; n is what this frame pushed at entry, and n == 0
+// emits nothing.
+func (c *fc) dropBorrows(n int) {
+	if n == 0 {
+		return
+	}
+	c.f.Emit(&ir.Call{Fn: "@borrow_drop", Args: []ir.Val{ir.K(int64(n))}, FT: []ir.T{ir.TInt}})
+}
+
+// shareText 在"一个文本句柄落进一个新的位置"那一步发一次 @str_share。源不是这一句当场造出来的
+// 那一块时，那一块从这一句起就有两个位置拿着：文本不可变，多一个位置不多出一个写入者，
+// 剩下的只有"谁归还"这一问，而共用着的这一块谁都不归还——块头里写下那一个记号之后，
+// @free 两条路都当空操作走过，两边走到作用域尽头都还读得到。
+//
+// 三种情况不发：不是文本；当场新造的那一块（`fresh`：拼出来的一串、标准库返回的那一块、
+// 过得了转手证明的自定义函数），那一块只有这一个家，到尽头照常归还；
+// 写死在程序里的那一段（`staticText`）与空句柄，前者本来就不在堆上，后者什么都不做。
+//
+// 发在写入那一步之前或之后都一样：标的是那一个块，不是那一个位置。唯一要排在前面的是 `return`
+// 那一条——出这一帧要把源名字那一个位置也还掉，先标记才能把那一次归还变成空操作。
+//
+// en: shareText emits one @str_share at the step where a text handle moves into a new position.
+// Unless the source is the block this very sentence built, that block now lies in two positions:
+// a text is immutable, so the extra position adds no second writer and the only question left is
+// who releases it - and a shared block is released by nobody. With that mark in the header @free
+// passes both holders' return as a no-op, so both still read it at the end of their scope.
+// Three cases emit nothing: not a text; a block built on the spot (fresh: an assembled string, a
+// standard library's result, a custom call that passes the hand-back proof) whose only home is
+// this position, so it is returned as usual; and text baked into the program (staticText) or an
+// empty handle, which never sits on the heap and does nothing respectively. Whether the call
+// goes before or after the store makes no difference - it marks the block, not the position -
+// except for `return`, whose frame tail also releases the source name, so the mark must come
+// first for that release to become a no-op.
+func (c *fc) shareText(v ir.Val, src ast.Expr, t check.Type) {
+	if v == nil || t.Kind != check.Str {
+		return
+	}
+	switch v.(type) {
+	case ir.K, ir.S:
+		return // 空句柄，以及静态文本池里那一条
+	}
+	if src != nil && (c.fresh(src, t) || staticText(src, t)) {
+		return
+	}
+	c.f.Emit(&ir.Call{Fn: "@str_share", Args: []ir.Val{v}, FT: []ir.T{ir.TInt}})
+}
+
 type fc struct {
 	l      *L
 	f      *ir.Func
@@ -2103,6 +2200,13 @@ type fc struct {
 	filePath string
 	brk      []exitSite
 	cont     []exitSite
+	// borrows 记这一帧在开场往借用表里推了几个位置（方法接收者一份、每一个只读借用的实参各一份）。
+	// 帧尾与跨帧那一段清理各按它减回去，所以抛出走出去之后表里不留别的帧的句柄。
+	//
+	// en: borrows counts how many table entries this frame pushed at entry - the receiver plus
+	// each borrowed argument. The frame tail and the unwind section subtract it, so a throw
+	// leaving this frame cannot leave another frame's handles in the table.
+	borrows int
 	// tries 记当前打开着的每一层 try 的体：抛出去要释放到哪一层为止（leaveToHandler）。
 	tries []int
 	// tryRegs 记当前打开着的每一层 try：mark 是它那一层 try 体的登记下标（与 tries 同一数法），
@@ -2300,7 +2404,11 @@ func (c *fc) unwind(mi int, skip map[string]bool) {
 //
 // en: leaveFrame is the "this frame ends here" early exit (return, exit, an exception nobody
 // catches): returning from the innermost layer all the way down to the frame base.
-func (c *fc) leaveFrame(skip map[string]bool) { c.unwind(0, skip) }
+func (c *fc) leaveFrame(skip map[string]bool) {
+	// 出这一帧的每一条路都要把本帧推入的那几格减回去：帧尾那一句走不到早退的这一路。
+	c.dropBorrows(c.borrows)
+	c.unwind(0, skip)
+}
 
 // leaveToHandler 是 `throw` 那一条：抛出去释放到的只到"接住它的那一个 try 的体"为止。
 // 本帧里没有包住它的 try，那就是整帧都要释放；有的话，try 体外面的那些名字接住块接着还要读，
@@ -2339,14 +2447,16 @@ func (c *fc) leaveToHandler() {
 // positions hold garbage left by the previous call; without zeroing, garbage would be handed to
 // @free as a handle.
 func (c *fc) endFrame() {
+	n := c.borrows
+	c.dropBorrows(n) // 先减回：本帧借出的那几个位置从这一句起不再受保护，帧尾拆自己那些位置才不误报
 	c.close()
 	c.f.Emit(&ir.Ret{})
-	if len(c.held) == 0 {
+	if len(c.held) == 0 && n == 0 {
 		return
 	}
 	pad := c.f.Fresh()
 	old := c.f.Body
-	body := make([]ir.Inst, 0, len(old)+2*len(c.held)+4)
+	body := make([]ir.Inst, 0, len(old)+2*len(c.held)+5)
 	for _, o := range c.held {
 		body = append(body, &ir.Mov{D: o.slot, S: ir.K(0), T: ir.TInt})
 	}
@@ -2362,6 +2472,9 @@ func (c *fc) endFrame() {
 	}
 	c.f.Body = body
 	c.f.Emit(&ir.Lbl{At: pad})
+	// 垫子这一段才是抛出去时真正落进来的地方，所以减回本帧那几格写在这里：写在上面那段复制过来的旧指令
+	// 之前等于没写，标记跳的是垫子那一个号。
+	c.dropBorrows(n)
 	c.destroyAll(c.held)
 	c.f.Emit(&ir.Call{Fn: "@throw_walk", FT: []ir.T{}})
 }
@@ -2539,7 +2652,7 @@ func (c *fc) releaseOne(o own) {
 	case o.closer != "":
 		c.f.Emit(&ir.Call{Fn: o.closer, Args: []ir.Val{o.slot}, FT: []ir.T{ir.TInt}})
 	case o.direct:
-		c.f.Emit(&ir.Call{Fn: "@free", Args: []ir.Val{o.slot}, FT: []ir.T{ir.TInt}})
+		c.f.Emit(&ir.Call{Fn: "@free_guarded", Args: []ir.Val{o.slot}, FT: []ir.T{ir.TInt}})
 	default:
 		c.f.Emit(&ir.Call{Fn: destroyFn, Args: []ir.Val{o.slot, ir.D(o.desc)},
 			FT: []ir.T{ir.TInt, ir.TInt}})
@@ -2576,7 +2689,7 @@ func (c *fc) releaseVal(v ir.Val, t check.Type) error {
 		c.f.Emit(&ir.Call{Fn: closerOf(t), Args: []ir.Val{v}, FT: []ir.T{ir.TInt}})
 		return nil
 	case t.Kind == check.Str:
-		c.f.Emit(&ir.Call{Fn: "@free", Args: []ir.Val{v}, FT: []ir.T{ir.TInt}})
+		c.f.Emit(&ir.Call{Fn: "@free_guarded", Args: []ir.Val{v}, FT: []ir.T{ir.TInt}})
 		return nil
 	}
 	d, err := c.l.descOf(t)
@@ -2722,16 +2835,27 @@ func (c *fc) argOwnedByCaller(src ast.Expr, t check.Type) bool {
 // 返回空句柄，除了这个读出来的值，再无第二个地方持有它。所以它可以登记成持有者
 // （读走之后归接住它的那一侧）。
 //
-// 与"从字段里读出来"是两件事：读字段不算交出，那个位置仍是持有者，登记它就是重复归还。
+// 与"从字段里读出来"分开判：那一条写在 takenFromField。
 //
 // en: takenFromCell says this read is a REFERENCE TYPE INSIDE A CONTAINER POSITION: that
 // is a read-out - at the moment of reading the position returns an empty handle, and apart from
 // this value nowhere else holds it. So it may be registered as the holder
-// (after a read-out it belongs to whoever receives it). This is a different matter
-// from reading out of a field: reading a field is not a handover, that position is
-// still the holder, and registering it would return the same block twice.
+// (after a read-out it belongs to whoever receives it). The field case is judged separately, by
+// takenFromField.
 func (c *fc) takenFromCell(src ast.Expr, t check.Type) bool {
 	return takenFromCellOf(c.l, src, t)
+}
+
+// takenFromField 说这一个来路是**被接走的那一个字段**：检查器把那一次读记进 Facts.Taken，
+// 发码那一步读完把字段那一个位置抹空。那一个位置从此不再拿着这一块，
+// 接住它的那个名字或那一个位置就是唯一的持有者。
+//
+// en: takenFromField says this source IS a field that was carried away: the checker booked that
+// read in Facts.Taken and the emitter writes the field's position empty afterwards (the half of
+// the field-handover rule that stays). That position no longer holds the block, so the receiving name or position
+// is its only holder.
+func (c *fc) takenFromField(src ast.Expr) bool {
+	return c.l.f.Taken[unwrappedConvert(src)]
 }
 
 func takenFromCellOf(l *L, src ast.Expr, t check.Type) bool {
@@ -2998,8 +3122,8 @@ func (c *fc) claim(slot ir.Val, x *ast.Decl, t check.Type, copied bool) (own, bo
 	}
 	// copied 是"这一块就是这一刻为这个名字拷贝出来的"（struct 的赋值拷贝）：那一判考察的是
 	// 表达式的来路，而拷贝之后的块与表达式已经无关，除这个名字外没有其他持有者
-	if !copied && !c.fresh(x.Value, t) && !c.takenFromCell(x.Value, t) && !c.handedBack(x.Value) &&
-		!staticText(x.Value, t) {
+	if !copied && !c.fresh(x.Value, t) && !c.takenFromCell(x.Value, t) && !c.takenFromField(x.Value) &&
+		!c.handedBack(x.Value) && !staticText(x.Value, t) {
 		return own{}, false
 	}
 	d, err := c.l.descOf(t)
@@ -3470,6 +3594,20 @@ func (c *fc) arith(op string, a, b ir.Val, t check.Type, at ast.Pos) (ir.Val, ch
 	return nil, t, fmt.Errorf("还不支持运算 %q", op)
 }
 
+// takesOutPosition 说这一条标准库动作交出的是**某个位置上的持仓**，摘走那一刻那个位置就空了：
+// `list.remove_at(位置)` 把那个位置移走并缩短长度，`dict.take(键)` 把桶里那一个位置写空。
+// 只有这两条走这一档——`first`、`last`、`get`、`json.at`、`json.item` 那五条读位置不拿走值，
+// 结果还归容器或那棵树持有。
+//
+// en: takesOutPosition says this standard-library action hands over what a POSITION was holding,
+// and the position is left empty the moment it is taken: list.remove_at shifts that cell away and
+// shortens the length, dict.take writes the bucket position empty. Only those two qualify - first,
+// last, get, json.at and json.item read a position without taking it, so the container or the tree
+// still holds the result (the read-does-not-take rule).
+func takesOutPosition(name string) bool {
+	return name == "list.remove_at" || name == "dict.take"
+}
+
 // returnKeep 说这一句 return 交出去的值可能正位于哪几个已登记的槽位之下——那些位置这一趟不许归还。
 //
 // 只在两件事同时成立时才要保留：返回去的是**句柄**（`class`、三种容器、盒子；文本不在其中，
@@ -3491,11 +3629,25 @@ func (c *fc) arith(op string, a, b ir.Val, t check.Type, at ast.Pos) (ir.Val, ch
 // keeping a few extra blocks is a leak, while dismantling the block the receiver holds is
 // taking somebody else's property (the same trade-off).
 func (c *fc) returnKeep(v ast.Expr, t check.Type) map[string]bool {
-	if v == nil || !flowsHandle(t) {
+	if v == nil {
 		return nil
 	}
-	// `return o.f` 交出去的正好是字段里那个位置，读完那个位置就空了，
-	// 源头不再持有它 ⇒ 这一帧不必为它保留（此前这一条造成的每轮 104 字节遗留随之归零）。
+	// 文本：`return 那一个名字` 交出去的就是那一个位置自己。上面那一句已经把那一块标成共用，
+	// 出这一帧的归还走的是空操作，可那一个位置抹成 0 之后发出去的就成了空句柄——所以那一个位置要跳过。
+	if t.Kind == check.Str {
+		if _, isName := unwrappedConvert(v).(*ast.Name); !isName {
+			return nil
+		}
+		if root := chainRoot(v); root != "" {
+			return map[string]bool{root: true}
+		}
+		return nil
+	}
+	if !flowsHandle(t) {
+		return nil
+	}
+	// `return o.f` 交出去的正好是字段里那一个位置，读完那一个位置就空了，
+	// 源头不再持有它 ⇒ 这一帧不必为它保留。
 	if e := unwrappedConvert(v); c.l.f.Taken[e] {
 		return nil
 	}
@@ -3506,6 +3658,12 @@ func (c *fc) returnKeep(v ast.Expr, t check.Type) map[string]bool {
 			return nil
 		}
 		return map[string]bool{root: true}
+	case *ast.Call:
+		// 摘出来那两条（`xs.remove_at(位置)`、`d.take(键)`）交的是那一个位置上的持仓，
+		// 摘走的那一刻源位置就空了：这一帧底下再没有第二个出处指向那一块，整帧照常归还。
+		if ref, ok := c.l.f.Calls[v.(*ast.Call)]; ok && ref.Kind == check.CallStd && takesOutPosition(ref.Std) {
+			return nil
+		}
 	}
 	keep := map[string]bool{}
 	for _, o := range c.owns {
@@ -3847,19 +4005,29 @@ func (c *fc) guardNotNull(v ir.Val) {
 
 // fieldRead 落 `x.f`：先挡空引用，再按字段偏移从对象上取那一份。
 //
-// 语言规则：`class` 里装引用类型的那个位置被**接走**的时候，这一读就是交出，读完把那个位置
-// 写空——与容器那个位置（`indexRead`）同一本账。改之前同一个字段读两次会拿到两个都能写的名字。
-// 哪些算"接走"由检查器记在 `Facts.Taken` 上（落到名字、当实参交出去、`return` 出去、装进位置、装箱）；
-// 顺着看一眼不算：`console.print(o.i.n)`、`o.list.add(x)` 那一读没有新持有者，抹空只会把值弄丢。
+// 两条分开看：
 //
-// en: fieldRead lowers `x.f`: first refuse a null reference, then take that field off the object
-// by its offset. By the language rule, when a reference-typed position inside a `class` is
-// TAKEN AWAY, this read is the handover and the position is written empty afterwards - the same
-// ledger as a container position (indexRead). Before this change, reading the same field
-// twice produced two names that could both write it. Which readings count as taking away is
-// recorded by the checker in Facts.Taken (into a name, as an argument, through `return`, into a
-// position, into a box). A look-through does not: `console.print(o.i.n)` and `o.list.add(x)`
-// create no new holder, and emptying there would only lose the value.
+//	文本那一档走共用——读出来接给一个名字是同一块多一个读者（上面 `shareText` 那一步），
+//	那一个位置不动，也不归还。
+//	可变的那一档（`class`、容器、字典、字节块、进程与线程那一类句柄）读出来交给一个新持有者
+//	就是交出：下面 `Taken` 那一条把字段那个位置抹空，接住的那一侧成为唯一的持有者。
+//	交出只在这五处发生（接给一个名字、当实参交进会接手的位置、`return` 出去、装进容器位置、装进盒子）；
+//	不顺着这五处走的读法（`h.item.n` 那样连着读、就地改）那一个位置原样留着。
+//
+// 容器那个位置同一本账，但它多一条摘出来的写法（`xs.remove_at`、`d.take`、`json.take`）；
+// 字段没有摘出来的写法，那一份只能整块读走、或者就地用。
+//
+// en: fieldRead lowers `x.f`: refuse a null reference, then take that field off the object by its
+// offset. Two tiers, kept apart. Text is shared: a name receiving it is one more reader of the
+// same block (the shareText step above), the position stays put and nothing is returned. Mutable
+// data - a class, a container, a dict, bytes, the four system handles - handed to a new holder IS
+// a transfer: the Taken test below empties the field so the receiving side becomes the only
+// holder. That happens only at the five receiving positions (into a name, into a position that
+// takes over as an argument, out through return, into a container cell, into a box); a read that
+// does not land in one of them - h.item.n read twice, or an in-place change - leaves the
+// position exactly as it was. A container cell is on the same ledger but keeps an explicit
+// take-out (xs.remove_at, d.take, json.take); a field has none, so that value is either read off
+// whole or used where it lies.
 func (c *fc) fieldRead(x *ast.Member, t check.Type) (ir.Val, check.Type, error) {
 	base, bt, err := c.expr(x.What)
 	if err != nil {
@@ -3874,7 +4042,7 @@ func (c *fc) fieldRead(x *ast.Member, t check.Type) (ir.Val, check.Type, error) 
 	d := c.f.Temp()
 	c.f.Emit(&ir.Load{D: d, Base: base, Off: int(off), T: c.rt(t), Size: c.l.narrow(t)})
 	if c.l.f.Taken[x] {
-		// 只有真被接走的那一次才抹空，也才允许当场还（只读借用那一条登记靠"源位置已经空了"才安全）
+		// 只有真被接走的那一次才抹空（文本那一档检查器不记，见 markFieldTaken）
 		c.f.Emit(&ir.Store{Base: base, Off: int(off), S: ir.K(0), T: ir.TInt})
 		c.noteBorrowed(d, t)
 	}
@@ -3956,6 +4124,7 @@ func (c *fc) newObject(x *ast.New, t check.Type) (ir.Val, check.Type, error) {
 		if err != nil {
 			return nil, t, err
 		}
+		c.shareText(v, f.Value, vt) // 那一个字段位置与来路那一边共用一块
 		c.f.Emit(&ir.Store{Base: d, Off: int(off), S: v, T: c.rt(vt), Size: c.l.narrow(vt)})
 		keeps = append(keeps, v) // 那个字段是这一份的持有者
 	}
@@ -4263,6 +4432,19 @@ func (c *fc) args(list []ast.Expr) ([]ir.Val, []ir.T, error) {
 		if err != nil {
 			return nil, nil, err
 		}
+		// 文本交进那一个位置是共用同一块：标上共享的记号，两边到尽头都不归还。
+		// 不标的话，调用方手里那一块可以被 `clear`、覆盖位置那一族当场收回，
+		// 而这一句调用的被调方正拿着同一个地址读写（实测：`drain(bag, bag[0])` 里
+		// `xs.clear()` 之后 `console.print(one)` 打出已经归还的内存）。
+		//
+		// en: Passing a text into that position shares one block: the shared mark makes neither
+		// side return it. Without the mark, the caller's block can be taken back on the spot by
+		// clear or by overwriting the position, while this call's callee is reading and writing
+		// the very same address - measured: after xs.clear() inside drain(bag, bag[0]),
+		// console.print(one) prints memory already returned.
+		if t.Kind == check.Str {
+			c.shareText(v, a, t)
+		}
 		vals = append(vals, v)
 		kinds = append(kinds, c.rt(t))
 	}
@@ -4309,13 +4491,10 @@ func (c *fc) callValue(x *ast.Call, ref check.CallRef, t check.Type) (ir.Val, ch
 	if err != nil {
 		return nil, t, err
 	}
-	// 借用的那几位留在这一句的账里还掉；不参与归还的那几位挑出去（它们本来就没有要还的东西）
+	// 按值调用走的每一个位置都是只读借用（函数值指向的只能是自己写的那一类函数，
+	// 而那一种函数的参数一律是借用）：所以这几个值都留在这一句的账里，
+	// 当场造出来的那几块到句尽头归还，被调方那一个位置只是借看一眼。
 	keep := []ir.Val{target}
-	for i, v := range vals {
-		if !check.FuncRefOf(ref.Sig, i) {
-			keep = append(keep, v)
-		}
-	}
 	d := c.f.Temp()
 	var dv ir.Val = d
 	has := t.Kind != check.NoRet
@@ -4378,12 +4557,12 @@ func (c *fc) argsOf(list []ast.Expr, fnName string) ([]ir.Val, []ir.T, error) {
 		if i >= len(fn.Params) {
 			break
 		}
-		if c.l.f.Moved[fn.Params[i]] {
-			continue // 带走：那一块被 return／写进字段／装进容器／又交出去了，另有出处
-		}
 		src := fn.Params[i].Default
 		if i < len(list) {
 			src = list[i]
+		}
+		if c.l.f.Moved[fn.Params[i]] {
+			continue // 带走：那一块被 return／写进字段／装进容器／又交出去了，另有出处
 		}
 		c.takeArg(vals[i], src)
 	}
@@ -4466,7 +4645,7 @@ func (c *fc) print(list []ast.Expr, toErr bool) error {
 			}
 			sink("@put_str", []ir.Val{txt}, []ir.T{ir.TInt})
 			// 打印机返回的那一整段是这一步现造的：字已经写完在屏幕上，这一块没别人拿着
-			c.f.Emit(&ir.Call{Fn: "@free", Args: []ir.Val{txt}, FT: []ir.T{ir.TInt}})
+			c.f.Emit(&ir.Call{Fn: "@free_guarded", Args: []ir.Val{txt}, FT: []ir.T{ir.TInt}})
 			continue
 		}
 		routine, k := printRoutine(t)
@@ -4940,6 +5119,7 @@ func (c *fc) threadAction(x *ast.Call, ref check.CallRef, t check.Type) (ir.Val,
 		c.guardNotNull(arg)
 	}
 	d := c.f.Temp()
+	c.shareText(arg, x.Args[1], at) // 那一条线程拿的是调用方手里同一块：标成共用，两边都不归还
 	c.f.Emit(&ir.Call{D: d, HasD: true, Fn: "@thread_start", Args: []ir.Val{target, arg},
 		FT: []ir.T{ir.TInt, ir.TInt}, RT: ir.TInt})
 	return d, t, nil
@@ -5367,6 +5547,7 @@ func (c *fc) stmt(s ast.Stmt) error {
 		// 初值那一句里中间读走的几步在这一趟还掉；最外面那一个（拷过之后的那一个）
 		// 留给这个名字，它是新的持有者。
 		c.closeWindow(outer, from, v)
+		c.shareText(v, x.Value, vt) // 这个名字与初值那一边共用一块：标上共享，两边都不归还
 		if g, ok := c.l.glob[x]; ok {
 			c.f.Emit(&ir.Mov{D: g, S: v, T: c.rtOf(x.Typ)})
 			c.takeTop(g, x, vt, copied) // 静态槽那个位置留给程序尽头归还（原因见 takeTop 的说明）
@@ -5439,6 +5620,9 @@ func (c *fc) stmt(s ast.Stmt) error {
 		// `return xs[0][0]` 的那个 `xs[0]` 是本帧中间读走的一步，出这一帧之前还掉；
 		// 返回的那一个位置（拷过之后的那一个）留给调用方。
 		c.closeWindow(outer, from, v)
+		// 文本要在出这一帧之前标上共享：源那一个名字也是本帧登记的持有者，
+		// 下面那一条出帧的路会把它归还掉，而调用方手里就是同一块。
+		c.shareText(v, x.Val, t)
 		// 退出清理代码：这一帧到此为止，登记过的都还掉——**除了那一个可能正是交出去的值自己的位置**
 		if err := c.runFinaleTo(0); err != nil {
 			return err
@@ -5728,6 +5912,7 @@ func (c *fc) assign(x *ast.Assign) error {
 	}
 	// 等号右边那一句里中间读走的几步在这一趟还掉，最外面那一个交给左边那个位置。
 	c.closeWindow(outer, from, v)
+	c.shareText(v, x.Value, vt) // 左边那一个位置与右边那一边共用一块：标上共享，两边都不归还
 	return c.storeTo(x.Target, v, vt)
 }
 
@@ -5821,6 +6006,7 @@ func (c *fc) storeToPath(target ast.Expr, v ir.Val, vt check.Type) ([]ir.Val, er
 			// `d[k] = v` 与 `d.add(k, v)` 是同一条语言规则：没有这个键就是添一条，
 			// 所以这里不能走 @map_at——那一条找不到键要抛 10032 号。
 			// 键的类型不含小数，所以它不必先转位型。
+			c.shareText(at, t.At, bt.Args[0]) // 桶里那一个键的位置与来路那一边共用一块
 			if err := c.mapStore(base, at, c.bitsOf(v, vt), true, vt, t.At, bt.Args[0]); err != nil {
 				return nil, err
 			}

@@ -4,13 +4,13 @@
 // 这一份不引用门面里的任何一个类：包内文件不许互相引用（实测编译器报
 // "libs/web_test/cyc.nf 与 ./widget.nf 互相引用"），所以这里只有字符串进、字符串出。
 //
-// 写这一份时守住两条：一个表达式不能跨行；下面的参数只读不改、也不留下那份值，
-// 所以一律标 `ref`——调用方把名字交进来，交完那个名字仍归调用方使用。
+// 写这一份时守住两条：写在开括号里面的内容可以换行；下面的参数交进来的是只读借用——
+// 调用方把名字交进来，交完那个名字仍归调用方使用。
 
 // 握手那一段文本。不带 Origin，也不带别的：Chrome 从 111 起校验来源，带上反而被拒绝
 // （实测：带 Origin 回 403 Forbidden，不带回 101）。
 // en: The handshake text, with no Origin and nothing else: Chrome checks the source from version 111 on, so sending one is what gets the request refused (measured: with Origin 403, without it 101).
-export method build_handshake(port:int, ref ws_path:string):string {
+export method build_handshake(port:int, ws_path:string):string {
     let crlf:string = "\u000D\u000A"
     let req:string = "GET " + ws_path + " HTTP/1.1" + crlf
     req = req + "Host: 127.0.0.1:" + number.to_string(port) + crlf
@@ -24,18 +24,18 @@ export method build_handshake(port:int, ref ws_path:string):string {
 // 写成一段 JSON 字符串：两头带引号，中间交给 text.escape_json。JS 里那一段也用这一种
 // （JSON 的字符串写法是 JS 的子集）。
 // en: Writes a text as a JSON string: quotes on both ends and text.escape_json in between. The JS we evaluate uses the same form, since JSON string syntax is a subset of JS.
-export method json_string_of(ref value:string):string {
+export method json_string_of(value:string):string {
     return "\"" + text.escape_json(value) + "\""
 }
 
-method js_string(ref value:string):string {
+method js_string(value:string):string {
     return json_string_of(value)
 }
 
 // 取头 count 个字符，不足那么多就整个返回。语言的 slice 拒绝止点大于长度
 // （越界是 10031 号），而报错那句要带上的答复常常本来就是短的。
 // en: Takes the first count characters, or the whole text when it is shorter. The language's slice refuses an end past the length (10031), while the reply quoted in an error message is often short to begin with.
-export method first_chars_of(ref value:string, count:int):string {
+export method first_chars_of(value:string, count:int):string {
     let n:int = length(value)
     if (count < n) {
         n = count
@@ -47,7 +47,7 @@ export method first_chars_of(ref value:string, count:int):string {
 // base64 都在这一层下面（实测：读到消息顶层的位置会得到空，后面每条命令都被当成
 // 浏览器层的，答复是 -32601 'Page.navigate' wasn't found）。
 // en: Reads one slot under result in a reply, or a null handle. sessionId, targetId and the screenshot's base64 all live at that level; reading the slot at the top of the message instead gives nothing and every command is then treated as browser-level.
-export method reply_field_of(ref answer:string, ref key:string):string {
+export method reply_field_of(answer:string, key:string):string {
     let doc:Json = json.parse(answer)
     if (doc == null) {
         throw (204, "答复不是一段 JSON：" + first_chars_of(answer, 60))
@@ -68,7 +68,7 @@ export method reply_field_of(ref answer:string, ref key:string):string {
 // 把一条截图答复里那串 base64 解码成 png 的字节。解不开是语言的 10014 号，
 // 答复里没有那个字段是 204 号。
 // en: Turns the base64 inside a screenshot reply into png bytes. Base64 that will not decode is the language's 10014; a reply without that slot is 204.
-export method png_from_reply_of(ref answer:string):bytes {
+export method png_from_reply_of(answer:string):bytes {
     let data:string = reply_field_of(answer, "data")
     if (data == null) {
         throw (204, "答复里没有 data 那一段：" + first_chars_of(answer, 80))
@@ -82,7 +82,7 @@ const kind_xpath:int = 2
 const kind_text:int = 3
 
 // XPath 的表达式：归一化空白、位置从 0 起（负数取第一个命中）。
-method xpath_expression(ref xpath:string, position:int):string {
+method xpath_expression(xpath:string, position:int):string {
     let head:string = "document.evaluate(" + js_string(xpath) + ", document, null, "
     if (position < 0) {
         return "(" + head + "XPathResult.FIRST_ORDERED_NODE_TYPE, null).singleNodeValue)"
@@ -93,7 +93,7 @@ method xpath_expression(ref xpath:string, position:int):string {
 // 按可见文字找：先归一化首尾与中间多余的空白，再看是否包含那段文字。
 // 后面的 not(.//*) 只留最里层的那一个：整张页面从 html 到 body 都"包含"那段文字，
 // 不留最里层就会定位到 <html> 上（与 Playwright 的 text= 判据相同：按子串匹配，不要求整段相等）。
-method text_expression(ref needle:string, position:int):string {
+method text_expression(needle:string, position:int):string {
     let quoted:string = js_string(needle)
     let innermost:string = "//*[contains(normalize-space(.)," + quoted + ")][not(.//*[contains(normalize-space(.)," + quoted + ")])]"
     if (position >= 0) {
@@ -105,7 +105,7 @@ method text_expression(ref needle:string, position:int):string {
 // 一个元素在 JS 里的写法。kind 用上面那三个号；position 负数取第一个命中，
 // 非负数是复数结果里的第几个（find_elements_by_css 返回的那些就是这么定位自己的）。
 // en: How one element is written inside the JS. The kind is one of the three numbers above; a negative position means the first hit and a non-negative one means the n-th of a plural result, which is how the elements returned by find_elements_by_css locate themselves.
-export method find_expression(kind:int, ref target:string, position:int):string {
+export method find_expression(kind:int, target:string, position:int):string {
     if (kind == kind_xpath) {
         return xpath_expression(target, position)
     }
@@ -122,7 +122,7 @@ export method find_expression(kind:int, ref target:string, position:int):string 
 // 多少个元素：三种定位各一条。返回的是文本，因为 json.to_text 只答文本，
 // 数与真假那两种它返回空句柄。
 // en: How many elements there are, one expression per locating kind. The answer comes back as text because json.to_text only answers for text; a number or a boolean would give it a null handle.
-export method count_expression(kind:int, ref target:string):string {
+export method count_expression(kind:int, target:string):string {
     let quoted:string = js_string(target)
     if (kind == kind_css_local) {
         return "String(document.querySelectorAll(" + quoted + ").length)"
@@ -137,7 +137,7 @@ export method count_expression(kind:int, ref target:string):string {
 // 把一段动作接在一个元素后面：元素先找出来，动作里统一用 el 指它（找不到就是 undefined，
 // 库那边返回空句柄）。
 // en: Appends an action onto an element lookup: the element is found first and the action body refers to it as el, so a missing element reads as undefined and the library turns that into a null handle.
-export method page_script(ref find:string, ref body:string):string {
+export method page_script(find:string, body:string):string {
     return "(function(el){" + body + "})(" + find + ")"
 }
 
@@ -145,20 +145,20 @@ export method page_script(ref find:string, ref body:string):string {
 // 这里判的是标签名，不是"有没有 value 字段"：`<li>` 也有 value（HTMLLIElement 上那是个数字，
 // 未设置时是 0），用 `el.value===undefined` 判会读成 "0"（实测）。
 // en: The script that reads an element's text: the three input-capable tags answer with their value, any other element with its text. The test is on the tag name, not on whether a value field exists, because <li> also carries a value (a number that reads back as "0").
-export method read_text_script(ref find:string):string {
+export method read_text_script(find:string):string {
     return page_script(find, "if(!el){return undefined}var t=el.tagName;if(t===\"INPUT\"||t===\"TEXTAREA\"||t===\"SELECT\"){return String(el.value)}return String(el.textContent)")
 }
 
 // 写字：可输入的三种元素先清空、赋值，再派发 input 与 change 事件，页面绑定的监听收得到；
 // 别的元素改的是其中的文字。
 // en: The script that types into an element through its own setter and then dispatches input and change, so a page built on framework state updates as well.
-export method write_text_script(ref find:string, ref value:string):string {
+export method write_text_script(find:string, value:string):string {
     return page_script(find, "if(!el){return undefined}var v=" + js_string(value) + ";var t=el.tagName;if(t!==\"INPUT\"&&t!==\"TEXTAREA\"&&t!==\"SELECT\"){el.textContent=v;return v}el.value=\"\";el.value=v;el.dispatchEvent(new Event(\"input\",{bubbles:true}));el.dispatchEvent(new Event(\"change\",{bubbles:true}));return String(el.value)")
 }
 
 // 元素在页面上的方框，写成"左,上,宽,高"四个数用逗号隔开的一段文本。
 // en: The script that measures an element's border box and answers with one text, "x,y,w,h", in page coordinates.
-export method box_script(ref find:string):string {
+export method box_script(find:string):string {
     return page_script(find, "if(!el){return undefined}var r=el.getBoundingClientRect();return [r.left,r.top,r.width,r.height].join(\",\")")
 }
 
@@ -168,38 +168,38 @@ export method box_script(ref find:string):string {
 // 那一页的链接在上边 657 像素那一行，落在视口之外，鼠标事件送过去不生效）。
 // 只有鼠标相关的几条调用走这一句，所以"先滚动"只发生在点击、双击、悬停之前；读方框那一条不动页面。
 // en: The script that scrolls an element to the middle of the viewport and answers with the coordinates of its box centre, measured after that scroll.
-export method center_script(ref find:string):string {
+export method center_script(find:string):string {
     return page_script(find, "if(!el){return undefined}el.scrollIntoView({block:'center',inline:'center'});var r=el.getBoundingClientRect();return String(Math.round(r.left+r.width/2))+\",\"+String(Math.round(r.top+r.height/2))")
 }
 
 // 在不在页面上（不管看不看得见）：返回 "1" 或 "0"。
 // en: The script that asks whether an element is present.
-export method exists_script(ref find:string):string {
+export method exists_script(find:string):string {
     return page_script(find, "return el?\"1\":\"0\"")
 }
 
 // 看不看得见：有画出来的方框就算看得见。返回 "true"/"false"。
 // en: The script that asks whether an element is visible: it has to have a box and must not be hidden, collapsed or transparent.
-export method visible_script(ref find:string):string {
+export method visible_script(find:string):string {
     return page_script(find, "if(!el){return \"false\"}return String(el.getClientRects().length>0)")
 }
 
 // 能不能用：带 disabled 的那一种返回 "false"。
 // en: The script that asks whether an element can be used, counting both the element's own disabled attribute and a disabled fieldset.
-export method enabled_script(ref find:string):string {
+export method enabled_script(find:string):string {
     return page_script(find, "if(!el){return \"false\"}return String(!el.disabled)")
 }
 
 // 滚到看得见的位置。
 // en: The script that scrolls one element to the middle of the viewport.
-export method scroll_script(ref find:string):string {
+export method scroll_script(find:string):string {
     return page_script(find, "if(!el){return undefined}el.scrollIntoView();return undefined")
 }
 
 // 读一个属性。元素没有那个属性时页面里返回 undefined，答复里就没有 `value` 字段，
 // 库这一侧返回空句柄（脚本里要先判 `!= null` 再拿去比，拿空句柄去比是运行期 10092）。
 // en: The script that reads one attribute of an element; an attribute the element does not have reads back as an empty text.
-export method attribute_script(ref find:string, ref name:string):string {
+export method attribute_script(find:string, name:string):string {
     return page_script(find, "if(!el){return undefined}var v=el.getAttribute(" + js_string(name) + ");return v===null?undefined:String(v)")
 }
 

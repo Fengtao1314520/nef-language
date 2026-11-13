@@ -706,6 +706,11 @@ var stdDocs = map[string]StdDoc{
 		En: "Removes a key; a key that is not there throws nothing and leaves the container as it was. The record removed is destroyed on the spot.",
 		Eg: "let d: dict<string, int> = {}\nd.add(\"甲\", 1)\nd.remove(\"甲\")",
 	},
+	"dict.take": {
+		Zh: "把一个键对应的那一份值摘出来交给接住它的名字。摘走之后桶里那一个位置读回来是 null，那条记录还在容器里（contains 仍然为真，length 不少一）；键不存在时抛 10032。值那一种是拷贝时不开这一条：读一次就在手上，要删那条记录写 remove。",
+		En: "Takes the value under a key out for the name that receives it. That bucket position then reads back as null while the entry stays in the container (contains is still true and length does not drop); a missing key throws 10032. A value type, which is a copy, has no take: read it once and it is yours, use remove to drop the entry.",
+		Eg: "class Note { body:string }\nlet d: dict<string, Note> = {}\nd.add(\"甲\", new Note(body: \"第一段\"))\nlet one: Note = d.take(\"甲\")",
+	},
 	"dict.values": {
 		Zh: "取全部值，返回一份新的 list<V>。",
 		En: "Returns a new list<V> of every value.",

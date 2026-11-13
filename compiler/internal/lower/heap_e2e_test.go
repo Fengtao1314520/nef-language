@@ -197,19 +197,19 @@ for (i:int in 0 until @N@) {
 }
 console.print(total)
 `},
-		// 同一段负载只差一处：被调方把值 `return` 出去。释放判据是"这个参数除了被返回没有
-		// 别的外流，而每一条带值的 return 返回的都是它"（`Facts.Back`）：递进去的那个名字
-		// 交出之后就作废 ⇒ 接住结果的那个位置是唯一的持有者。
-		// 识别不出这种写法的照旧不释放：`return h.peer`（从字段读出来的）那一行仍在下面单独覆盖。
-		{"交给带走的函数（被调方把它 return 出去）", true, `
-method passOn(xs:list<int>):list<int> {
-    return xs
+		// 同一段负载只差一处：那一个名字把值交进字段那一个位置。释放判据是"这一块从此由那个位置持有，
+		// 源名字交出之后就作废"（`Facts.Taken`／`Facts.Moved` 那两份记录）。
+		// 旧规则里"被调方把参数原样 return 出去"那一行已经写不出来了：实参是只读借用。
+		{"写进 class 字段那一个位置", true, `
+class Holder {
+    data:list<int>
 }
 let total:int = 0
 for (i:int in 0 until @N@) {
     let acc:list<int> = [i]
-    let got:list<int> = passOn(acc)
-    total = total + length(got)
+    let h:Holder = new Holder(data: [])
+    h.data = acc
+    total = total + length(h.data)
 }
 console.print(total)
 `},
@@ -233,6 +233,8 @@ console.print(total)
 		// 三条各覆盖一种：dict 的 class 值、list 里的文本、add 命中已有键时交进来的那个键。
 		// 每一轮都只覆盖、不再去读那个位置——读了不拿走，读出来的那一份归谁另有单独的覆盖点
 		// （下面那一条验证它），混在这里就测不出覆盖这一步了。
+		// 那一个键当场造、当场放进位置，除那一个位置没人拿着它，所以不写共享的标记；
+		// 先给一个名字再放进去的形状在下面"共用过的文本键"那一条里量。
 		{"覆盖 dict 的那个位置（换下来的 class 值）", true, `
 class Row {
     n:int
@@ -240,10 +242,8 @@ class Row {
 let total:int = 0
 for (i:int in 0 until @N@) {
     let d:dict<string, Row> = {}
-    let k1:string = "甲".slice(0, 1)
-    d.add(k1, new Row(n: i))
-    let k2:string = "甲".slice(0, 1)
-    d[k2] = new Row(n: i + 1)
+    d.add("甲".slice(0, 1), new Row(n: i))
+    d["甲".slice(0, 1)] = new Row(n: i + 1)
     total = total + length(d)
 }
 console.print(total)
@@ -261,8 +261,7 @@ console.print(total)
 let total:int = 0
 for (i:int in 0 until @N@) {
     let d:dict<string, int> = {"甲": 1}
-    let k:string = "甲".slice(0, 1)
-    d.add(k, 2)
+    d.add("甲".slice(0, 1), 2)
     total = total + length(d)
 }
 console.print(total)
@@ -273,10 +272,21 @@ console.print(total)
 let total:int = 0
 for (i:int in 0 until @N@) {
     let d:dict<string, string> = {}
-    let k:string = "甲".slice(0, 1)
-    let v:string = "旧旧".slice(0, 2)
-    d.add(k, v)
+    d.add("甲".slice(0, 1), "旧旧".slice(0, 2))
     total = total + length(d)
+}
+console.print(total)
+`},
+		// 先给一个名字、再放进容器那一个位置的文本：那一块从这一句起是共用的，块头带着标记，
+		// 名字到尽头不还、容器到尽头也不还——每轮漏的就是那一个键的 32 字节。
+		// 这一条钉的是共享那一步的代价：文本不可变，宁可留一块内存，也不多拆一次。
+		{"共用过的文本键（名字与位置各拿一份，两块都不还）", false, `
+let total:int = 0
+for (i:int in 0 until @N@) {
+    let d:dict<string, int> = {}
+    let k:string = "甲".slice(0, 1)
+    d.add(k, i)
+    total = total + length(d) + length(k)
 }
 console.print(total)
 `},
@@ -328,8 +338,7 @@ class Row2 {
 let total:int = 0
 for (i:int in 0 until @N@) {
     let d:dict<string, Row2> = {}
-    let k:string = "甲".slice(0, 1)
-    d.add(k, new Row2(n: i, m: i))
+    d.add("甲".slice(0, 1), new Row2(n: i, m: i))
     total = total + length(d)
 }
 console.print(total)
@@ -347,10 +356,8 @@ class Row {
 let total:int = 0
 for (i:int in 0 until @N@) {
     let d:dict<string, Row> = {}
-    let k1:string = "甲".slice(0, 1)
-    d.add(k1, new Row(n: i, kids: [i, i]))
-    let k2:string = "甲".slice(0, 1)
-    d[k2] = new Row(n: i + 1, kids: [i])
+    d.add("甲".slice(0, 1), new Row(n: i, kids: [i, i]))
+    d["甲".slice(0, 1)] = new Row(n: i + 1, kids: [i])
     total = total + length(d)
 }
 console.print(total)
@@ -485,22 +492,21 @@ for (i:int in 0 until @N@) {
 }
 console.print(total)
 `},
-		// 同一段负载把 list 换成被调方 return 出去的：递进去的那一块出了被调方后只剩结果这个位置持有。
-		{"直接交一只新造的list（被调方带走）", true, `
-method passOn(xs:list<int>):list<int> {
-    return xs
-}
+		// 同一段负载把那一块交给容器那一个位置：写进去之后由那个位置持有，圈尾随容器一起散。
+		// 旧规则里"被调方把参数原样 return 出来"那一行写不出来了（实参是只读借用）。
+		{"当场新造的一块交给容器那个位置", true, `
 let total:int = 0
 for (i:int in 0 until @N@) {
-    let got:list<int> = passOn([i, i])
-    total = total + length(got)
+    let bag:list<list<int>> = []
+    bag.add([i, i])
+    total = total + length(bag[0])
 }
 console.print(total)
 `},
 		// 被调方**自己新造**一个值 `return` 给调用方时，调用方原本不敢释放（被调方也许还把
-		// 同一块写在别处），所以每一圈那 88 字节无人认领。上面那条 `passOn` 返回的是递进去的
-		// 那一块，`Facts.Back` 能证明只有结果这一个出处，所以是 0。这一行覆盖的写法需要为
-		// 每条函数证明"返回的那一块没有别的持有者"才敢收窄；该证明规则实现后这一族量回 0。
+		// 同一块写在别处），所以每一圈那 88 字节无人认领。上面两行交出去的位置由那一个位置
+		// 单独持有，出处只有一处，所以是 0。这一行覆盖的写法需要为每条函数证明"返回的那一块
+		// 没有别的持有者"才敢收窄；该证明规则实现后这一族量回 0。
 		{"被调方新造一个值 return 给调用方（证明返回块无其他持有者后调用方可释放）", true, `
 method build(n:int):list<int> {
     return [n]
@@ -514,18 +520,15 @@ console.print(total)
 `},
 		// 旧规则下这一条是 104 字节／圈：`return h.peer` 只把字段里那个句柄复制一份给调用方，
 		// `h` 那一侧还持有同一块，所以整帧不许释放，多出的是 Holder 自身那 16 字节。
-		// 现行规则下，`h.peer` 读出去就是把那个位置交走，读完那个位置为空，
-		// Holder 照常在帧尾释放 ⇒ 104 → 88。
-		// 剩下的 88 来自"被调方自己新造一个值 return 给调用方时调用方不敢释放"；
-		// 该场景已被证明安全：这条函数的每一条 return 返回的都是当场新造的或从自己那个位置
-		// 作废出来的那一份 ⇒ 88 → 0（上面两行）。
-		{"return 把字段里的句柄交出去（源头已空；交回的那一块归调用方）", true, `
-class Holder {
-    peer:list<int>
-}
+		// 实参一律改成只读借用之后 `h` 是只读借用的参数，`return h.peer` 要把字段里那一份交给调用方，
+		// 编译期就拒；字段没有摘出来的写法（可变数据那一段留着之后，可变字段那一读照旧交出，
+		// 但只在字段所属的那个类型自己的方法里交得出去）。这一行改走字典那一个位置（字典那一个位置摘出来的写法
+		// `take`）：摘出来的那一份归接住它的名字，桶里那一个位置读回来是 null。剩下的 88 来自
+		// "被调方自己新造一个值 return 给调用方时调用方不敢释放"，同一族上面两行已经把它证掉 ⇒ 0。
+		{"从字典那一个位置摘出来交给调用方", true, `
 method hand(n:int):list<int> {
-    let h:Holder = new Holder(peer: [n])
-    return h.peer
+    let d:dict<string, list<int>> = {"甲": [n]}
+    return d.take("甲")
 }
 let total:int = 0
 for (i:int in 0 until @N@) {
@@ -592,7 +595,7 @@ console.print(total)
 class Note {
     n:int
 }
-method onlyRead(ref n:Note):int {
+method onlyRead(n:Note):int {
     return n.n
 }
 let total:int = 0
@@ -602,18 +605,18 @@ for (i:int in 0 until @N@) {
 }
 console.print(total)
 `},
-		// 同一份值经被调方 `return` 转手回来，由接住它的那一个 `let` 位置持有；实现后回到 0。
+		// 从容器那一个位置摘出来、经被调方 `return` 转手回来，由接住它的那一个 `let` 位置持有；实现后回到 0。
 		{"摘出来的 class 转手回来", true, `
 class Note {
     n:int
 }
-method passOn(n:Note):Note {
-    return n
+method passOn(cs:list<Note>):Note {
+    return cs.remove_at(0)
 }
 let total:int = 0
 for (i:int in 0 until @N@) {
     let cs:list<Note> = [new Note(n: i)]
-    let got:Note = passOn(cs.remove_at(0))
+    let got:Note = passOn(cs)
     total = total + got.n
 }
 console.print(total)

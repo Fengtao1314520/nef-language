@@ -258,7 +258,7 @@ func (b *pb) self(v, desc ir.Val) ir.Val {
 // en: free hands a block back to the heap (@free returns nothing: whether it was returned, or
 // whether that was even the block, is judged by the runtime).
 func (b *pb) free(v ir.Val) {
-	b.emit(&ir.Call{Fn: "@free", Args: []ir.Val{v}, FT: []ir.T{ir.TInt}})
+	b.emit(&ir.Call{Fn: "@free_guarded", Args: []ir.Val{v}, FT: []ir.T{ir.TInt}})
 }
 
 // orNull 返回"句柄是空的就是 null，不是空的就算 body 那一段"。

@@ -58,9 +58,11 @@ func TestStateCellsAreNotStatic(t *testing.T) {
 // the body is read, and the sentence this layer raises itself, which needs a cell because closing
 // handles clobbers the registers. On 2026-11-12 HTTP added httpDeflate, whether the response is
 // deflate-compressed, written where the body read starts by querying Content-Encoding and read at
-// the end to decide whether to unpack it itself, taking 252,248 to 252,256.
+// the end to decide whether to unpack it itself, taking 252,248 to 252,256. On 2026-11-12 the
+// borrow table added two cells - the count and 64 slots of handles handed out as borrows -
+// taking 252,256 to 252,776.
 func TestStateBlockBytes(t *testing.T) {
-	const want = 252256
+	const want = 252776
 	if got := StateBytes(); got != want {
 		t.Errorf("每一条线程的状态块现在是 %d 字节，先前钉的是 %d", got, want)
 	}

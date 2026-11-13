@@ -383,14 +383,11 @@ func (p *parser) parseFunc(export, isMethod bool) (*ast.Func, error) {
 }
 
 func (p *parser) parseParam() (*ast.Param, error) {
-	// 参数位置上 `ref` 只接受一次：写第二次时落到 expectName，
-	// 报"想要一个名字"（检查阶段再把 `ref` 本身当名字拒绝）。
-	isRef := p.eatName("ref")
 	nameTok, err := p.expectName()
 	if err != nil {
 		return nil, err
 	}
-	pm := &ast.Param{Pos: posOf(nameTok), NameText: nameTok.Text, Ref: isRef}
+	pm := &ast.Param{Pos: posOf(nameTok), NameText: nameTok.Text}
 	if err := p.expectOp(":"); err != nil {
 		return nil, err
 	}
@@ -753,28 +750,23 @@ func (p *parser) parseType() (ast.Type, error) {
 	return t, nil
 }
 
-// parseFuncType 读 `fn(参数类型, …):返回类型`。`ref` 写在参数类型前面，与声明那一侧同一个记号。
-// 冒号与返回类型都没有时就是没有返回值，与 `method f(x:int)` 同一条。
+// parseFuncType 读 `fn(参数类型, …):返回类型`。参数类型前面不写任何记号：实参一律是只读借用，
+// 借用不需要在类型里说出来。冒号与返回类型都没有时就是没有返回值，与 `method f(x:int)` 同一条。
 //
-// en: parseFuncType reads `fn(param types…):return type`. `ref` sits in front of a parameter type
-// and is the same mark as on a declaration. With neither a colon nor a return type the function
-// returns nothing, the same as `method f(x:int)`.
+// en: parseFuncType reads `fn(param types…):return type`. Nothing sits in front of a parameter
+// type - an argument is always a read-only borrow, so the type does not have to say so. With
+// neither a colon nor a return type the function returns nothing, the same as `method f(x:int)`.
 func (p *parser) parseFuncType() (ast.Type, error) {
 	t := p.advance() // fn
 	p.advance()      // (
 	ft := &ast.FuncType{Pos: posOf(t)}
 	p.skipLines()
 	for !p.opIs(")") {
-		ref := false
-		if p.isName("ref") {
-			p.advance()
-			ref = true
-		}
 		pt, err := p.parseType()
 		if err != nil {
 			return nil, err
 		}
-		ft.Params = append(ft.Params, ast.FuncParam{Typ: pt, Ref: ref})
+		ft.Params = append(ft.Params, ast.FuncParam{Typ: pt})
 		p.skipLines()
 		if !p.eatOp(",") {
 			break

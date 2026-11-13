@@ -95,14 +95,11 @@ const (
 	// 它带一个尖括号参数，那一个是被起的那个函数的返回类型：`Thread<int>`，`wait()` 返回 `int`。
 	// 名字走到头自动等它跑完并归还那一块（`@thread_join`），语言里没有"不等了"的写法。
 	Thread
-	// FuncVal 是函数值的类型：`fn(int,ref string):int`。Args 里第一个是返回类型（没有返回值时
-	// 是 NoRet），往后依次是参数类型；参数是借用时那一项的 Kind 是 Borrow。
+	// FuncVal 是函数值的类型：`fn(int, string):int`。Args 里第一个是返回类型（没有返回值时
+	// 是 NoRet），往后依次是参数类型。自己写的函数与方法每一个参数都是只读借用（2026-11-13：
+	// `ref` 记号取消），所以函数类型里不再需要"这一个位置是借来的"那一层记号。
 	// 它是 8 个字节的一个入口地址，按值拷贝、不是句柄、不进容器、不装箱、也打印不出来。
 	FuncVal
-	// Borrow 只出现在函数类型的 Args 里：那一个参数是只读借用（参数前写了 `ref`）。
-	// 它与 FuncVal 一起被 sameType 逐层比较，所以 `fn(string):int` 与 `fn(ref string):int`
-	// 是两个类型，交错了就是类型不符。
-	Borrow
 )
 
 func (k Kind) String() string {
@@ -145,8 +142,6 @@ func (k Kind) String() string {
 		return "无返回值"
 	case FuncVal:
 		return "fn"
-	case Borrow:
-		return "ref"
 	case ErrT:
 		return "错误"
 	default:
@@ -191,8 +186,6 @@ func (t Type) String() string {
 		return bareName(t.Name)
 	case FuncVal:
 		return t.funcText()
-	case Borrow:
-		return "ref " + t.Args[0].String()
 	default:
 		if t.Name != "" {
 			return bareName(t.Name)
@@ -201,12 +194,11 @@ func (t Type) String() string {
 	}
 }
 
-// funcText 把函数类型写成给读者看的一串：`fn(int,ref string):int`。Args 的第一个是返回类型，
-// 没有返回值时不写冒号那一段；后面依次是参数类型，借用那一个前面多一个 `ref`。
+// funcText 把函数类型写成给读者看的一串：`fn(int,string):int`。Args 的第一个是返回类型，
+// 没有返回值时不写冒号那一段；后面依次是参数类型。
 //
-// en: funcText renders a function type for the reader: `fn(int,ref string):int`. Args[0] is the
-// return type and the colon disappears when nothing comes back; the rest are the parameter types,
-// a borrowed one carrying `ref` in front.
+// en: funcText renders a function type for the reader: `fn(int,string):int`. Args[0] is the
+// return type and the colon disappears when nothing comes back; the rest are the parameter types.
 func (t Type) funcText() string {
 	out := "fn("
 	for i, p := range t.Args[1:] {
@@ -222,37 +214,13 @@ func (t Type) funcText() string {
 	return out
 }
 
-// funcTypeOf 排一份函数类型：Args 第一位是返回类型，往后是参数；refs 说哪一些是只读借用。
+// funcTypeOf 排一份函数类型：Args 第一位是返回类型，往后是参数。
 //
-// en: funcTypeOf lays out one function type: Args[0] is the return type, the rest are parameters,
-// and refs says which of them are read-only borrows.
-func funcTypeOf(ret Type, params []Type, refs []bool) Type {
+// en: funcTypeOf lays out one function type: Args[0] is the return type, the rest are parameters.
+func funcTypeOf(ret Type, params []Type) Type {
 	args := []Type{ret}
-	for i, p := range params {
-		if i < len(refs) && refs[i] {
-			p = Type{Kind: Borrow, Name: "ref", Args: []Type{p}}
-		}
-		args = append(args, p)
-	}
-	return Type{Kind: FuncVal, Name: "fn", Args: args}
+	return Type{Kind: FuncVal, Name: "fn", Args: append(args, params...)}
 }
-
-// funcRefOf 判这份函数类型里第 i 个参数是不是借用（i 从 0 数，对应 Args 的第 i+1 位）。
-//
-// en: funcRefOf says whether the i-th parameter of this function type is borrowed (i counts from
-// zero and maps to Args[i+1]).
-func funcRefOf(t Type, i int) bool {
-	if t.Kind != FuncVal || i < 0 || i+1 >= len(t.Args) {
-		return false
-	}
-	return t.Args[i+1].Kind == Borrow
-}
-
-// FuncRefOf 是 funcRefOf 交给降级那一步看的那一份：这一个位置是不是只读借用。
-//
-// en: FuncRefOf is the copy of funcRefOf shown to the lowering step: whether this position is a
-// read-only borrow.
-func FuncRefOf(t Type, i int) bool { return funcRefOf(t, i) }
 
 // funcRetOf 给出函数类型的返回类型；没排上返回类型的是 NoRet。
 //
@@ -607,11 +575,25 @@ type Facts struct {
 	// return 返回的都是它 ⇒ 调用者拿结果的那个位置就是那块内存唯一的持有者。
 	// 判不上就不登记——漏登记会让一块内存无人认领，错登记会让两个持有者析构同一块。
 	Back map[any]bool
-	// Taken 记的是：读出来的**这一个字段**被带走了，读完要把字段那个位置写空。
+	// Taken 记的是：读出来的**这一个可变字段**被带走了，读完要把字段那个位置写空。
 	// 键就是那次读的语法节点（`*ast.Member`，或方法体里直接写的字段名 `*ast.Name`）。
 	// 只有交出才会记上——名字、实参、`return`、容器位置、盒子这五种持有者发生变更的地方；
 	// 只是顺着读一次（`o.i.n`、`o.list.add(x)`、`length(o.name)`）不记，那次读取没有新的持有者。
+	// 文本字段不记：那一份走共用，那一个位置不动。
+	//
+	// en: Taken records that THIS MUTABLE FIELD was carried away, so the field's position must be
+	// written empty after the read. The key is the syntax node of that read. Only a handover is
+	// recorded - the five places where the holder changes (name, argument, return, container
+	// position, box); a look-through (`o.i.n`, `o.list.add(x)`, `length(o.name)`) is not, since it
+	// creates no new holder. A text field is not recorded: that one is shared and the position
+	// stays (the sharing tier for text).
 	Taken map[ast.Expr]bool
+	// ParamBorrow 记的是：这一个参数只是借来看一眼，那一个位置到尽头不归还。
+	// 实参一律改成只读借用之后自己写的函数与方法的每一个参数都是借用，只有类型要挑一挑：
+	// 值类型与 struct 是拷贝（那一份归这一个位置），文本走的是共用（谁都不归还），
+	// 系统句柄根本当不了参数。剩下的那几种（class、容器、盒子、Json、bytes）才登记进借用表。
+	// 检查器一侧判过一次，降级照着发那一次登记，两侧不会分岔。
+	ParamBorrow map[*ast.Param]bool
 }
 
 // MemberKind 说一次 `.名字` 点出来的是什么。检查器认成员那一步算出来的种类，
@@ -804,6 +786,7 @@ func newFacts() *Facts {
 		ValueReturns: map[any]int{},
 		Back:         map[any]bool{},
 		Taken:        map[ast.Expr]bool{},
+		ParamBorrow:  map[*ast.Param]bool{},
 	}
 }
 
@@ -847,9 +830,15 @@ func RunWithFacts(p *Program, wantFacts bool) ([]Error, *Facts) {
 		c.file = f
 		c.collect(f)
 	}
+	// 被起的那一支函数要在查它的函数体之前认出来：它那一个参数收的是交过来的一份持仓，
+	// 不是只读借用（理由写在 thread.go 的 noteThreadEntries 那一段）。
+	// The started function has to be recognised before its body is checked: that parameter
+	// receives a holding handed over, it is not a read-only borrow.
+	c.noteThreadEntries(order)
 	for _, f := range order {
 		c.file = f
 		c.hoistedDecl = map[*ast.Decl]bool{}
+		c.liveTop = map[*ast.Decl]bool{}
 		c.checkImports(f)
 		// 本文件的类型别名先解一遍：环、右边写错，都要报在定义它的那一份文件里，
 		// 而且它右边用上的 import 名字要记在这一份文件的账上。
@@ -858,9 +847,15 @@ func RunWithFacts(p *Program, wantFacts bool) ([]Error, *Facts) {
 		for _, d := range f.Defs {
 			c.checkDef(d)
 		}
+		// 顶层语句这一段是唯一的按书写顺序算初值那一路：这一趟里读到后面才声明的顶层 let，
+		// 读到的是还没算出来的那个槽，所以拒绝只在这一段开着。
+		// en: the top-level statement pass is the only path where initialisers run in written
+		// order, so the read-before-initialised refusal is switched on for this stretch alone.
+		c.topFlow = true
 		for _, s := range f.Stmts {
 			c.stmt(s)
 		}
+		c.topFlow = false
 		// 实例的方法体排在"import 了却没用到"那两句之前：模板住在本文件的实例，
 		// 它的方法体里用到的 import 名字要算用上——晚一步就报成没用过。
 		c.drainPending(f.Path)
@@ -1087,13 +1082,19 @@ type Param struct {
 	Node *ast.Param
 }
 
-// takesRef 说这一个位置是不是 `ref` 收的只读借用。标准库那些签名 Node 为 nil，
-// 它们按只读借用规则处理，不在这里判断。
+// isUserParam 说这一个位置是不是自己写的函数或方法的那个参数。实参一律改成只读借用之后
+// 那样的参数一律是只读借用（`ref` 记号取消），所以判据就是"这一个位置是不是用户写的"。
+// 标准库那些签名 Node 为 nil，收不收留值由那一条动作自己定（`add` 收，`length` 不收）。
+// 系统给的句柄在那一条上另算：那一个位置交接出，否则被调方到帧尽头关一次、
+// 调用方手里那一个名字也跟着关一次。
 //
-// en: takesRef says whether this position is a read-only borrow taken with `ref`. A
-// standard-library signature has no Node: those follow the read-only borrow rule and are not
-// checked here.
-func (p Param) takesRef() bool { return p.Node != nil && p.Node.Ref }
+// en: isUserParam says whether this position is a parameter of a user-written function or
+// method. Since the read-only-argument rule such a parameter is always a read-only borrow (the ref marker is
+// gone), so the test is simply "is this a position the user wrote". Standard-library signatures
+// have no Node; whether that action keeps a value is decided per action (add keeps, length does
+// not). The system handles count separately there: that position transfers, otherwise the callee
+// closes once at the end of its frame and the caller's name closes once too.
+func (p Param) isUserParam() bool { return p.Node != nil }
 
 type field struct {
 	Name string
@@ -1253,16 +1254,41 @@ type Checker struct {
 	// hoistedDecl 记的是本文件顶层那些 let／const 的语法节点：名字与类型先收齐
 	// （先用后写那一条），值表达式和交出留到语句流跑到那一行再算。
 	// 按节点记：块里另写的同名 let 不算它，仍按重名规则拒绝。
+	// liveTop 记的是本文件顶层那些 let 里，语句流已经走到过初值的那一些：没走到过的名字虽然在
+	// hoistTopDecls 里登记了，读它得到的是还没算出来的那一份。
+	// en: liveTop marks the top-level lets whose initialiser the statement flow has reached; a
+	// name registered by hoistTopDecls but absent here still holds no value.
+	// topFlow 说现在走的是不是本文件顶层那一段语句流。
+	// en: topFlow marks the file top-level statement pass.
+	topFlow     bool
+	liveTop     map[*ast.Decl]bool
 	hoistedDecl map[*ast.Decl]bool
 	shared      map[string]bool
-	// borrowed 记"这一个名字是只读借用"，值写来路：接收者、遍历、ref 参数。
-	// 三处借用的规则相同（拿不到所有权，也就不能析构原来的对象），报错文案按来路区分。
+	// borrowed 记"这一个名字是只读借用"，值写来路：遍历、参数。
+	// 两处借用的规则相同（拿不到所有权，也就不能把那块内存析构掉），报错文案按来路区分。
 	//
-	// en: borrowed marks "this name is a read-only borrow" and keeps where it came from: the
-	// receiver, a loop variable, or a ref parameter. The three follow the same rule (a borrower
+	// en: borrowed marks "this name is a read-only borrow" and keeps where it came from: a loop
+	// variable, or a parameter. The two follow the same rule (a borrower
 	// gets no ownership, so it cannot destroy the original place); each source has its own
 	// error wording.
 	borrowed map[string]string
+	// threadTake 记的是：**被起的那一支函数**那一个参数节点。那一个位置收的是交过来的一份持仓
+	// ，所以它不进只读借用那一张表。登记的那一趟在
+	// thread.go 的 noteThreadEntries。
+	//
+	// en: threadTake holds the parameter node of a function started as a thread. That position
+	// receives a holding handed over (the handover into a thread's entry position stays a transfer), so it stays out of
+	// the read-only borrow table. noteThreadEntries in thread.go fills it.
+	threadTake map[*ast.Param]bool
+	// inTypeTest 说现在正在算的那一个表达式是 `(那一个 as object) is 类型` 里被问的那一半。
+	// 问一次不多出一个持有者：`class` 与 `struct` 的装箱发的是同一个句柄（`lower.box` 那一条），
+	// 所以那一句既不接手、也不该按交出记账，被问的那一个位置读完不动。
+	//
+	// en: inTypeTest says the expression being evaluated now is the half asked by
+	// `(that as object) is Type`. Asking adds no holder: boxing a `class` or `struct` hands back
+	// the same handle (the lower.box rule), so that line takes nothing and must not be booked as a
+	// handover - the position asked about keeps its handle.
+	inTypeTest bool
 	// borrowRead 与 Facts.BorrowRead 是同一张表（检查这一侧写、后端那一侧读），
 	// 内容与用处见 Facts 那一条注释。
 	borrowRead map[ast.Expr]bool
@@ -2439,12 +2465,10 @@ func (c *Checker) resolveType(t ast.Type, where ast.Pos) Type {
 			c.checkTypeUsable(ret, ft.Where())
 		}
 		params := make([]Type, 0, len(ft.Params))
-		refs := make([]bool, 0, len(ft.Params))
 		for _, p := range ft.Params {
 			params = append(params, c.resolveType(p.Typ, ft.Where()))
-			refs = append(refs, p.Ref)
 		}
-		fv := funcTypeOf(ret, params, refs)
+		fv := funcTypeOf(ret, params)
 		c.checkTypeUsable(fv, ft.Where())
 		return fv
 	}

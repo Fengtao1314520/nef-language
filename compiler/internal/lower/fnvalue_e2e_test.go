@@ -56,12 +56,12 @@ console.print(f(6), apply(f, 7))
 // 借用的那一位不接手，这一句走完就把读走的那两步归还；容器里那两个位置空着，格数不变。
 func TestFnValueBorrowedTextArgs(t *testing.T) {
 	got, code := run(t, `
-method by_length(ref a:string, ref b:string):int {
+method by_length(a:string, b:string):int {
     return length(a) - length(b)
 }
 
 let words:list<string> = ["短", "长一点的那一个"]
-let by:fn(ref string, ref string):int = by_length
+let by:fn(string, string):int = by_length
 let first:int = by(words[0], words[1])
 console.print(first, by("甲乙丙", "丁"), length(words))
 `)

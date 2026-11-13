@@ -108,9 +108,8 @@ console.print(full, path.file_name(full), path.extension(full))
 	if !strings.Contains(got, "docs\\SPEC.md SPEC.md md") {
 		t.Fatalf("三段交回的串不对：got %q", got)
 	}
-	// 借用之后原名字仍可使用；反过来"把文本交给一个名字"仍然被拒绝
-	if err := compileErr("let p:string = path.join(\"a\", \"b\")\nlet q:string = p\nconsole.print(p)\n"); err == nil ||
-		!strings.Contains(err.Error(), "交出去之后这个名字就空了") {
-		t.Fatalf("path 交回的文本交出后该拦下原名：err=%v", err)
+	// 借用之后原名字仍可使用；文本收到另一个名字里也是同一道理：那一份是共用的，不作废
+	if err := compileErr("let p:string = path.join(\"a\", \"b\")\nlet q:string = p\nconsole.print(p, q)\n"); err != nil {
+		t.Fatalf("path 交回的文本共用后该留着原名：err=%v", err)
 	}
 }

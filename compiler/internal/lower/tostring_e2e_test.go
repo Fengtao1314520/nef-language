@@ -79,17 +79,16 @@ console.print(s + "/" + s)
 let parts:list<string> = s.split("2")
 console.print(length(parts), parts[0], parts[1], parts[2])
 console.print(s[1], length(s))
-let t:string = s        // 文本是引用类型：交出去之后 s 就作废了
-console.print(t, length(t))
+let t:string = s        // 文本是共用的：s 交出去一份，自己照旧读得到
+console.print(t, length(t), s)
 `)
-	want := "12024/12024\n3 1 0 4\n2 5\n12024 5\n"
+	want := "12024/12024\n3 1 0 4\n2 5\n12024 5 12024\n"
 	if got != want || code != 0 {
 		t.Fatalf("to_string 的结果当文本用不对：\n got %q 码 %d\nwant %q", got, code, want)
 	}
-	// 返回值是真正的文本，不是临时缓冲：交出那一步同样要按规则拒绝
-	if err := compileErr("let s:string = number.to_string(1)\nlet t:string = s\nconsole.print(s)\n"); err == nil ||
-		!strings.Contains(err.Error(), "交出去之后这个名字就空了") {
-		t.Fatalf("to_string 的结果交出后该拦下原名：err=%v", err)
+	// 返回值是真正的文本，不是临时缓冲：交出去那一份之后原名还读得到
+	if err := compileErr("let s:string = number.to_string(1)\nlet t:string = s\nconsole.print(s)\n"); err != nil {
+		t.Fatalf("to_string 的结果共用后该留着原名：err=%v", err)
 	}
 }
 

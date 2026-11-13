@@ -19,7 +19,7 @@ method check_int(title:string, got:int, want:int):boolean {
 }
 
 let bad:int = 0
-let profile:string = args[0] + ""
+let profile:string = args[0]
 
 // 一、那个程序不在
 let code_one:int = -1

@@ -11,14 +11,14 @@
 // 答复里字段的形状（sessionId 在 result 位置里、一条消息切成几段）的原文已经取过一次，
 // 存在 selftest/data 那四份文本里，不起浏览器的检查用那份数据做。
 //
-// 这一份里那几个名字（exe、profile、start_url）要连着使用几回：库侧收参数的位置都标了
-// `ref`，传进去的是只读借用，交完名字仍在调用方手上。
+// 这一份里那几个名字（exe、profile、start_url）要连着使用几回：库侧收参数的位置是只读借用，
+// 传进去的是只读借用，交完名字仍在调用方手上。
 
 import wt from "libs/web_test"
 
-let exe:string = args[0] + ""
-let profile:string = args[1] + ""
-let start_url:string = args[2] + ""
+let exe:string = args[0]
+let profile:string = args[1]
+let start_url:string = args[2]
 let shot:string = profile + "/live.png"
 console.print("起这个浏览器:", exe)
 

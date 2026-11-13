@@ -49,9 +49,9 @@ method check_true(name:string, got:boolean):boolean {
 }
 
 let bad:int = 0
-let exe:string = args[0] + ""
-let profile:string = args[1] + ""
-let fixdir:string = args[2] + ""
+let exe:string = args[0]
+let profile:string = args[1]
+let fixdir:string = args[2]
 
 let browser:wt.Browser = wt.start(exe, profile, 8000, 5000)
 let shot:string = profile + "/element.png"
@@ -178,7 +178,7 @@ if (!ok18) {
 
 // 十九～二十一：复数定位返回一个元素列表。两条语言规则在这一段里都会走到：
 // 按位置读交出的是只读借用（`rows[1].read_text()`、`rows[1].click()` 顺着读与用都可以，读完那个位置还在），
-// 要把那一份接在名字上就得拷一份或者摘出来；逐个遍历走 for（遍历同样是只读借用，走完列表还是满的）。
+// 文本接在名字上共用同一块，不用拷；可变的那一种要摘出来。逐个遍历走 for（遍历同样是只读借用，走完列表还是满的）。
 let rows:list<wt.Element> = rows_page.find_elements_by_css(".row")
 let seen:int = 0
 for (el:wt.Element in rows) {

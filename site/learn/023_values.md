@@ -39,11 +39,11 @@ console.print(name, count, limit)
 const items:list<string> = ["书包"]   // 报：const 只能配值类型，这里是 list<string>
 ```
 
-`list` 属于引用类型，`const` 管不住它：名字不能改，指着的对象里面的内容照旧能改；再把它传出去一次（参数没写 `ref` 时就是交出），这个名字当场失效，`const` 反而名不副实。需要常量就写 `const limit:int = 100`，需要容器就用 `let`。
+`list` 属于引用类型，`const` 管不住它：名字不能改，指着的对象里面的内容照旧能改；再把它交出去一次（接给一个名字、写进容器或字段、装箱，都是交出），这个名字当场失效，`const` 反而名不副实。需要常量就写 `const limit:int = 100`，需要容器就用 `let`。
 
 ## 赋值与自增
 
-`x = v` 是赋值：值类型整份拷贝，引用类型交出所有权（完整规则见[值的所有权](/learn/026_ownership)）。`x++`、`x--` 只能用作独立语句，仅对 `int`、`float`、`byte` 有效。
+`x = v` 是赋值：值类型整份拷贝；引用类型里可变的那一种交出所有权，文本是几处共用同一块（完整规则见[值的所有权](/learn/026_ownership)）。`x++`、`x--` 只能用作独立语句，仅对 `int`、`float`、`byte` 有效。
 
 ```nf
 let total:int = 0

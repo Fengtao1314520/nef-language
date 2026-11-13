@@ -1,10 +1,10 @@
 // 示例程序五：一段文本统计词频，按第一次出现的顺序输出
-// 用到：split、slice、length、dict 的读写与 contains、清单的遍历交出的是只读借用，
+// 用到：split、length、dict 的读写与 contains、清单的遍历交出的是只读借用，
 //      按下标读那个位置交出的也是只读借用（读了不拿走，那个位置之后还在），
-//      借来的那一份要交给别人就先拷一份，所以 `counts.add` 与 `order.add` 交出去的都是 `slice` 出来的新文本，
-//      把值交进容器的那个位置就是接手：容器接手，原来的名字当场失效，
+//      文本交给一个名字或写进容器的一个位置都是共用同一块，所以 `counts.add` 与 `order.add`
+//      连着收同一个 key，key 不作废；可变的数据写进容器那个位置才叫接手，交出去的名字当场失效，
 //      缺键是 10032，所以添加新词之前先用 contains 查一次
-// en: Counts word frequencies in a text and reports them in order of first appearance. Covers split, slice and length, dictionary reads and writes with contains, that iterating and indexing both hand over a read-only borrow (the position keeps its value), so a borrowed text is copied with slice before it goes into a container, and that a missing key is 10032, which is why new words are checked with contains first.
+// en: Counts word frequencies in a text and reports them in order of first appearance. Covers split and length, dictionary reads and writes with contains, that iterating and indexing both hand over a read-only borrow (the position keeps its value), that text going into a name or a container position shares the same block - so counts.add and order.add can both take the same key, which stays usable - while a mutable value written into a container position is handed over and the old name stops working, and that a missing key is 10032, which is why new words are checked with contains first.
 
 let body:string = "the quick brown fox jumps over the lazy dog the fox and the hound"
 let words:list<string> = body.split(" ")
@@ -12,13 +12,12 @@ let words:list<string> = body.split(" ")
 let counts:dict<string, int> = {}
 let order:list<string> = []
 for (w:string in words) {
-    let key:string = w.slice(0, length(w))
+    let key:string = w
     if (counts.contains(key)) {
         counts[key] = counts[key] + 1
     } else {
-        let listed:string = w.slice(0, length(w))
         counts.add(key, 1)
-        order.add(listed)
+        order.add(key)
     }
 }
 

@@ -25,7 +25,7 @@ class Stack {
 }
 
 class Calc {
-    method run(ref expr:string):int {
+    method run(expr:string):int {
         let s:Stack = new Stack(cells: [0, 0, 0, 0, 0, 0, 0, 0], sp: 0)
         let tokens:list<string> = expr.split(" ")
         for (t:string in tokens) {

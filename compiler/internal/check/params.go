@@ -196,6 +196,7 @@ var stdParamNames = map[string][]string{
 	"dict.get":      {"key", "fallback"},
 	"dict.keys":     {},
 	"dict.remove":   {"key"},
+	"dict.take":     {"key"},
 	"dict.values":   {},
 
 	"hashset.add":        {"value"},
@@ -329,11 +330,11 @@ func ParamLabels(key string, params []Param, vararg bool) []string {
 	return out
 }
 
-// paramLabel 写一个参数在签名里的那一段：`ref 名字: 类型`。名字与类型都可能说不了，
+// paramLabel 写一个参数在签名里的那一段：`名字: 类型`。名字与类型都可能说不了，
 // 说不了的那一样就少写（`length` 收三种容器、`math.minimum` 的第二个跟着第一个走，
-// 那一个位置没有语言里能写的类型）。
+// 那一个位置没有语言里能写的类型）。参数前面不再有记号。
 //
-// en: paramLabel writes one parameter as it appears in a signature: `ref name: type`. Either half
+// en: paramLabel writes one parameter as it appears in a signature: `name: type`. Either half
 // may be unstatable - `length` takes three container kinds and `math.minimum`'s second parameter
 // follows the first - and whichever cannot be said is simply left out.
 func paramLabel(key string, i int, p Param) string {
@@ -345,18 +346,13 @@ func paramLabel(key string, i int, p Param) string {
 	if p.Typ.Kind != ErrT {
 		text = p.Typ.String()
 	}
-	// 只读借用在签名里照写：编辑器显示的那一行要与源码一致。
-	head := ""
-	if p.takesRef() {
-		head = "ref "
-	}
+	// 参数前面不写记号：自己写的函数与方法每一个参数都是只读借用，标准库那一张表里的
+	// 参数同在这一档，所以签名里这一位什么也没有。
 	switch {
 	case name != "" && text != "":
-		text = head + name + ": " + text
+		text = name + ": " + text
 	case name != "":
-		text = head + name
-	default:
-		text = head + text
+		text = name
 	}
 	// 带默认值的位置照源码写出来：省掉这一个实参是合法的，屏幕上那一行要说得清。
 	if p.Default != nil {

@@ -45,27 +45,6 @@ console.print("走完")
 	}
 }
 
-// TestFieldOverwriteKeepsOld 字段一侧维持现状：读出来不算交出，覆盖时不析构旧的，
-// 所以旧的那一块还能安全地使用（这里"漏一块"是语言明文规定的行为，不是错误）。
-func TestFieldOverwriteKeepsOld(t *testing.T) {
-	got, code := run(t, `
-class Node {
-    v:int
-}
-class Box {
-    inner:Node
-}
-let b:Box = new Box(inner: new Node(v: 1))
-let y:Node = b.inner
-b.inner = new Node(v: 2)
-y.v = 7
-console.print(y.v, b.inner.v)
-`)
-	if got != "7 2\n" || code != 0 {
-		t.Fatalf("覆盖字段不许拆别人手里那一块：得到 %q 码 %d", got, code)
-	}
-}
-
 // TestDictValueCycleStress 把"添、覆盖、读、删"混在一圈里跑八千圈：数要对、不能崩溃，
 // 也不能把还活着的东西析构掉（析构错了对象，这一圈就会读到 0 或抛出空句柄）。
 func TestDictValueCycleStress(t *testing.T) {
@@ -127,109 +106,128 @@ console.print(d["k"] + 1, d.contains("k"))
 	}
 }
 
-// TestTakeToNameThenBorrow 三条路混在一起：摘出来交给有名字的变量（由声明那个位置负责释放）、交给
-// 只读借用的用户函数（这一版不登记，宁可保留少量泄漏）、交给会带走的用户函数（被调方拿走，这里谁都不许释放）。
+// TestTakeToNameThenBorrow 三条路混在一起：摘出来交给有名字的变量（由声明那个位置负责释放）、
+// 读一个位置交给只读借用的用户函数、
+// 写进字段那一个位置（交接手，源名字交出之后就作废）。
 // 三千圈跑下来数对、不崩溃，说明这三套规则互不干扰。
 func TestTakeToNameThenBorrow(t *testing.T) {
 	got, code := run(t, `
 class Node {
     n:int
 }
-method hold(nd:Node):Node {
-    return nd
+class Hold {
+    item:Node
 }
-method peek(ref nd:Node):int {
+method peek(nd:Node):int {
     return nd.n
 }
 let total:int = 0
 for (i:int in 0 until 3000) {
     let ns:list<Node> = [new Node(n: i), new Node(n: i + 1)]
     let a:Node = ns.remove_at(0)
-    total = total + peek(ns[0]) + a.n + hold(a).n
+    let h:Hold = new Hold(item: a)
+    total = total + peek(ns[0]) + h.item.n
 }
 console.print(total)
 `)
 	if code != 0 {
 		t.Fatalf("混合三千圈退出码 %d（要 0）：\n%s", code, got)
 	}
-	// 每轮 (i+1) + i + i = 3i+1，三千圈 = 3×4,498,500 + 3,000 = 13,498,500
-	if got != "13498500\n" {
+	// 每轮 (i+1) + i = 2i+1，三千圈 = 2×4,498,500 + 3,000 = 9,000,000
+	if got != "9000000\n" {
 		t.Fatalf("混合三千圈的总数不对：得到 %q", got)
 	}
 }
 
-// TestHandBackRegistersReceiver 覆盖 return 转手位置的释放规则：被调方把参数原样 return 出来，
-// 递进去的那一块出了被调方只剩接住它的那个位置持有 ⇒ 那个位置登记成持有者、块尾释放。
+// TestHandBackRegistersReceiver 覆盖 return 那一侧的释放规则：被调方把从容器里摘出来的那一份
+// return 出来，递进去的那一块出了被调方只剩接住它的那个位置持有 ⇒ 那个位置登记成持有者、块尾释放。
 // 三千圈混两条路（读走的与当场新造的），释放早了就会读到已析构的块、总数就不对。
+//
+// 旧规则里"被调方把参数原样 return 出来"那一条已经走不通了：实参是只读借用，
+// `return 那一个参数` 在编译期就拒，所以这里换用容器那一个位置摘出来的那一份。
 func TestHandBackRegistersReceiver(t *testing.T) {
 	got, code := run(t, `
 class Note {
     n:int
 }
-method back(n:Note):Note {
-    return n
+method back(cs:list<Note>):Note {
+    return cs.remove_at(0)
+}
+method peek(cs:list<Note>):int {
+    return length(cs)
 }
 let total:int = 0
 for (i:int in 0 until 3000) {
-    let cs:list<Note> = [new Note(n: i)]
-    let got:Note = back(cs.remove_at(0))
-    total = total + got.n
+    let cs:list<Note> = [new Note(n: i), new Note(n: 7)]
+    let got:Note = back(cs)
+    total = total + got.n + peek(cs)
 }
 console.print(total)
 `)
 	if code != 0 {
 		t.Fatalf("转手回来三千圈退出码 %d（要 0）：\n%s", code, got)
 	}
-	if got != "4498500\n" {
+	// 每轮 i + 1（摘走一个之后容器里还剩一个）：4,498,500 + 3,000
+	if got != "4501500\n" {
 		t.Fatalf("转手回来三千圈的总数不对：得到 %q", got)
 	}
 }
 
-// TestHandBackTwoPathsNotRegistered 覆盖保守的一面：函数有两条带值的 return，只有一条返回
-// 这一个参数 ⇒ 无法确定接住的那个位置拿到的是哪一块 ⇒ 一笔都不许多释放（不释放是泄漏，错误析构是事故）。
+// TestHandBackTwoPathsNotRegistered 覆盖保守的一面：函数有两条带值的 return，只有一条把
+// 容器里那一块交出去，另一条当场新造 ⇒ 两条路递出来的块不是同一处来历，接住的那个位置
+// 只能按"return 出去的那一份归调用方"这一条通用规则释放，一笔画多了就是错误析构。
 func TestHandBackTwoPathsNotRegistered(t *testing.T) {
 	got, code := run(t, `
 class Note {
     n:int
 }
-method pick(n:Note, other:Note):Note {
-    if (n.n > 0) {
-        return n
+method pick(cs:list<Note>, fresh:boolean):Note {
+    if (fresh) {
+        return new Note(n: 7)
     }
-    return other
+    return cs.remove_at(0)
 }
 let total:int = 0
 for (i:int in 0 until 300) {
-    let cs:list<Note> = [new Note(n: i), new Note(n: 7)]
-    let a:Note = cs.remove_at(0)
-    let b:Note = cs.remove_at(0)
-    let got:Note = pick(a, b)
+    let cs:list<Note> = [new Note(n: i)]
+    let got:Note = pick(cs, i == 0)
     total = total + got.n
 }
 console.print(total)
 `)
 	if code != 0 {
-		t.Fatalf("两条 return 路三千圈退出码 %d（要 0）：\n%s", code, got)
+		t.Fatalf("两条 return 路三百圈退出码 %d（要 0）：\n%s", code, got)
 	}
-	// 头一圈走的是 else 那一支拿到 7，其余 299 圈拿到 i
+	// 头一圈走的是 fresh 那一支拿到 7，其余 299 圈拿到 i
 	if got != "44857\n" {
 		t.Fatalf("两条 return 路的总数不对：得到 %q", got)
 	}
 }
 
-// TestHandBackPremiseHeldByFrontEnd 验证这一族的前提由前端守住：参数交进容器、交给别的函数
-// 那一步之后就作废了，再 `return` 它是编译错误——"返回来了"与"另有持有者"两种情况不会同时出现。
+// TestHandBackPremiseHeldByFrontEnd 验证这一族的前提由前端守住：实参是只读借用，
+// 被调方既不能把参数 `return` 给调用方，也不能把它交进容器或字段那一个位置——
+// "带回来了"与"另有持有者"两种情况不会同时出现。
 func TestHandBackPremiseHeldByFrontEnd(t *testing.T) {
 	if err := compileErr(`
 class Note {
     n:int
 }
 method stash(n:Note):Note {
-    let bag:list<Note> = [n]
     return n
 }
 console.print(1)
-`); err == nil || !strings.Contains(err.Error(), "已经交出去了") {
-		t.Fatalf("参数交进容器之后再 return 它该被拦：err=%v", err)
+`); err == nil || !strings.Contains(err.Error(), "参数 n 是只读借用") {
+		t.Fatalf("把只读借用的参数 return 出去该被拦：err=%v", err)
+	}
+	if err := compileErr(`
+class Note {
+    n:int
+}
+method stash(cs:list<Note>, n:Note) {
+    cs.add(n)
+}
+console.print(1)
+`); err == nil || !strings.Contains(err.Error(), "参数 n 是只读借用") {
+		t.Fatalf("把只读借用的参数交进容器那一个位置该被拦：err=%v", err)
 	}
 }

@@ -40,7 +40,7 @@ method group_list() {
     let index:int = run.group_begin("列表页", start_url)
     wt.page_at(index).expect_title("列表")
     for (i:int in 0 until length(titles)) {
-        let title:string = titles[i] + ""
+        let title:string = titles[i]
         if (!run.picked(title)) {
             continue
         }
@@ -59,16 +59,16 @@ method group_list() {
 
 let titles:list<string> = ["三行都在", "点第一行那句提示跟着变", "搜索框里那段默认文字"]
 let picks:list<string> = []
-let exe:string = args[0] + ""
-let profile:string = args[1] + ""
-let out_dir:string = args[2] + ""
-let fixdir:string = args[3] + ""
+let exe:string = args[0]
+let profile:string = args[1]
+let out_dir:string = args[2]
+let fixdir:string = args[3]
 let start_url:string = "file:///" + fixdir + "/list.html"
 let page:wt.Page = null
 let run:tr.Run = tr.begin_run(exe, profile, out_dir)
 
 if (length(args) > 4) {
-    picks.add(args[4] + "")
+    picks.add(args[4])
 }
 run.pick(picks)
 group_list()

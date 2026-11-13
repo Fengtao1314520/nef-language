@@ -85,7 +85,6 @@ type Param struct {
 	NameText string
 	Typ      Type
 	Default  Expr // nil 表示没默认值
-	Ref      bool // 参数前写了 ref：只读借用，调用方的实参名字不失效
 }
 
 func (f *Func) defNode()       {}
@@ -229,24 +228,25 @@ type NamedType struct {
 func (t *NamedType) typeNode()  {}
 func (t *NamedType) Where() Pos { return t.Pos }
 
-// FuncType 是 `fn(参数类型, …):返回类型`：函数值的类型。参数前可以写 `ref`，
-// 与声明那头的 `ref` 同一条含义（只读借用），所以一份函数类型要把"哪一个参数是借的"记下来。
+// FuncType 是 `fn(参数类型, …):返回类型`：函数值的类型。参数一律是只读借用，
+// 所以一份函数类型说不出"哪一个参数是借的"，只剩参数类型与返回类型。
 //
-// en: FuncType is `fn(param types…):return type` - the type of a function value. A parameter may
-// carry `ref`, meaning the same read-only borrow it means on a declaration, so a function type
-// records which parameters are borrowed.
+// en: FuncType is `fn(param types…):return type` - the type of a function value. Every parameter
+// is a read-only borrow, so a function type has nothing to say about which one is borrowed -
+// only the parameter types and the return type.
 type FuncType struct {
 	Pos    Pos
 	Params []FuncParam
 	Ret    Type
 }
 
-// FuncParam 是函数类型里的一个参数：类型加上它是不是借用。
+// FuncParam 是函数类型里的一个参数。参数一律是只读借用，
+// 所以这一档没有要记的开关，只剩类型本身。
 //
-// en: FuncParam is one parameter of a function type: its type and whether it is borrowed.
+// en: FuncParam is one parameter of a function type. Parameters are always read-only borrows
+// (the read-only-argument rule), so there is no flag left to carry - only the type.
 type FuncParam struct {
 	Typ Type
-	Ref bool
 }
 
 func (t *FuncType) typeNode()  {}

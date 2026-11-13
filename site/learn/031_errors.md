@@ -41,7 +41,7 @@ try {
 
 ```nf
 method pick(words:list<string>):string {
-    return words[9] + ""
+    return words[9]
 }
 
 method first_of():string {

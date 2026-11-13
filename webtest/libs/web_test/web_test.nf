@@ -110,7 +110,7 @@ let link:Link = new Link()
 
 // —— 一条命令进、一条答复出 ——
 
-method send_all(ref body:bytes) {
+method send_all(body:bytes) {
     let sent:int = 0
     let n:int = length(body)
     while (sent < n) {
@@ -122,7 +122,7 @@ method send_all(ref body:bytes) {
     }
 }
 
-method send_text_line(ref body:string) {
+method send_text_line(body:string) {
     let key:bytes = random_key()
     send_all(encode_text(body.to_bytes(), key))
 }
@@ -144,7 +144,7 @@ method pull_into() {
     link.pending = bytes.join([link.pending, block.slice(0, got)])
 }
 
-method reply_pong(ref body:bytes) {
+method reply_pong(body:bytes) {
     let key:bytes = random_key()
     send_all(encode_frame(10, body, key))
 }
@@ -181,7 +181,7 @@ method read_message():string {
 // 送一条命令，读到 id 对得上的那一条答复为止。没有 id 的消息是浏览器主动发的通知，
 // 存进 link.events 等上层来取。
 // 必须先判 `id` 位置是否存在：json.to_integer 拿到空句柄会抛 10092。
-method ask(page_index:int, ref method_name:string, ref params:string):string {
+method ask(page_index:int, method_name:string, params:string):string {
     link.next_id = link.next_id + 1
     let id:int = link.next_id
     let body:string = "{\"id\":" + number.to_string(id) + ",\"method\":" + json_string_of(method_name)
@@ -216,7 +216,7 @@ method ask(page_index:int, ref method_name:string, ref params:string):string {
 // —— 浏览器主动发来的那一条（通知）——
 //
 // 存的是"哪一个页发的、哪一件事"两部分拼成的键，值是那条原文。不用 list 逐条比对：
-// 扫一遍 list 要把每个位置读出来比键，比的是文本内容，整条队列读完还得自己拷一份才能留着用；
+// 扫一遍 list 要把每个位置读出来比键，比的是文本内容，整条队列读完直接接住那一份就能留着用（文本共用同一块）；
 // 查询走只读借用，`contains` 与 `get` 不动其他槽位。
 // 同一页同一事件连续到来只留最后一条：这里等的是"发生过"，等不到报 209。
 
@@ -247,16 +247,16 @@ method store_event(body:string) {
 
 // 从表里找那一条，找到就把它摘走（同一件事第二次等，不会拿上一回那条充数）。
 // 先查这一页自己的那一条，再查浏览器层的那一条（键开头是 "*" 的那些）。
-method take_event(ref name:string, ref session:string):string {
+method take_event(name:string, session:string):string {
     let mine:string = session + "|" + name
     if (link.events.contains(mine)) {
-        let first:string = link.events.get(mine, "") + ""
+        let first:string = link.events.get(mine, "")
         link.events.remove(mine)
         return first
     }
     let broad:string = "*|" + name
     if (link.events.contains(broad)) {
-        let second:string = link.events.get(broad, "") + ""
+        let second:string = link.events.get(broad, "")
         link.events.remove(broad)
         return second
     }
@@ -265,7 +265,7 @@ method take_event(ref name:string, ref session:string):string {
 
 // 等一条通知。recv 到达连接设定的时限会报 10102，这一种在这里不算错：
 // 它表示这段时间浏览器没有数据到达，继续查队列、继续等；其余错误号照常抛出。
-method wait_event_in(page_index:int, ref name:string, timeout_ms:int):string {
+method wait_event_in(page_index:int, name:string, timeout_ms:int):string {
     let session:string = "*"
     if (page_index >= 0) {
         session = session_of(page_index)
@@ -296,17 +296,15 @@ method session_of(page_index:int):string {
     if (page_index < 0 || page_index >= length(link.sessions)) {
         throw (code_reply_not_json, "没有第 " + number.to_string(page_index) + " 页")
     }
-    // 从 list 里取那一样是交出语义，取过之后位置就空了。
-    // 这个位置后面还要再取（同一页的第二条命令），所以取出来先接住，再把一份拷贝写回去。
-    let got:string = link.sessions[page_index] + ""
-    link.sessions[page_index] = got + ""
+    // 那一个位置读出来是共用那一块：句柄原样留在列表里，后面还要再取一次（同一页的第二条命令）。
+    let got:string = link.sessions[page_index]
     return got
 }
 
 // 送一段 JS 到那一页执行，返回它算出来的那段文本。算不出东西返回空句柄。
 // 库里所有读与写都从这一条走，所以那些 JS 一律把结果写成文本：
 // 数与真假经 json.to_text 会得到空句柄。
-method run_js_in(page_index:int, ref expression:string):string {
+method run_js_in(page_index:int, expression:string):string {
     let answer:string = ask(page_index, "Runtime.evaluate", "{\"expression\":" + json_string_of(expression) + ",\"returnByValue\":true}")
     let doc:Json = json.parse(answer)
     if (doc == null) {
@@ -335,7 +333,7 @@ method run_js_in(page_index:int, ref expression:string):string {
     return json.to_text(slot)
 }
 
-method count_in(page_index:int, kind:int, ref selector:string):int {
+method count_in(page_index:int, kind:int, selector:string):int {
     let got:string = run_js_in(page_index, count_expression(kind, selector))
     if (got == null) {
         return 0
@@ -343,7 +341,7 @@ method count_in(page_index:int, kind:int, ref selector:string):int {
     return text.to_int(got)
 }
 
-method present(page_index:int, kind:int, ref selector:string, position:int):boolean {
+method present(page_index:int, kind:int, selector:string, position:int):boolean {
     return run_js_in(page_index, exists_script(find_expression(kind, selector, position))) == "1"
 }
 
@@ -358,7 +356,7 @@ method describe_kind(kind:int):string {
 }
 
 // 元素中心在页面上的位置："横,纵"两个整数用逗号隔开的一段文本；找不到元素返回空句柄。
-method center_of(page_index:int, kind:int, ref selector:string, position:int):string {
+method center_of(page_index:int, kind:int, selector:string, position:int):string {
     return run_js_in(page_index, center_script(find_expression(kind, selector, position)))
 }
 
@@ -369,14 +367,14 @@ method mouse_move(page_index:int, x:int, y:int) {
 }
 
 // 在那个点上按下、抬起（clicks 是第几次点击，双击时传 2）。
-method mouse_at(page_index:int, ref event_type:string, x:int, y:int, clicks:int) {
+method mouse_at(page_index:int, event_type:string, x:int, y:int, clicks:int) {
     let params:string = "{\"type\":" + json_string_of(event_type) + ",\"x\":" + number.to_string(x) + ",\"y\":" + number.to_string(y)
     params = params + ",\"button\":\"left\",\"clickCount\":" + number.to_string(clicks) + "}"
     ask(page_index, "Input.dispatchMouseEvent", params)
 }
 
 // 元素上的一次或两次点击：中心算出来，按下抬起各一次（双击两对）。
-method click_element(page_index:int, kind:int, ref selector:string, position:int, clicks:int) {
+method click_element(page_index:int, kind:int, selector:string, position:int, clicks:int) {
     let where:string = center_of(page_index, kind, selector, position)
     if (where == null) {
         throw (code_element_missing, "点不动：按" + describe_kind(kind) + "「" + selector + "」找不到元素")
@@ -392,7 +390,7 @@ method click_element(page_index:int, kind:int, ref selector:string, position:int
     }
 }
 
-method key_event(page_index:int, ref event_type:string, ref key:string, ref code:string, virtual:int) {
+method key_event(page_index:int, event_type:string, key:string, code:string, virtual:int) {
     let params:string = "{\"type\":" + json_string_of(event_type) + ",\"key\":" + json_string_of(key) + ",\"code\":" + json_string_of(code)
     params = params + ",\"windowsVirtualKeyCode\":" + number.to_string(virtual) + ",\"nativeVirtualKeyCode\":" + number.to_string(virtual) + ",\"modifiers\":0}"
     ask(page_index, "Input.dispatchKeyEvent", params)
@@ -402,11 +400,16 @@ method key_event(page_index:int, ref event_type:string, ref key:string, ref code
 // 其余功能键需逐个扩展，每加一个补一条检查。
 // key 位置与 code 位置不同：key 写页面上可见的键名（"Enter"、"a"），
 // code 写键盘上的物理键（"Enter"、"KeyA"、"Digit1"）——页面里 e.key 读的是前者。
-method key_by_name(page_index:int, ref name:string) {
+method key_by_name(page_index:int, name:string) {
     let lowered:string = name.to_lower()
     let label:string = ""
     let code:string = ""
     let virtual:int = 0
+    // 键名与物理键名直接写字面量：那一段不在堆上（静态数据段里每条前面挂的是全 0 的占位头），
+    // 帧尾归还它本来就是空操作，借用护栏也认得这一分别。
+    // en: The key name and the physical name are plain literals: that text does not sit on the
+    // heap (each entry of the static data section carries an all-zero placeholder header), so the
+    // frame tail's release is already a no-op, and the borrow guard knows the difference.
     if (lowered == "enter") {
         label = "Enter"
         code = "Enter"
@@ -426,13 +429,14 @@ method key_by_name(page_index:int, ref name:string) {
     } else if (length(lowered) == 1) {
         let one:int = lowered[0] as int
         if (one >= 97 && one <= 122) {
-            // 赋给 label 就是把 lowered 整个交出，下面还要用 lowered 两回，
-            // 所以这里给一份拷贝。
-            label = lowered + ""
+            // 文本落进一个新的位置是共用那一块：下面还要用 lowered 两回，那一个名字不作废。
+            // en: A text landing in a new position shares that block, so lowered stays readable
+            // for the two uses below.
+            label = lowered
             code = "Key" + lowered.to_upper()
             virtual = one - 32
         } else if (one >= 48 && one <= 57) {
-            label = lowered + ""
+            label = lowered
             code = "Digit" + lowered
             virtual = one
         }
@@ -444,7 +448,7 @@ method key_by_name(page_index:int, ref name:string) {
     key_event(page_index, "keyUp", label, code, virtual)
 }
 
-method wait_present(page_index:int, kind:int, ref selector:string, timeout_ms:int):boolean {
+method wait_present(page_index:int, kind:int, selector:string, timeout_ms:int):boolean {
     let waited:int = 0
     while (true) {
         if (present(page_index, kind, selector, -1)) {
@@ -460,7 +464,7 @@ method wait_present(page_index:int, kind:int, ref selector:string, timeout_ms:in
 }
 
 // 一句断言到底：反复读那一段文本，等到对上或到时限。
-method expect_reading(page_index:int, ref script:string, ref want:string, ref what:string, timeout_ms:int) {
+method expect_reading(page_index:int, script:string, want:string, what:string, timeout_ms:int) {
     let waited:int = 0
     while (true) {
         let now:string = run_js_in(page_index, script)
@@ -503,7 +507,7 @@ export class Browser {
     // en: The escape hatch for commands the library does not wrap: the method name and the parameters are sent verbatim, and the reply text comes back.
     // 例：
     // let history: string = browser.call("Page.getNavigationHistory", "{}")
-    method call(ref method_name:string, ref params:string):string {
+    method call(method_name:string, params:string):string {
         return ask(-1, method_name, params)
     }
 
@@ -520,7 +524,7 @@ export class Browser {
     // en: Sends the whole block, piece by piece until it is all out.
     // 例：
     // browser.send_all_bytes(bytes.new(64))
-    method send_all_bytes(ref body:bytes) {
+    method send_all_bytes(body:bytes) {
         send_all(body)
     }
 
@@ -561,7 +565,7 @@ export class Browser {
     // en: Opens a tab, attaches to it, and waits until the document reports complete; 207 if that never happens.
     // 例：
     // let opened: Page = browser.open_page("https://example.com/")
-    method open_page(ref url:string, wait_ms:int = expect_ms):Page {
+    method open_page(url:string, wait_ms:int = expect_ms):Page {
         let created:string = ask(-1, "Target.createTarget", "{\"url\":" + json_string_of(url) + "}")
         let target:string = reply_field_of(created, "targetId")
         if (target == null) {
@@ -576,7 +580,7 @@ export class Browser {
     // en: Attaches to a tab that is already open; the targetId comes from list_pages.
     // 例：
     // let opened: Page = browser.attach_page(browser.list_pages()[0])
-    method attach_page(ref target_id:string):Page {
+    method attach_page(target_id:string):Page {
         let attached:string = ask(-1, "Target.attachToTarget", "{\"targetId\":" + json_string_of(target_id) + ",\"flatten\":true}")
         let session:string = reply_field_of(attached, "sessionId")
         if (session == null) {
@@ -641,7 +645,7 @@ export class Page {
     // en: Finds one element by CSS selector; a null handle when there is none.
     // 例：
     // let one: Element = page.find_element_by_css("h1")
-    method find_element_by_css(ref selector:string):Element {
+    method find_element_by_css(selector:string):Element {
         return this.find_one(kind_css, selector)
     }
 
@@ -649,7 +653,7 @@ export class Page {
     // en: Finds one element by XPath; a null handle when there is none.
     // 例：
     // let one: Element = page.find_element_by_xpath("//h1")
-    method find_element_by_xpath(ref xpath:string):Element {
+    method find_element_by_xpath(xpath:string):Element {
         return this.find_one(kind_xpath, xpath)
     }
 
@@ -657,7 +661,7 @@ export class Page {
     // en: Finds one element by its visible text; a null handle when there is none.
     // 例：
     // let one: Element = page.find_element_by_text("提交")
-    method find_element_by_text(ref needle:string):Element {
+    method find_element_by_text(needle:string):Element {
         return this.find_one(kind_text, needle)
     }
 
@@ -665,7 +669,7 @@ export class Page {
     // en: Finds every element the CSS selector matches.
     // 例：
     // console.print(length(page.find_elements_by_css("li")))
-    method find_elements_by_css(ref selector:string):list<Element> {
+    method find_elements_by_css(selector:string):list<Element> {
         return this.find_many(kind_css, selector)
     }
 
@@ -673,7 +677,7 @@ export class Page {
     // en: Finds every element the XPath matches.
     // 例：
     // console.print(length(page.find_elements_by_xpath("//li")))
-    method find_elements_by_xpath(ref xpath:string):list<Element> {
+    method find_elements_by_xpath(xpath:string):list<Element> {
         return this.find_many(kind_xpath, xpath)
     }
 
@@ -681,7 +685,7 @@ export class Page {
     // en: Finds every element whose visible text contains what you are looking for.
     // 例：
     // console.print(length(page.find_elements_by_text("提交")))
-    method find_elements_by_text(ref needle:string):list<Element> {
+    method find_elements_by_text(needle:string):list<Element> {
         return this.find_many(kind_text, needle)
     }
 
@@ -689,7 +693,7 @@ export class Page {
     // en: Counts the elements a CSS selector matches, touching none.
     // 例：
     // console.print(page.count_css("li"))
-    method count_css(ref selector:string):int {
+    method count_css(selector:string):int {
         return count_in(this.index, kind_css, selector)
     }
 
@@ -697,7 +701,7 @@ export class Page {
     // en: Counts the elements an XPath matches, touching none.
     // 例：
     // console.print(page.count_xpath("//li"))
-    method count_xpath(ref xpath:string):int {
+    method count_xpath(xpath:string):int {
         return count_in(this.index, kind_xpath, xpath)
     }
 
@@ -705,7 +709,7 @@ export class Page {
     // en: Counts the elements whose visible text matches, touching none.
     // 例：
     // console.print(page.count_text("提交"))
-    method count_text(ref needle:string):int {
+    method count_text(needle:string):int {
         return count_in(this.index, kind_text, needle)
     }
 
@@ -713,7 +717,7 @@ export class Page {
     // en: Waits until that element shows up; 205 when it never does.
     // 例：
     // let one: Element = page.wait_for_element_by_css("#result", 8000)
-    method wait_for_element_by_css(ref selector:string, timeout_ms:int = expect_ms):Element {
+    method wait_for_element_by_css(selector:string, timeout_ms:int = expect_ms):Element {
         return this.wait_for_one(kind_css, selector, timeout_ms)
     }
 
@@ -721,7 +725,7 @@ export class Page {
     // en: Waits until that element shows up, matched by XPath; 205 when it never does.
     // 例：
     // let one: Element = page.wait_for_element_by_xpath("//div[@id='result']", 8000)
-    method wait_for_element_by_xpath(ref xpath:string, timeout_ms:int = expect_ms):Element {
+    method wait_for_element_by_xpath(xpath:string, timeout_ms:int = expect_ms):Element {
         return this.wait_for_one(kind_xpath, xpath, timeout_ms)
     }
 
@@ -729,7 +733,7 @@ export class Page {
     // en: Waits until that element shows up, matched by visible text; 205 when it never does.
     // 例：
     // let one: Element = page.wait_for_element_by_text("登录成功", 8000)
-    method wait_for_element_by_text(ref needle:string, timeout_ms:int = expect_ms):Element {
+    method wait_for_element_by_text(needle:string, timeout_ms:int = expect_ms):Element {
         return this.wait_for_one(kind_text, needle, timeout_ms)
     }
 
@@ -739,7 +743,7 @@ export class Page {
     // en: Finds the element by CSS and clicks it; an error when it is not there.
     // 例：
     // page.click_css("#submit")
-    method click_css(ref selector:string) {
+    method click_css(selector:string) {
         click_element(this.index, kind_css, selector, -1, 1)
     }
 
@@ -747,7 +751,7 @@ export class Page {
     // en: Finds the element by XPath and clicks it; an error when it is not there.
     // 例：
     // page.click_xpath("//button")
-    method click_xpath(ref xpath:string) {
+    method click_xpath(xpath:string) {
         click_element(this.index, kind_xpath, xpath, -1, 1)
     }
 
@@ -755,7 +759,7 @@ export class Page {
     // en: Finds the element by visible text and clicks it; an error when it is not there.
     // 例：
     // page.click_text("提交")
-    method click_text(ref needle:string) {
+    method click_text(needle:string) {
         click_element(this.index, kind_text, needle, -1, 1)
     }
 
@@ -763,7 +767,7 @@ export class Page {
     // en: Finds the field by CSS and types into it, going through the page's own setter so framework state updates.
     // 例：
     // page.write_text_css("#name", "阿明")
-    method write_text_css(ref selector:string, ref value:string) {
+    method write_text_css(selector:string, value:string) {
         run_js_in(this.index, write_text_script(find_expression(kind_css, selector, -1), value))
     }
 
@@ -771,7 +775,7 @@ export class Page {
     // en: Finds the field by XPath and types into it the same way.
     // 例：
     // page.write_text_xpath("//input[@id='name']", "阿明")
-    method write_text_xpath(ref xpath:string, ref value:string) {
+    method write_text_xpath(xpath:string, value:string) {
         run_js_in(this.index, write_text_script(find_expression(kind_xpath, xpath, -1), value))
     }
 
@@ -779,7 +783,7 @@ export class Page {
     // en: Finds the field by visible text and types into it the same way.
     // 例：
     // page.write_text_text("用户名", "阿明")
-    method write_text_text(ref needle:string, ref value:string) {
+    method write_text_text(needle:string, value:string) {
         run_js_in(this.index, write_text_script(find_expression(kind_text, needle, -1), value))
     }
 
@@ -787,7 +791,7 @@ export class Page {
     // en: Reads the text of the element found by CSS.
     // 例：
     // console.print(page.read_text_css("h1"))
-    method read_text_css(ref selector:string):string {
+    method read_text_css(selector:string):string {
         return run_js_in(this.index, read_text_script(find_expression(kind_css, selector, -1)))
     }
 
@@ -795,7 +799,7 @@ export class Page {
     // en: Reads the text of the element found by XPath.
     // 例：
     // console.print(page.read_text_xpath("//h1"))
-    method read_text_xpath(ref xpath:string):string {
+    method read_text_xpath(xpath:string):string {
         return run_js_in(this.index, read_text_script(find_expression(kind_xpath, xpath, -1)))
     }
 
@@ -803,7 +807,7 @@ export class Page {
     // en: Reads the text of the element found by visible text.
     // 例：
     // console.print(page.read_text_text("标题"))
-    method read_text_text(ref needle:string):string {
+    method read_text_text(needle:string):string {
         return run_js_in(this.index, read_text_script(find_expression(kind_text, needle, -1)))
     }
 
@@ -811,7 +815,7 @@ export class Page {
     // en: Asserts the text of the element found by CSS equals what is wanted; 206 once the timeout runs out.
     // 例：
     // page.expect_text_css("h1", "Example Domain", 4000)
-    method expect_text_css(ref selector:string, ref want:string, timeout_ms:int = expect_ms) {
+    method expect_text_css(selector:string, want:string, timeout_ms:int = expect_ms) {
         expect_reading(this.index, read_text_script(find_expression(kind_css, selector, -1)), want, "按CSS「" + selector + "」上的字", timeout_ms)
     }
 
@@ -819,7 +823,7 @@ export class Page {
     // en: Asserts the text of the element found by XPath equals what is wanted; 206 once the timeout runs out.
     // 例：
     // page.expect_text_xpath("//h1", "Example Domain", 4000)
-    method expect_text_xpath(ref xpath:string, ref want:string, timeout_ms:int = expect_ms) {
+    method expect_text_xpath(xpath:string, want:string, timeout_ms:int = expect_ms) {
         expect_reading(this.index, read_text_script(find_expression(kind_xpath, xpath, -1)), want, "按XPath「" + xpath + "」上的字", timeout_ms)
     }
 
@@ -827,7 +831,7 @@ export class Page {
     // en: Asserts the text of the element found by visible text equals what is wanted; 206 once the timeout runs out.
     // 例：
     // page.expect_text_text("标题", "Example Domain", 4000)
-    method expect_text_text(ref needle:string, ref want:string, timeout_ms:int = expect_ms) {
+    method expect_text_text(needle:string, want:string, timeout_ms:int = expect_ms) {
         expect_reading(this.index, read_text_script(find_expression(kind_text, needle, -1)), want, "按可见文字「" + needle + "」上的字", timeout_ms)
     }
 
@@ -837,7 +841,7 @@ export class Page {
     // en: Sends the page to that URL and returns; nothing is waited for, so follow it with wait_until_ready when the document has to be there.
     // 例：
     // page.navigate("https://example.com/")
-    method navigate(ref url:string) {
+    method navigate(url:string) {
         ask(this.index, "Page.navigate", "{\"url\":" + json_string_of(url) + "}")
     }
 
@@ -863,7 +867,7 @@ export class Page {
     // en: Waits for one notification the browser sends on its own, named exactly as on the wire, and gives back its text; notifications carrying this page's sessionId count, others do not. 209 when none arrives.
     // 例：
     // console.print(page.wait_event("Page.loadEventFired", 6000))
-    method wait_event(ref name:string, timeout_ms:int = expect_ms):string {
+    method wait_event(name:string, timeout_ms:int = expect_ms):string {
         return wait_event_in(this.index, name, timeout_ms)
     }
 
@@ -871,7 +875,7 @@ export class Page {
     // en: Captures the page as a png and writes it to that path.
     // 例：
     // page.screenshot("out/scene.png")
-    method screenshot(ref file_path:string) {
+    method screenshot(file_path:string) {
         let answer:string = ask(this.index, "Page.captureScreenshot", "{\"format\":\"png\"}")
         file.write_bytes(file_path, png_from_reply_of(answer))
     }
@@ -904,7 +908,7 @@ export class Page {
     // en: Presses one key: Enter, Tab, Escape, Backspace, a single letter and the like.
     // 例：
     // page.press_key("Enter")
-    method press_key(ref key_name:string) {
+    method press_key(key_name:string) {
         key_by_name(this.index, key_name)
     }
 
@@ -942,7 +946,7 @@ export class Page {
     // en: The wait after opening a page. It looks at one thing more than wait_until_ready: the document has to be the one that started moving, not the blank page still attached when createTarget carries a URL.
     // 例：
     // page.settle_on("https://example.com/", 8000)
-    method settle_on(ref want:string, timeout_ms:int) {
+    method settle_on(want:string, timeout_ms:int) {
         let waited:int = 0
         while (true) {
             let state:string = run_js_in(this.index, ready_script())
@@ -963,7 +967,7 @@ export class Page {
     // en: Asserts the document title equals what is wanted; 206 once the timeout runs out.
     // 例：
     // page.expect_title("Example Domain", 4000)
-    method expect_title(ref want:string, timeout_ms:int = expect_ms) {
+    method expect_title(want:string, timeout_ms:int = expect_ms) {
         expect_reading(this.index, title_script(), want, "页面标题", timeout_ms)
     }
 
@@ -971,7 +975,7 @@ export class Page {
     // en: Asserts the page URL equals what is wanted; 206 once the timeout runs out.
     // 例：
     // page.expect_url("https://example.com/", 4000)
-    method expect_url(ref want:string, timeout_ms:int = expect_ms) {
+    method expect_url(want:string, timeout_ms:int = expect_ms) {
         expect_reading(this.index, url_script(), want, "页面网址", timeout_ms)
     }
 
@@ -979,7 +983,7 @@ export class Page {
     // en: The URL only has to contain that part, which is what a redirect with a query string needs.
     // 例：
     // page.expect_url_contains("iana.org", 6000)
-    method expect_url_contains(ref part:string, timeout_ms:int = expect_ms) {
+    method expect_url_contains(part:string, timeout_ms:int = expect_ms) {
         let waited:int = 0
         while (true) {
             if ((this.read_url()).contains(part)) {
@@ -997,9 +1001,9 @@ export class Page {
     // en: The step the three finders share: ask the page how many match, then give back a handle for the first one, or a null handle.
     // 例：
     // let one: Element = page.find_one(1, "h1")
-    method find_one(kind:int, ref selector:string):Element {
+    method find_one(kind:int, selector:string):Element {
         if (present(this.index, kind, selector, -1)) {
-            return new Element(page_index: this.index, kind: kind, selector: selector + "", position: -1)
+            return new Element(page_index: this.index, kind: kind, selector: selector, position: -1)
         }
         return null
     }
@@ -1008,11 +1012,11 @@ export class Page {
     // en: The step the three plural finders share: count the matches, then put a handle for each position into a list.
     // 例：
     // console.print(length(page.find_many(1, "li")))
-    method find_many(kind:int, ref selector:string):list<Element> {
+    method find_many(kind:int, selector:string):list<Element> {
         let out:list<Element> = []
         let total:int = count_in(this.index, kind, selector)
         for (i:int in 0 until total) {
-            out.add(new Element(page_index: this.index, kind: kind, selector: selector + "", position: i))
+            out.add(new Element(page_index: this.index, kind: kind, selector: selector, position: i))
         }
         return out
     }
@@ -1021,11 +1025,11 @@ export class Page {
     // en: The step the three waiters share: ask once per step until the element shows up, and throw 205 at the deadline.
     // 例：
     // let one: Element = page.wait_for_one(1, "h1", 6000)
-    method wait_for_one(kind:int, ref selector:string, timeout_ms:int):Element {
+    method wait_for_one(kind:int, selector:string, timeout_ms:int):Element {
         if (!wait_present(this.index, kind, selector, timeout_ms)) {
             throw (code_element_missing, "等不到元素：按" + describe_kind(kind) + "「" + selector + "」等了 " + number.to_string(timeout_ms) + " 毫秒")
         }
-        return new Element(page_index: this.index, kind: kind, selector: selector + "", position: -1)
+        return new Element(page_index: this.index, kind: kind, selector: selector, position: -1)
     }
 }
 
@@ -1064,7 +1068,7 @@ export class Element {
         // 指针先移到左上角再挪过去：mouseenter 只在从别处进入的那一刻发出。
         // 实测：先在 #box 上双击、再把指针移到紧邻其下的 #off，页面收不到 mouseenter；
         // 中间补一次移到左上角，就收得到。
-        let sel:string = this.selector + ""
+        let sel:string = this.selector
         let where:string = center_of(this.page_index, this.kind, sel, this.position)
         if (where == null) {
             throw (code_element_missing, "悬停不了：按" + describe_kind(this.kind) + "「" + sel + "」找不到元素")
@@ -1086,7 +1090,7 @@ export class Element {
     // en: Types into this element through its own setter, so framework state follows the new value.
     // 例：
     // element.write_text("阿明")
-    method write_text(ref value:string) {
+    method write_text(value:string) {
         run_js_in(this.page_index, write_text_script(this.expression(), value))
     }
 
@@ -1102,7 +1106,7 @@ export class Element {
     // en: Reads one attribute of the element; an empty text when it does not have one.
     // 例：
     // console.print(element.read_attribute("href"))
-    method read_attribute(ref name:string):string {
+    method read_attribute(name:string):string {
         return run_js_in(this.page_index, attribute_script(this.expression(), name))
     }
 
@@ -1142,7 +1146,7 @@ export class Element {
     // en: Asserts the element's text equals what is wanted; 206 once the timeout runs out.
     // 例：
     // element.expect_text("提交", 4000)
-    method expect_text(ref want:string, timeout_ms:int = expect_ms) {
+    method expect_text(want:string, timeout_ms:int = expect_ms) {
         expect_reading(this.page_index, read_text_script(this.expression()), want, "按" + describe_kind(this.kind) + "「" + this.selector + "」上的字", timeout_ms)
     }
 
@@ -1188,7 +1192,7 @@ export class Element {
 // en: Starts a headless browser, connects and completes the handshake. port_wait is how long to wait for that port file and io_wait how long each connect, send and receive may take - both numbers come from the caller.
 // 例：
 // let launched: wt.Browser = wt.start("msedge.exe", "profile")
-export method start(ref exe:string, ref profile:string, port_wait:int = port_ms, io_wait:int = io_ms):Browser {
+export method start(exe:string, profile:string, port_wait:int = port_ms, io_wait:int = io_ms):Browser {
     file.create_directories(profile)
     let mark:string = profile + "/DevToolsActivePort"
     // 上一趟留下的端口文件要先删掉：等的是"这一趟浏览器写下哪个端口"，
@@ -1258,7 +1262,7 @@ export method wrap_socket(sock:Socket):Browser {
 
 // 等浏览器把真端口写进那个文件：第一行是端口、第二行是 WebSocket 路径
 // （实测：两个浏览器都在启动进程后 500 毫秒内写下这个文件）。
-method wait_port(ref mark:string, port_wait:int) {
+method wait_port(mark:string, port_wait:int) {
     let waited:int = 0
     while (!file.exists(mark)) {
         time.sleep(20)
@@ -1320,7 +1324,7 @@ method find_header_end():int {
 // en: Encodes one body into a whole WebSocket frame with this mask key; the key and the body both come in as parameters.
 // 例：
 // let packed: bytes = wt.build_frame("甲", block)
-export method build_frame(ref body:string, ref key:bytes):bytes {
+export method build_frame(body:string, key:bytes):bytes {
     return encode_text(body.to_bytes(), key)
 }
 
@@ -1328,7 +1332,7 @@ export method build_frame(ref body:string, ref key:bytes):bytes {
 // en: Reads the frontmost frame out of this run of bytes, or a null handle when it is not a whole frame yet; the part consumed leaves the buffer.
 // 例：
 // let got: wt.Frame = wt.read_frame(block)
-export method read_frame(ref buf:bytes):Frame {
+export method read_frame(buf:bytes):Frame {
     return take_wire(buf)
 }
 
@@ -1336,7 +1340,7 @@ export method read_frame(ref buf:bytes):Frame {
 // en: The handshake text, sent over the bare socket rather than through the browser: it carries no Origin, since Chrome checks the source from version 111 on.
 // 例：
 // let head:string = wt.handshake_text(9222, "/devtools/page/1")
-export method handshake_text(port:int, ref path_value:string):string {
+export method handshake_text(port:int, path_value:string):string {
     return build_handshake(port, path_value)
 }
 
@@ -1344,7 +1348,7 @@ export method handshake_text(port:int, ref path_value:string):string {
 // en: Takes one slot under result out of a reply, or a null handle when there is none.
 // 例：
 // let field:string = wt.reply_field(answer, "id")
-export method reply_field(ref answer:string, ref key:string):string {
+export method reply_field(answer:string, key:string):string {
     return reply_field_of(answer, key)
 }
 
@@ -1352,7 +1356,7 @@ export method reply_field(ref answer:string, ref key:string):string {
 // en: Decodes the base64 screenshot carried in a reply into a whole PNG block.
 // 例：
 // let picture: bytes = wt.png_from_reply(answer)
-export method png_from_reply(ref answer:string):bytes {
+export method png_from_reply(answer:string):bytes {
     return png_from_reply_of(answer)
 }
 
@@ -1360,6 +1364,6 @@ export method png_from_reply(ref answer:string):bytes {
 // en: Takes the first count characters, or the whole text when it is already shorter: an error message quotes what it saw, and what it saw is often short.
 // 例：
 // let brief:string = wt.first_chars(answer, 60)
-export method first_chars(ref value:string, count:int):string {
+export method first_chars(value:string, count:int):string {
     return first_chars_of(value, count)
 }

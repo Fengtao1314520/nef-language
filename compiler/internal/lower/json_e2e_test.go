@@ -25,7 +25,7 @@ import (
 // 写它的用意是"只经公开的十二条取用"：签名函数访问不到节点内部，只能用 json.kind、
 // json.count、json.keys、json.at、json.item、json.to_*——所以签名对得上，
 // 就说明这十二条成员确实能完整描述这棵树。@PATH@ 由测试替换成一份写好的样例文件路径。
-const jsonSigProg = `method signature(ref x:Json):string {
+const jsonSigProg = `method signature(x:Json):string {
     let k:string = json.kind(x)
     if (k == "null") {
         return "null"

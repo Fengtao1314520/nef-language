@@ -79,18 +79,31 @@ func TestByteConvert(t *testing.T) {
 	expectOK(t, "let m:int = 5\nlet n:byte = m as byte\n")
 }
 
-// TestFieldTakeFromBorrowed 覆盖只读借用边界那道规则：遍历给出的值是只读借用，
-// 它替容器持有那一个对象，所以从它上面把引用类型字段**接走**不行——与 `xs[0]` 那一侧是同一条拒绝规则。
+// TestFieldTakeFromBorrowed 覆盖只读借用边界那道规则：借来的那一个对象（遍历给出的、只读借用的
+// 参数）手里的字段不由它支配——顺着那一个对象把字段接走、装进盒子，报的都是"来路那一句"。
+// 自己持有的那一个对象，字段读进名字是交出那一条。
 // 只是顺着读一次不算接走（`console.print(o.inner.v)`），这一条必须通过，否则每次遍历都只能读一个字段。
+//
+// en: TestFieldTakeFromBorrowed covers the borrow boundary: what a borrowed object (one a walk
+// hands over, a read-only borrow parameter) holds in its fields is not its to give away - taking
+// a field into a name or boxing it reports the sentence naming where the object came from. For an
+// object the program does own, reading a field into a name is the handover rule (the field handover, see
+// TestFieldReadHandsOverThePosition). A look-through is not a taking (`console.print(o.inner.v)`)
+// and must pass, otherwise every walk could read only one field.
 func TestFieldTakeFromBorrowed(t *testing.T) {
 	const pre = "class Inner {\n    v:int\n}\nclass Outer {\n    inner:Inner\n}\n" +
 		"let os:list<Outer> = [new Outer(inner: new Inner(v: 1))]\n"
-	expectErr(t, pre+"for (o:Outer in os) {\n    let a:Inner = o.inner\n    console.print(a.v)\n}\n",
-		"遍历交出的 o 是只读借用，不能把里面的东西交出去")
-	expectErr(t, pre+"for (o:Outer in os) {\n    console.print(o.inner as object)\n}\n", "遍历交出的 o 是只读借用，不能把里面的东西交出去")
+	const refuse = "遍历交出的 o 是只读借用，不能把里面的东西交出去"
+	expectErr(t, pre+"for (o:Outer in os) {\n    let a:Inner = o.inner\n    console.print(a.v)\n}\n", refuse)
+	expectErr(t, pre+"for (o:Outer in os) {\n    let a:object = o.inner as object\n    console.print(a)\n}\n", refuse)
 	expectOK(t, pre+"for (o:Outer in os) {\n    console.print(o.inner.v, o.inner.v + 1)\n}\n")
 	// 值类型字段不在这一条里：那是整份拷贝，借用也照给
 	expectOK(t, pre+"for (o:Outer in os) {\n    let n:int = o.inner.v\n    console.print(n)\n}\n")
+	// 盒子那一边只是读，不算接手：顺着拆箱读一次，容器与字段都不改动
+	expectOK(t, pre+"for (o:Outer in os) {\n    console.print((o.inner as object) is Inner)\n}\n")
+	// 容器那一个位置读出来的一份接不进名字：那一句通用的仍然在
+	expectErr(t, "class Bag {\n    n:int\n}\nlet xs:list<Bag> = [new Bag(n: 1)]\nlet one:Bag = xs[0]\n",
+		"读出来的那一份是只读借用，不能收到名字里、写进字段或者交给调用方：能摘出来的位置用 remove_at、d.take 或 json.take 摘出来")
 }
 
 func TestConstOnlyValueType(t *testing.T) {
@@ -116,13 +129,19 @@ func TestMissingReturn(t *testing.T) {
 }
 
 func TestTransferOnCallAndReuse(t *testing.T) {
-	src := "method eat(s:string) {\n}\nlet txt:string = \"喂\"\neat(txt)\neat(txt)\n"
-	expectErr(t, src, "txt 是文本，交出去之后这个名字就空了：要接着用就交出它的拷贝，写 txt + \"\"")
+	// 实参一律是只读借用，所以交进自己写的函数之后原来那个名字照旧能用——
+	// 文本与可变的那一种在这一处同一件事。
+	expectOK(t, "method eat(s:string) {\n}\nlet txt:string = \"喂\"\neat(txt)\neat(txt)\nconsole.print(txt)\n")
+	expectOK(t, "method eat(xs:list<int>) {\n}\nlet txt:list<int> = [7]\neat(txt)\neat(txt)\nconsole.print(length(txt))\n")
+	// 交出的那五处里剩下的那几处仍然作废：接给一个名字之后原来那个名字不能再写
+	expectErr(t, "method eat(xs:list<int>) {\n}\nlet txt:list<int> = [7]\nlet keep:list<int> = txt\neat(txt)\n", "txt 已经交出去了，这个名字不能再写")
 }
 
 func TestLoopBorrowCannotEscape(t *testing.T) {
-	src := "let items:list<string> = [\"a\"]\nfor (s:string in items) {\n    let keep:string = s\n}\n"
-	expectErr(t, src, "遍历交出的 s 是只读借用，不能交出去")
+	// 遍历借来的文本接得住：收到名字里只是多一个读它的位置
+	expectOK(t, "let items:list<string> = [\"a\"]\nfor (s:string in items) {\n    let keep:string = s\n    console.print(keep, s)\n}\n")
+	// 可变的那一种照旧拒：那一块还有别人拿着，两个持有者就要归还两次
+	expectErr(t, "class Bag {\n    n:int\n}\nlet items:list<Bag> = [new Bag(n: 1)]\nfor (s:Bag in items) {\n    let keep:Bag = s\n}\n", "遍历交出的 s 是只读借用，不能交出去")
 }
 
 // consumedOf 查一份记录：这个名称把值交出去过，而每一处交进去的位置是不是都没带走。
@@ -143,23 +162,29 @@ func consumedOf(t *testing.T, src, name string) bool {
 }
 
 // TestConsumedLedger 覆盖交出记录的另一半：**交出过不等于不需要还**。
-// 交进的那一个参数在自己的函数里没把值留住（没 return、没写进字段、没装进容器、没再交出去），
-// 出了被调方就再没人持有这一块——那个位置仍然是调用方这个名称的持有者，后端可以登记它、还它。
-// 反过来，只要有一处带走了，这个名称就不登记：多留是泄漏，析构错是把别人持有的对象拆掉。
+// 实参一律改成只读借用之后自己写的函数那一个参数是只读借用，交进去的名字根本不记交出，所以这一本账
+// 只剩两处交接出：四种系统句柄与被起的那一支函数那一个参数。
+// 那两处**收方一定接手**：句柄由被调方那一个位置关，交进线程的那一份由那一条线程跑到尽头归还。
+// 所以调用方那一个名字一律不再登记持有者——多留是泄漏，关错或拆错是把别人还在用的那一样东西弄坏。
+//
+// en: TestConsumedLedger covers the other half of the handover ledger: given away is not the same
+// as nobody to return it. Since the read-only-argument rule a user function's parameter is a read-only borrow and
+// the caller's name is never marked there, so only two boundaries still move: the four system
+// handles and the single parameter of a function started as a thread (that one stays
+// a transfer). In both, the receiving side definitely takes it: a handle is closed by the
+// callee's position, and what goes into a thread is returned when that thread ends. So the
+// caller's name is never registered as the holder - keeping one extra block would leak, and
+// closing or dismantling the wrong one would break something somebody still uses.
 func TestConsumedLedger(t *testing.T) {
 	cases := []struct {
 		who       string
 		want      bool
 		name, src string
 	}{
-		{"acc", false, "被调方把它 return 出去", "method passOn(xs:list<int>):list<int> {\n    return xs\n}\nlet acc:list<int> = [1]\nlet got:list<int> = passOn(acc)\nconsole.print(length(got))\n"},
-		{"acc", false, "被调方写进字段", "class Box {\n    held:list<int>\n}\nmethod stash(b:Box, xs:list<int>) {\n    b.held = xs\n}\nlet box:Box = new Box(held: [])\nlet acc:list<int> = [1]\nstash(box, acc)\n"},
-		{"acc", false, "被调方装进容器", "method stashOuter(xs:list<int>, dst:list<list<int>>) {\n    dst.add(xs)\n}\nlet acc:list<int> = [1]\nlet outer:list<list<int>> = []\nstashOuter(acc, outer)\n"},
-		{"acc", false, "被调方再交出去（两跳）", "method inner(xs:list<int>) {\n}\nmethod middle(xs:list<int>) {\n    inner(xs)\n}\nlet acc:list<int> = [1]\nmiddle(acc)\n"},
-		{"acc", false, "交出去的是别名的那一头", "let acc:list<int> = [1]\nlet other:list<int> = acc\nconsole.print(length(other))\n"},
-		{"acc", true, "只读一下长度", "method use(xs:list<int>):int {\n    return length(xs)\n}\nlet acc:list<int> = [1]\nconsole.print(use(acc))\n"},
-		{"acc", true, "被调方就地改它（改不算带走）", "method grow(xs:list<int>) {\n    xs.add(9)\n}\nlet acc:list<int> = [1]\ngrow(acc)\n"},
-		{"r", true, "交进普通函数、里头只读字段", "class Row {\n    kids:list<int>\n}\nmethod sum(row:Row):int {\n    return length(row.kids)\n}\nlet r:Row = new Row(kids: [1, 2])\nconsole.print(sum(r))\n"},
+		{"acc", false, "句柄交进被调方，被调方把它 return 出去", "method passOn(l:Listener):Listener {\n    return l\n}\nlet acc:Listener = net.listen(9301)\nlet got:Listener = passOn(acc)\nconsole.print(1)\n"},
+		{"acc", false, "句柄交进被调方，被调方写进字段", "class Box {\n    held:Listener\n}\nmethod stash(b:Box, l:Listener) {\n    b.held = l\n}\nlet box:Box = new Box()\nlet acc:Listener = net.listen(9301)\nstash(box, acc)\n"},
+		{"acc", true, "句柄只读一下名字里有没有它，被调方没留住 ⇒ 调用方仍然持有", "method use(l:Listener):int {\n    return 1\n}\nlet acc:Listener = net.listen(9301)\nconsole.print(use(acc))\n"},
+		{"r", false, "class 句柄交进另一条线程", "class Row {\n    kids:list<int>\n}\nmethod work(row:Row):int {\n    return length(row.kids)\n}\nlet r:Row = new Row(kids: [1, 2])\nlet t:Thread<int> = thread.start(work, r)\nconsole.print(t.wait())\n"},
 	}
 	for _, one := range cases {
 		if got := consumedOf(t, one.src, one.who); got != one.want {
@@ -169,14 +194,23 @@ func TestConsumedLedger(t *testing.T) {
 }
 
 // TestReceiverIsReadOnlyBorrow 覆盖：方法接收者是只读借用。
-// 能读、能就地改这个对象、能连着调、能顺着装箱拆箱读；把它交出去——`return this`、当参数、
-// 装进盒子再收进一个名字——都在编译期拒绝（顺着读不改动盒子，接手才拒）。
+// 能读、能就地改这个对象、能连着调、能顺着装箱拆箱读、能交进另一个只读借用的位置；
+// 把它交出去——`return this`、装进盒子再收进一个名字、交进要拿走的那一个位置——都在编译期拒绝。
+//
+// en: TestReceiverIsReadOnlyBorrow covers the receiver being a read-only borrow. It may read,
+// modify the object in place, call on, be read through a box and unbox, and be passed to another
+// read-only borrow; handing it over - return this, boxing it into a name, passing it to a position
+// that takes - is refused at compile time.
 func TestReceiverIsReadOnlyBorrow(t *testing.T) {
 	expectOK(t, "class Bag {\n    n:int\n\n    method bump():int {\n        n = n + 1\n        return n\n    }\n}\nlet b:Bag = new Bag(n: 1)\nconsole.print(b.bump(), b.n)\n")
 	expectOK(t, "class Bag {\n    n:int\n\n    method peek():boolean {\n        return (this as object) is Bag\n    }\n}\nlet b:Bag = new Bag(n: 1)\nconsole.print(b.peek())\n")
 	expectErr(t, "class Bag {\n    n:int\n\n    method out():Bag {\n        return this\n    }\n}\n", "this 是方法接收者的只读借用，不能交出去")
-	expectErr(t, "class Bag {\n    n:int\n\n    method handOff() {\n        eat(this)\n    }\n}\nmethod eat(b:Bag) {\n}\n", "this 是方法接收者的只读借用，不能交给参数")
-	expectErr(t, "class Bag {\n    n:int\n\n    method boxed():object {\n        return this as object\n    }\n}\n", "读出来的那一份是只读借用，不能收到名字里、写进字段或者交给调用方：文本拷一份，能摘出来的位置用 remove_at 或 json.take 摘出来")
+	// 交进另一个只读借用的位置：两边都不接手那一块，多一个读它的位置不算交出
+	expectOK(t, "class Bag {\n    n:int\n\n    method handOff() {\n        eat(this)\n    }\n}\nmethod eat(b:Bag) {\n    console.print(b.n)\n}\n")
+	// 交进要拿走那一个位置（容器 add）仍然拒
+	expectErr(t, "class Bag {\n    n:int\n\n    method boxed() {\n        let bag:list<Bag> = [this]\n    }\n}\n", "this 是方法接收者的只读借用，不能交出去")
+	// 顺着读不改动盒子，接手才拒
+	expectErr(t, "class Bag {\n    n:int\n\n    method boxed():object {\n        return this as object\n    }\n}\n", "读出来的那一份是只读借用，不能收到名字里、写进字段或者交给调用方：能摘出来的位置用 remove_at、d.take 或 json.take 摘出来")
 }
 
 // TestContainerLiteralTransfers 覆盖：容器字面量里的引用类型元素
@@ -194,17 +228,20 @@ func TestContainerLiteralTransfers(t *testing.T) {
 	expectErr(t, "class Bag {\n    n:int\n}\nlet cs:list<Bag> = [new Bag(n: 1)]\nfor (c:Bag in cs) {\n    let keep:list<Bag> = [c]\n}\n", "遍历交出的 c 是只读借用，不能交出去")
 }
 
-// TestDictIndexStoreTransfers 覆盖 `d[键] = 值`：键与值都交进桶里那一个位置，两个名字当场作废，
-// 与 `d.add(键, 值)` 是同一条记录。值类型那一侧的键（`int`）是拷贝，名字照旧能用。
+// TestDictIndexStoreTransfers 覆盖 `d[键] = 值`：文本的键与桶里那一个位置共用同一块，
+// 原名不作废（遍历借来的那一份也一样写得进去）；值那一侧是可变的那一种时仍按交出算，
+// 与 `d.add(键, 值)` 同一份记录。值类型那一侧的键（`int`）是拷贝，名字照旧能用。
 //
-// en: TestDictIndexStoreTransfers covers `d[key] = value`: both the key and the value move into
-// one bucket position and both names are voided, the same ledger as `d.add(key, value)`. A
-// value-typed key such as `int` is copied, so its name stays usable.
+// en: TestDictIndexStoreTransfers covers `d[key] = value`: a text key shares its block with that
+// bucket position, so the name stays alive (a loop-borrowed text writes in as well). A mutable
+// value is still handed over, the same ledger as `d.add(key, value)`. A value-typed key such as
+// `int` is copied, so its name stays usable.
 func TestDictIndexStoreTransfers(t *testing.T) {
-	expectErr(t, "let d:dict<string, int> = {}\nlet k:string = \"甲\" + \"乙\"\nd[k] = 1\nconsole.print(k)\n", "k 是文本，交出去之后这个名字就空了：要接着用就交出它的拷贝，写 k + \"\"")
-	expectErr(t, "let src:dict<string, int> = {\"甲\": 1}\nlet dst:dict<string, int> = {}\nfor (k:string in src) {\n    dst[k] = 1\n}\n", "遍历交出的 k 是只读借用，不能交出去")
+	expectOK(t, "let d:dict<string, int> = {}\nlet k:string = \"甲\" + \"乙\"\nd[k] = 1\nconsole.print(k)\n")
+	expectOK(t, "let src:dict<string, int> = {\"甲\": 1}\nlet dst:dict<string, int> = {}\nfor (k:string in src) {\n    dst[k] = 1\n}\nconsole.print(length(dst))\n")
 	expectOK(t, "let d:dict<string, int> = {}\nlet k:string = \"甲\" + \"乙\"\nd[k] = 1\nconsole.print(length(d))\n")
 	expectOK(t, "let d:dict<int, string> = {}\nlet i:int = 1\nlet v:string = \"甲\" + \"乙\"\nd[i] = v\nconsole.print(i, length(d))\n")
+	expectErr(t, "class Bag {\n    n:int\n}\nlet xs:list<Bag> = [new Bag(n: 1)]\nlet b:Bag = new Bag(n: 2)\nxs[0] = b\nconsole.print(b)\n", "b 已经交出去了，这个名字不能再写")
 }
 
 // TestFnValueRules 钉住函数当值这一档的四条拒绝：方法不能按值交出去、
@@ -220,11 +257,12 @@ func TestFnValueRules(t *testing.T) {
 	expectOK(t, two+"let f:fn(int):int = twice\nconsole.print(f(3))\n")
 	// 方法身上带着接收者，交出去那一份地址说不清接收者归谁：这一版只接顶层函数
 	expectErr(t, "class C {\n    method m(v:int):int {\n        return v\n    }\n}\nlet f:fn(int):int = C.m\n", "C 是类型名，不是值（引用类型）")
-	// 签名对不上：参数个数与借用那一层都算签名
+	// 签名对不上：参数个数算签名。实参一律改成只读借用之后"参数怎么收"两侧都是只读借用，
+	// 那一层不再进签名，所以先前那一条"一个写 一个不写就拒"跟着作废。
 	expectErr(t, two+"let f:fn(int, int):int = twice\n", "这里要的是 fn(int,int):int，给的是 fn(int):int：签名要对得上，参数怎么收也要一样")
-	expectErr(t, "method by(ref a:string, ref b:string):int {\n    return length(a) - length(b)\n}\nlet f:fn(string, string):int = by\n", "这里要的是 fn(string,string):int，给的是 fn(ref string,ref string):int：签名要对得上，参数怎么收也要一样")
-	// 参数是要归还的那一类又没写 ref
-	expectErr(t, "method shout(s:string):int {\n    return length(s)\n}\nlet f:fn(string):int = shout\n", "把 shout 当值交出去不行：它的第 1 个参数是 string，这样的参数要么不参与归还，要么写成 ref")
+	expectOK(t, "method by(a:string, b:string):int {\n    return length(a) - length(b)\n}\nlet f:fn(string, string):int = by\nconsole.print(f(\"甲乙\", \"丙\"))\n")
+	// 参数一律是只读借用，所以"参数的类型参与不参与归还"这一问在函数值这一侧不存在了
+	expectOK(t, "method shout(s:string):int {\n    return length(s)\n}\nlet f:fn(string):int = shout\nconsole.print(f(\"甲\"))\n")
 	// 返回的是要归还的那一类
 	expectErr(t, "method make(v:int):string {\n    return \"甲\"\n}\nlet f:fn(int):string = make\n", "把 make 当值交出去不行：它返回 string，这一版只接不参与归还的返回类型")
 	// 带类型参数的那一份声明按值交出去：那一只实例要填什么，值这一处没有凭据（类型参数只从实参推）。
@@ -244,7 +282,7 @@ func TestFnValueRules(t *testing.T) {
 }
 
 // TestNewFieldTransfers 覆盖 `new C(f: a)`：字段初值与容器字面量那个位置是同一份记录——
-// 引用类型交进去就作废原名，值类型整份拷贝、名字照旧能用。
+// 可变的那一种交进去就作废原名，值类型整份拷贝、名字照旧能用，文本是共用那一块、不作废。
 func TestNewFieldTransfers(t *testing.T) {
 	bag := "class Bag {\n    n:int\n}\n"
 	// 引用类型：交进字段之后原名不能再写
@@ -253,8 +291,8 @@ func TestNewFieldTransfers(t *testing.T) {
 	expectErr(t, bag+"class Pair {\n    l:Bag\n    r:Bag\n}\nlet a:Bag = new Bag(n: 1)\nlet b:Bag = new Bag(n: 2)\nlet p:Pair = new Pair(l: a, r: a)\n", "a 已经交出去了，这个名字不能再写")
 	// 两个名字各交一个，照放行
 	expectOK(t, bag+"class Pair {\n    l:Bag\n    r:Bag\n}\nlet a:Bag = new Bag(n: 1)\nlet b:Bag = new Bag(n: 2)\nlet p:Pair = new Pair(l: a, r: b)\nconsole.print(p)\n")
-	// 文本也是引用类型：交进字段就作废原名
-	expectErr(t, "class Tag {\n    label:string\n}\nlet s:string = \"甲\"\nlet t:Tag = new Tag(label: s)\nconsole.print(s)\n", "s 是文本，交出去之后这个名字就空了：要接着用就交出它的拷贝，写 s + \"\"")
+	// 文本交进字段那一个位置是共用那一块：原名不作废，两处读出来还是同一段字
+	expectOK(t, "class Tag {\n    label:string\n}\nlet s:string = \"甲\"\nlet t:Tag = new Tag(label: s)\nconsole.print(s, t.label)\n")
 	// 值类型那个位置是整份拷贝，原名照旧能用
 	expectOK(t, "struct Point {\n    x:int\n}\nclass Held {\n    at:Point\n}\nlet p:Point = Point { x: 1 }\nlet h:Held = new Held(at: p)\nconsole.print(h.at.x, p.x)\n")
 	// 遍历交出的借用交不进字段：报的是借用那一句，不是交出那一句
@@ -263,31 +301,48 @@ func TestNewFieldTransfers(t *testing.T) {
 	expectErr(t, bag+"class Box {\n    inner:Bag\n}\nlet b:Bag = new Bag(n: 1)\nlet x:Box = new Box(inner: b)\nlet xs:list<Bag> = [b]\n", "b 已经交出去了，这个名字不能再写")
 }
 
-// TestFieldAsArgumentIsRefused 覆盖：把 `class` 的引用类型字段**直接**交给自己写的函数或方法
-// 当实参，在编译期拒绝。
+// TestFieldReadHandsOverThePosition 覆盖那一条收窄到可变数据之后的一半（那一条裁定只把文本那一档挪去
+// 共用）：`class` 的可变引用类型字段读进"要接手那一个值的位置"就是交出，那一个位置读完空着；
+// 顺着读一次不算（那一句没有新持有者）；文本字段两头都不动那一个位置。
+// 自己写的函数与方法的参数是只读借用，所以字段交进参数既不抹那一个位置、
+// 也不报借用——那一次调用多不出第二个持有者。
 //
-// 语言早就定了这一读是过户（交完那个位置空着，后端把那一处写空），但检查阶段不记名字的账，
-// 于是"下一次读它是运行期 10092"这一种只有跑起来才看得见——同一条用在容器那个位置上时，
-// "被读走的那个位置返回 null"是写明的，字段这一侧以前没有定死。
-func TestFieldAsArgumentIsRefused(t *testing.T) {
+// en: TestFieldReadHandsOverThePosition covers the half of the field-handover rule that survives, narrowed by
+// narrowed to the mutable tier, which moved only the text tier to sharing: reading a `class` mutable
+// reference-typed field into a position that takes the value IS the handover and that position
+// reads back empty; a look-through does not count (no new holder); a text field leaves the
+// position alone on both roads. A parameter of a user-written function or method is a read-only
+// borrow (the read-only-argument rule), so passing a field into one neither empties the position nor reports a
+// borrow - that call adds no second holder.
+func TestFieldReadHandsOverThePosition(t *testing.T) {
 	const bag = "class Bag {\n    n:int\n}\nclass Hold {\n    item:Bag\n    label:string\n    count:int\n}\n"
-	const refuse = " 是字段，直接交出去之后那个位置就空了：先接给一个名字，再拿那个名字交出去"
 	const made = "let h:Hold = new Hold(item: new Bag(n: 1), label: \"甲\", count: 2)\n"
+	const sink = "method sink(b:Bag) {\n    console.print(b.n)\n}\n"
 
-	// 一、句柄型的字段交进自己写的函数：拒绝，报的是那一个字段的名字
-	expectErr(t, bag+"method sink(b:Bag) {\n    console.print(b.n)\n}\n"+made+"sink(h.item)\n", "h.item"+refuse)
-	// 二、`this` 上的文本字段交进自己写的函数：同一条拒绝规则，方法那条路也算（走的是 arg）
-	expectErr(t, "class Chain {\n    name:string\n    size:int\n}\nmethod sink(s:string) {\n    console.print(s)\n}\nclass Carrier {\n    head:Chain\n    tag:string\n    n:int\n\n    method pass() {\n        sink(this.tag)\n    }\n}\n", "this.tag"+refuse)
-	// 三、正当写法：先接给一个名字，再拿那个名字交出去（接名字那一步本来就是过户）
-	expectOK(t, bag+"method sink(b:Bag) {\n    console.print(b.n)\n}\n"+made+"let picked:Bag = h.item\nsink(picked)\n")
+	// 一、字段接给一个名字：那一次读就是交出，放行，后面那一读空着由运行期管
+	expectOK(t, bag+made+"let picked:Bag = h.item\nconsole.print(picked.n)\n")
+	// 二、字段交进只读借用的参数：那一个位置不动，也不报借用
+	expectOK(t, bag+sink+made+"sink(h.item)\nconsole.print(h.item.n)\n")
+	// 三、文本字段交给自己写的函数：共用那一块，两处都读得到
+	expectOK(t, "class Chain {\n    name:string\n    size:int\n}\nmethod sink(s:string) {\n    console.print(s)\n}\nclass Carrier {\n    head:Chain\n    tag:string\n    n:int\n\n    method pass() {\n        sink(this.tag)\n        console.print(this.tag)\n    }\n}\n")
 	// 四、值类型字段照旧放行：那一读是拷贝，不存在"那个位置归谁"的问题
 	expectOK(t, bag+"method count(n:int) {\n    console.print(n + 1)\n}\n"+made+"count(h.count)\n")
 	// 五、交给标准库那一类"只读一次"的参数不拒绝（arg 那一条只管自己写的函数与方法）
 	expectOK(t, bag+made+"console.print(h.label)\n")
-	// 六、当成返回值交出去不在这一条之内：`return h.item` 是把句柄返回调用方，另有那条记录管它
-	expectOK(t, bag+"method give(x:Hold):Bag {\n    return x.item\n}\n"+made+"console.print(give(h).n)\n")
-	// 七、装进容器那个位置也不在这一条之内（那是过户列明的五处之一，过户之后源位置空着是对的）
+	// 六、字段 `return` 给调用方：交出那一个位置，放行（那一个位置读完空着，交出去的那一份只有一个持有者）
+	expectOK(t, bag+"method give():Bag {\n    return h.item\n}\n"+made+"give()\n")
+	// 七、装进容器那个位置：那一个位置接手字段里那一份
 	expectOK(t, bag+made+"let xs:list<Bag> = [h.item]\nconsole.print(length(xs))\n")
+	// 八、顺着字段读一次不动那一个位置：连着两读都拿得到
+	expectOK(t, bag+made+"console.print(h.item.n, h.item.n, length(h.label))\n")
+	// 九、方法体里直接写的字段名就是 this.那个字段，同一条
+	expectOK(t, bag+"class Hold3 {\n    item:Bag\n\n    method take_out():Bag {\n        return item\n    }\n}\n")
+	// 十、借来的那一个对象（遍历给的）手里那份不由它支配：照旧拒绝
+	expectErr(t, bag+"class Box {\n    inner:Bag\n}\nmethod sink(xs:list<Bag>) {\n}\nlet cs:list<Bag> = [new Bag(n: 1)]\nfor (one:Bag in cs) {\n    sink([one])\n}\n",
+		"遍历交出的 one 是只读借用，不能交出去")
+	// 十一、只读借用的参数手里那个对象的字段也不由它支配
+	expectErr(t, bag+"class Wrap {\n    held:Bag\n}\nmethod sink(w:Wrap) {\n    let out:Bag = w.held\n    console.print(out.n)\n}\nconsole.print(1)\n",
+		"参数 w 是只读借用，不能把里面的东西交出去")
 }
 
 func TestBoxingTransfers(t *testing.T) {
@@ -297,74 +352,89 @@ func TestBoxingTransfers(t *testing.T) {
 
 // TestTransferIsBranchLocal 覆盖交出记录是按分支分别累计的：一条分支里交掉了，
 // 另一条分支照旧能用这个名字（`else if` 连着判断盒子全靠这一条）；
-// 但两条路都可能交出之后，再写它就是错误。
+// 但两条路都可能交出之后，再写它就是错误。文本走的是共享，交出去不作废，所以这三段
+// 都用可变的那一种容器，交出走的是"装进容器那一个位置"那一条（参数是只读借用，那一句不作废）。
 func TestTransferIsBranchLocal(t *testing.T) {
-	ok := `method eat(s:string) {
-}
-let txt:string = "喂"
+	ok := `let txt:list<int> = [7]
 if (length(txt) > 0) {
-    eat(txt)
+    let keep:list<int> = txt
+    console.print(length(keep))
 } else if (length(txt) < 0) {
-    eat(txt)
+    let keep:list<int> = txt
+    console.print(length(keep))
 } else {
-    eat(txt)
+    let keep:list<int> = txt
+    console.print(length(keep))
 }
 `
 	expectOK(t, ok)
-	later := `method eat(s:string) {
-}
-let txt:string = "喂"
+	later := `let txt:list<int> = [7]
 if (length(txt) > 0) {
-    eat(txt)
+    let keep:list<int> = txt
+    console.print(length(keep))
 } else {
-    eat(txt)
+    let keep:list<int> = txt
+    console.print(length(keep))
 }
-eat(txt)
+let bag:list<list<int>> = [txt]
 `
-	expectErr(t, later, "txt 是文本，交出去之后这个名字就空了：要接着用就交出它的拷贝，写 txt + \"\"")
-	onlyOne := `method eat(s:string) {
-}
-let txt:string = "喂"
+	expectErr(t, later, "txt 已经交出去了，这个名字不能再写")
+	onlyOne := `let txt:list<int> = [7]
 if (length(txt) > 0) {
-    eat(txt)
+    let keep:list<int> = txt
+    console.print(length(keep))
 }
-eat(txt)
+let bag:list<list<int>> = [txt]
 `
 	// 任一条路交出去，出了 if 就算"可能已经没了"
-	expectErr(t, onlyOne, "txt 是文本，交出去之后这个名字就空了：要接着用就交出它的拷贝，写 txt + \"\"")
+	expectErr(t, onlyOne, "txt 已经交出去了，这个名字不能再写")
 }
 
 // TestTransferResetsPerBinding 覆盖的是"每一个新绑定都从未交出的状态起头"：
-// 两个函数的参数同名、都把它交出去，后一个不该沿用前一个的记录。
+// 两个函数各自把同名的那一个位置交出去，后一个不该沿用前一个的记录。
 // 交出那张表按名字查、不随作用域回收，所以这条要留一道检查——
-// 跨文件的写法最先撞上（被引方法的参数名与本地方法的参数名相同）。
+// 跨文件的写法最先撞上（被引方法的名字与本地方法的名字相同）。
+//
+// en: TestTransferResetsPerBinding pins that every new binding starts from "not handed over".
+// The moved table is keyed by name and is not reclaimed when a scope closes, so this check stays:
+// the cross-file spelling hits it first (a name in an imported routine and a local name the same).
 func TestTransferResetsPerBinding(t *testing.T) {
-	share := `method eat(s:string) {
+	// 两个函数各自把**自己那一个局部量**交出去：交出那张表按名字查、不随作用域回收，
+	// 所以后一个函数不该沿用前一个的记录。跨文件的写法最先撞上。
+	share := `class Bag {
+    n:int
 }
 
-method first(s:string) {
-    eat(s)
+method first() {
+    let b:Bag = new Bag(n: 1)
+    let keep:list<Bag> = [b]
+    console.print(length(keep))
 }
 
-method second(s:string) {
-    eat(s)
+method second() {
+    let b:Bag = new Bag(n: 2)
+    let keep:list<Bag> = [b]
+    console.print(length(keep))
 }
 
 console.print(1)
 `
 	expectOK(t, share)
-	// 真该报的还是得报：函数体内第二次写同一个参数
-	reuse := `method eat(s:string) {
+	// 真该报的还是得报：同一个函数体内第二次交出去同一个名字
+	reuse := `class Bag {
+    n:int
 }
 
-method use(s:string) {
-    eat(s)
-    eat(s)
+method use() {
+    let b:Bag = new Bag(n: 1)
+    let keep:list<Bag> = [b]
+    let more:list<Bag> = [b]
+    console.print(length(keep), length(more))
 }
 
 console.print(1)
 `
-	expectErr(t, reuse, "s 是文本，交出去之后这个名字就空了：要接着用就交出它的拷贝，写 s + \"\"")
+	expectErr(t, reuse, "b 已经交出去了，这个名字不能再写")
 }
 
 func TestFloatKeyRejected(t *testing.T) {
@@ -607,11 +677,16 @@ func TestImportedFileTopLevelRuns(t *testing.T) {
 }
 
 func TestLoopBodyCheckedTwice(t *testing.T) {
-	// 第一圈把 s 交出去，第二圈开头又用：这一条要靠"循环体检查两遍"才抓得到
-	src := "method eat(s:string) {\n}\nlet items:list<string> = [\"a\"]\nfor (s:string in items) {\n    eat(s)\n    eat(s)\n}\n"
-	expectErr(t, src, "s 是遍历交出的只读借用，不能交给参数")
-	owned := "method eat(s:string) {\n}\nlet items:list<string> = [\"a\"]\nfor (i:int in 0 until 2) {\n    let s:string = items[0]\n    eat(s)\n    console.print(s)\n}\n"
-	expectErr(t, owned, "s 是文本，交出去之后这个名字就空了：要接着用就交出它的拷贝，写 s + \"\"")
+	// 第一圈把 b 交出去，第二圈开头又用：这一条要靠"循环体检查两遍"才抓得到。
+	// 交出走的是"装进容器那一个位置"那一条（参数是只读借用，那一句不作废）。
+	const bag = "class Bag {\n    n:int\n}\n"
+	expectErr(t, bag+"let items:list<Bag> = [new Bag(n: 1)]\nfor (b:Bag in items) {\n    let keep:list<Bag> = [b]\n    let more:list<Bag> = [b]\n    console.print(length(keep), length(more))\n}\n",
+		"遍历交出的 b 是只读借用，不能交出去")
+	expectErr(t, bag+"let b:Bag = new Bag(n: 1)\nfor (i:int in 0 until 2) {\n    let keep:list<Bag> = [b]\n    let more:list<Bag> = [b]\n    console.print(length(keep), length(more))\n}\n", "b 已经交出去了，这个名字不能再写")
+	// 文本走的是共享：交进参数不作废名字，同一圈连着用两次、下一圈再读都照旧
+	expectOK(t, "method eat(s:string) {\n}\nlet items:list<string> = [\"a\"]\nfor (i:int in 0 until 2) {\n    let s:string = items[0]\n    eat(s)\n    console.print(s)\n}\n")
+	// 只读借用的参数交进另一个只读借用的参数：两处都不接手，放行
+	expectOK(t, bag+"method eat(b:Bag) {\n    console.print(b.n)\n}\nmethod hold(b:Bag) {\n    eat(b)\n}\nlet items:list<Bag> = [new Bag(n: 1)]\nfor (b:Bag in items) {\n    eat(b)\n    eat(b)\n}\n")
 }
 
 func TestSharedGlobals(t *testing.T) {

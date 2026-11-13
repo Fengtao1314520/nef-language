@@ -24,6 +24,7 @@
 | 取出一段 | `xs.slice(start, end)`，含起点不含终点 | 没有 | 没有 |
 | 插入到某个位置 | `xs.insert_at(index, value)` | 没有 | 没有 |
 | 从某个位置移除 | `xs.remove_at(index)`，返回被移除的元素 | 没有 | 没有 |
+| 把一个键对应的那一份值摘出来 | 没有 | `d.take(key)`，返回之后桶里那个位置读回来是 `null` | 没有 |
 
 `sort`、`index_of`、`get` 这三个成员都不抛出错误：`sort` 只是把已有的元素重新排列，不改变长度，也不改变元素内容；`index_of` 找不到时返回 `-1`；`get` 的键不存在时返回调用传入的默认值，不抛 10032。
 
@@ -133,19 +134,25 @@ console.print(a.union(b).contains(4), a.intersect(b).contains(1))
 true false
 ```
 
-`first()`、`last()` 读取的就是 `xs[0]`、`xs[length(xs) - 1]` 这两个位置，读取规则也相同：读完那个位置还是原样，同一位置可以读第二遍；要自己拿着那一个值就用 `remove_at` 摘出来（见[值与存放](/reference/038_memory)）。`clear()` 是就地清空，每一个位置都归还给堆。
+`first()`、`last()` 读取的就是 `xs[0]`、`xs[length(xs) - 1]` 这两个位置，读取规则也相同：读完那个位置还是原样，同一位置可以读第二遍。
+
+要留住那一个值：文本直接接给一个名字就行，可变的那一种用 `remove_at` 摘出来（见[值与存放](/reference/038_memory)）。
+
+`clear()` 是就地清空，每一个位置都归还给堆。
 
 `d.get(key, fallback)` 两个位置都只读一次：命中读的是表里那个位置，没有命中读的是调用处递进来的默认值，读回来的那一份是借来的，接不进名字；键与默认值两边的原名在这条调用之后都还能用。并、交、差三个运算各返回一个新的集合，进去的两个集合不发生变化。
 
 `add`、`remove`、`contains` 只作为容器的成员存在，不占用全局名字，自己的 `class` 里可以照原样写 `method add(...)`。
 
-键不必是固定的字面量。下面的例子统计每个词出现的次数：遍历交出的是只读借用，而放进容器需要一个属于自己的值，所以先用 `slice` 复制一份出来。
+键不必是固定的字面量。下面的例子统计每个词出现的次数。
+
+遍历交出的是只读借用，文本接给一个名字是共用同一块，直接拿它当键就行。
 
 ```nf
 let words:list<string> = "秋 风 秋 水 秋".split(" ")
 let n:dict<string, int> = {}
 for (w:string in words) {
-    let key:string = w.slice(0, length(w))
+    let key:string = w
     if (n.contains(key)) {
         n[key] = n[key] + 1
     } else {
@@ -165,7 +172,7 @@ console.print(length(n), n["秋"], n["风"], n["水"])
 | 位置 | 语义 |
 | --- | --- |
 | 被操作的那个容器（`items.add(...)` 和 `length(items)` 里的 `items`） | 只读借用，调用之后持有者不变 |
-| 传进去的值（`box.add(c)` 里的 `c`） | 值类型拷贝，引用类型交出 |
+| 传进去的值（`box.add(c)` 里的 `c`） | 值类型拷贝，可变的那一种交出，文本共用同一块 |
 | 读一个位置（`box[0]`、`xs.first()`、`d.get(键, 默认)`） | 不拿走：读到的那一份归容器持有，同一位置可以读第二遍 |
 | 把值从容器里拿走（`box.remove_at(0)`、`json.take(doc, 键)`） | 交出，那个位置之后是 `null`；`remove_at` 还会让后面的位置依次前移 |
 
@@ -173,9 +180,7 @@ console.print(length(n), n["秋"], n["风"], n["水"])
 
 从容器里拿走一个值，走的是 `xs.remove_at(0)` 与 `json.take(doc, 键)` 这两条。删除那三条（`xs.remove(值)`、`d.remove(键)`、`s.remove(值)`）只删，不当作值交出来，写了接住它的名字会被编译器拦下。
 
-要留住读到的一份，就自己再要一份。
-
-文本复制一份（`xs[0] + ""`），其余类型用 `xs.remove_at(位置)` 把那一个摘出来（删除那几条不交出值）。
+要留住读到的一份：文本直接接给一个名字，两处拿着同一块；可变的那一种要用 `xs.remove_at(位置)` 把那一个摘出来（删除那几条不交出值）。
 
 存放值类型的容器（`list<int>`、`hashset<byte>`）进出都是拷贝，每个位置始终有值。
 
@@ -192,7 +197,9 @@ console.print(length(n), n["秋"], n["风"], n["水"])
 
 ## 遍历
 
-`for (v in c)`：`list` 交出元素，`hashset` 交出成员，`dict` 只交出键。交出的都是只读借用：可以读取，也可以调用方法，但不能把它们交出去；`dict` 与 `hashset` 不保证顺序；遍历途中对被遍历的容器做增删会抛出 10033 号。细节在[容器](/reference/037_containers)。
+`for (v in c)`：`list` 交出元素，`hashset` 交出成员，`dict` 只交出键。交出的都是只读借用：可以读取，也可以调用方法，但不能把它们交出去。
+
+元素是文本时不算交出：接给一个名字是共用同一块，容器那个位置不动。`dict` 与 `hashset` 不保证顺序；遍历途中对被遍历的容器做增删会抛出 10033 号。细节在[容器](/reference/037_containers)。
 
 ```nf
 let scores:dict<string, int> = {"甲": 90}

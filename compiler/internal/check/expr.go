@@ -231,6 +231,10 @@ func (c *Checker) nameExpr(n *ast.Name, want Type) Type {
 		}
 		return t
 	}
+	if c.refuseForwardLet(n) {
+		return errType
+	}
+
 	v, depth, ok := c.lookupAt(n.Text)
 	if !ok {
 		if fi, has := c.funcs[c.key(n.Text)]; has && fi.fn != nil && !fi.method {
@@ -319,23 +323,45 @@ func (c *Checker) enumMember(name string) (string, bool) {
 	return "", false
 }
 
+// refuseForwardLet 拦顶层那一种先读后写：入口文件的顶层语句读一个后面才给初值的顶层 let。
+// 名字在 hoistTopDecls 那一趟就登记好了，所以读得到类型、也发得出内存，只是那一个静态槽里的值
+// 还没算出来——引用类型读到的是空句柄，值类型读到的是零值，屏幕上不报一个字。
+// 函数体里不查这一条：函数在顶层跑完之后才被调用，读后面声明的名字是正常的。
+//
+// en: refuseForwardLet catches a top-level statement in the entry file reading a top-level let
+// that is initialised further down. The name is already registered by hoistTopDecls, so the read
+// type-checks and allocates - but the static slot holds no computed value yet: a reference type
+// reads as a null handle and a value type as zero, with nothing on screen. Inside a function body
+// this is not checked: a function runs after the top level, so reading a later declaration there
+// is normal.
+func (c *Checker) refuseForwardLet(n *ast.Name) bool {
+	if !c.topFlow || c.curFunc != nil || c.liveTop == nil {
+		return false
+	}
+	v, layer, ok := c.lookupAt(n.Text)
+	if !ok || layer != 0 || v.by != BindGlobalLet {
+		return false
+	}
+	dc, isDecl := v.node.(*ast.Decl)
+	if !isDecl || c.liveTop[dc] {
+		return false
+	}
+	c.fail(n.Where(), "%s 在本文件第 %d 行才有初值，这一句先读了它：把这一句挪到那一句后面", n.Text, dc.Where().Line)
+	return true
+}
+
 // usable 检查交出分析：名字被交出去之后再用就是错。
 //
-// 交出去的是文本时补一句出路：文本交出就作废，交出拷一份（`s + ""`）就还能接着用。别的类型
-// （class、容器、句柄）没有这样一份现成的拷贝，那一种沿用"不能再写"那一句。
+// 文本走不到这一条：它不可变，把一个句柄交给一个新的位置是共用那一块，不是交出那一个名字，
+// 所以那一个名字从来不会被标成交出（见 takeFrom 与 arg 那两处的文本分支）。
 //
 // en: usable checks the handover analysis: using a name after it was handed over is an error.
-// When the handed-over value is a text, the message adds the way out: handing a text away voids
-// the name, while handing away a copy (`s + ""`) leaves it usable. The other types (class,
-// container, handle) have no such ready-made copy, so they keep the plain "cannot write again"
-// sentence.
+// Text never reaches this: it is immutable, so letting a new position hold that handle shares the
+// block rather than hands over the name, and the name is never marked as given away (see the text
+// branches in takeFrom and arg).
 func (c *Checker) usable(n *ast.Name, typ Type) bool {
 	if c.moved[n.Text] {
-		if typ.Kind == Str {
-			c.fail(n.Where(), "%s 是文本，交出去之后这个名字就空了：要接着用就交出它的拷贝，写 %s + \"\"", n.Text, n.Text)
-		} else {
-			c.fail(n.Where(), "%s 已经交出去了，这个名字不能再写", n.Text)
-		}
+		c.fail(n.Where(), "%s 已经交出去了，这个名字不能再写", n.Text)
 		return false
 	}
 	return true
@@ -352,7 +378,7 @@ func (c *Checker) markMoved(n *ast.Name) {
 		case borrowReceiver:
 			c.fail(n.Where(), "this 是方法接收者的只读借用，不能交出去")
 		case borrowParam:
-			c.fail(n.Where(), "ref 参数 %s 是只读借用，不能交出去", n.Text)
+			c.fail(n.Where(), "参数 %s 是只读借用，不能交出去", n.Text)
 		default:
 			c.fail(n.Where(), "遍历交出的 %s 是只读借用，不能交出去", n.Text)
 		}
@@ -422,27 +448,40 @@ func (c *Checker) fieldPath(v ast.Expr) string {
 
 // markFieldTaken 钉一条规矩：`class` 的引用类型字段被读出来交给一个新持有者，
 // 这一次读就是交出，后端读完把字段那个位置写空——与容器那个位置同一本账。
+// 那一条裁定只改写了这一条的两处：文本走共用那一路（读出来不动那一个位置），
+// 可变的数据照旧跟着位置走。把这一条整句作废会造出"读得动、谁也接不走"的字段：
+// `let buf:bytes = link.pending` 之后 `link.pending` 还留着那一份，两个持有者各析构一次。
 //
 // 只在交出的那五处调用（落到名字、当实参交出去、`return` 出去、装进容器位置、装进盒子）。
 // 顺着读一次不算：`console.print(o.i.n)`、`length(o.name)`、`o.list.add(x)` 都不产生新持有者，
 // 把那个位置抹空只会把值弄丢。`as` 那一侧要先剥掉：`let x:object = o.f as object` 交出的是
 // `o.f`。方法体里直接写的字段名（`return leaf`）也是同一件事，那边是绑到 BindField 的
-// `*ast.Name`。
+// `*ast.Name`。值类型字段与 struct 的字段不走这一条：那两份是拷贝，没有槽位归属的问题。
 //
-// 值类型字段与 struct 的字段不走这一条：那两份是拷贝，没有槽位归属的问题。
-//
-// en: markFieldTaken pins one rule: when a `class`'s reference-typed field is read out and
-// handed to a new holder, that read IS the handover, and the backend writes the field's position
-// empty afterwards - the same ledger as a container position. It is called only at the five
-// handover sites (into a name, as an argument, through `return`, into a container position, into
-// a box). Reading through does not count: `console.print(o.i.n)`, `length(o.name)` and
-// `o.list.add(x)` create no new holder, and emptying that position would just lose the value.
-// The `as` side is stripped first: in `let x:object = o.f as object` what is handed over is
-// `o.f`. A field name written bare in a method body (`return leaf`) is the same thing, where it
-// is a `*ast.Name` bound to BindField. Value-typed fields and struct fields do not take this
-// path: those two are copies, so there is no question of which holder a slot belongs to.
+// en: markFieldTaken pins one rule: when a `class` reference-typed field is read out and handed to
+// a new holder, that read IS the handover and the backend writes the field's position empty
+// afterwards - the same ledger as a container position. The narrowed rule rewrites exactly two things
+// here: text is shared, so a read leaves the position intact, and mutable data still follows the
+// position. Cancelling this rule whole would create a field you can read but nobody can carry
+// away: after `let buf:bytes = link.pending` the field still holds that value and two owners each
+// destroy once. Called only at the five handover sites (into a name, as an argument, through
+// `return`, into a container position, into a box). Reading through does not count:
+// `console.print(o.i.n)`, `length(o.name)` and `o.list.add(x)` create no new holder, and emptying
+// that position would just lose the value. The `as` side is stripped first: in
+// `let x:object = o.f as object` what is handed over is `o.f`. A bare field name in a method body
+// (`return leaf`) is the same thing, bound to BindField. Value-typed fields and struct fields do
+// not take this path: those two travel as copies, so no slot ownership is at stake.
 func (c *Checker) markFieldTaken(v ast.Expr, t Type) bool {
-	if !takesIntoCell(t) {
+	if !takesIntoCell(t) || t.Kind == Str {
+		return false
+	}
+	if c.inTypeTest {
+		// `(那一个 as object) is 类型` 问的那一半不动那一个位置：装箱一个 `class` 发的就是
+		// 那一个句柄本身（`lower.box` 里 Class 那一条），问一次不多出一个持有者。
+		//
+		// en: The half asked by `(that as object) is Type` leaves that position alone: boxing a
+		// class hands back the very same handle (the Class branch of lower.box), so asking once
+		// adds no holder.
 		return false
 	}
 	for {
@@ -455,17 +494,21 @@ func (c *Checker) markFieldTaken(v ast.Expr, t Type) bool {
 	switch x := v.(type) {
 	case *ast.Member:
 		if c.fieldOf[x].Kind != Class {
-			return false
+			return false // struct 的字段是整块拷贝，没有槽位归属的问题
 		}
-		// 借来的那个对象（遍历给的、ref 参数给的）字段不归它支配——与容器那一侧同样拒绝；
+		// 借来的那一个对象（遍历交出的、只读借用的参数）字段不归它支配——与容器那一侧同样拒绝；
 		// 方法接收者 this 除外：它可以把自己字段里的值交出去。
+		//
+		// en: The fields of a borrowed object (one a walk hands over, or a read-only borrow
+		// parameter) are not its to dispose of - refused the same way as on the container side. The
+		// receiver `this` is the exception: it may hand over what its own fields hold.
 		if n, ok := x.What.(*ast.Name); ok {
 			switch c.borrowed[n.Text] {
 			case borrowLoop:
 				c.fail(x.Where(), "遍历交出的 %s 是只读借用，不能把里面的东西交出去", n.Text)
 				return false
 			case borrowParam:
-				c.fail(x.Where(), "ref 参数 %s 是只读借用，不能把里面的东西交出去", n.Text)
+				c.fail(x.Where(), "参数 %s 是只读借用，不能把里面的东西交出去", n.Text)
 				return false
 			}
 		}
@@ -673,12 +716,19 @@ func (c *Checker) memberExpr(m *ast.Member, callPos bool) Type {
 	// 沿着同一条链登记成只读借用。不这样登记的话，读一次就把别人格子里的值抹空——
 	// 用 `v0.5.0` 的产物实测：`console.print(xs[0].name)` 打完"甲"，`xs[0]` 就成了 null。
 	//
-	// en: Reading a field through a borrowed position (`xs[0].name`) yields what still belongs
-	// to the container, so the borrow propagates along the chain. Without it, one read would
-	// empty somebody else's slot - measured with the v0.5.0 product: after
-	// `console.print(xs[0].name)` prints the text, `xs[0]` reads back as null.
+	// `class` 自己那一个字段读出来不登记成借用：
+	// 那一份接进名字就是把那个位置交走，读完那个位置是空句柄。文本那一档不走这条路：
+	// 接住的那一头是共用，那一个位置不动。
+	//
+	// en: Reading a field through a borrowed position (`xs[0].name`) yields what still belongs to
+	// the container, so the borrow propagates along the chain. Without it, one read would empty
+	// somebody else's slot - measured on the v0.5.0 product: after `console.print(xs[0].name)`
+	// prints the text, `xs[0]` reads back as null. A field read off an object the program owns does
+	// NOT register as a borrow (the field handover stays, for the reason given at markFieldTaken): taking that
+	// value into a name hands the position over, and the position reads back empty afterwards.
+	// Text does not take this path - the receiving end shares the block and the position stays.
 	if t.kind == memberField && c.borrowRead[m.What] {
-		if ft := c.fieldOf[m]; !ft.ByValue() {
+		if ft := c.fieldOf[m]; !ft.ByValue() && ft.Kind != Str {
 			c.borrowRead[m] = true
 		}
 	}
@@ -907,6 +957,15 @@ func stdMember(base Type, name string) member {
 			return member{takes: true, kind: memberStd, typ: Type{Kind: FuncT, Name: group}, sig: methodSig{Params: []Param{{Typ: elem}}}}
 		case "remove":
 			return member{kind: memberStd, typ: Type{Kind: FuncT, Name: group}, sig: methodSig{Params: []Param{{Typ: key}}}}
+		case "take":
+			// 字典的值位置上一份"摘出来"的写法。清单有 `remove_at(位置)`、
+			// 树有 `json.take`，字典那一个位置从前只能读、不能留下。`hashset` 没有值可交，
+			// 那一种元素照旧不开这一档；`list` 的对应写法是 `remove_at`。
+			// 值那一种是拷贝时调用那一步拒（见 memberStd 那一段）：那一个位置本来就不欠谁一份。
+			if base.Kind != Dict {
+				return member{}
+			}
+			return member{kind: memberStd, typ: Type{Kind: FuncT, Name: group}, sig: methodSig{Params: []Param{{Typ: key}}, Ret: val}}
 		case "contains":
 			if base.Kind == List {
 				return member{}
@@ -1143,38 +1202,33 @@ func entryCopyable(t Type) bool {
 
 func (c *Checker) callExprPos(call *ast.Call) ast.Pos { return call.Where() }
 
-// funcValueType 算出"这一个函数按值交出去时是什么类型"：返回类型排在第一位，
-// 参数依次往后排，参数前写了 `ref` 的那一个套一层 Borrow。
+// funcValueType 算出"这一个函数按值交出去时是什么类型"：返回类型排在第一位，参数依次往后排。
 // 带默认值的参数照全数排进去——一份函数类型说不出"这一个可以省"，
 // 所以通过值调用时那一个位置也得给实参，省下来的是直接调用那一侧的好处。
 //
-// 交不出来的是那两类要说不清归谁的：参数既不是参与归还的值类型又没写成 `ref`（引用类型不写
-// `ref` 就是要拿走，而一份函数类型说不出接住的到底是哪一支函数，"被调方留没留"这件事证不了）；
-// 返回的是文本、容器、句柄或 `struct`（同一条理由，接结果的那一侧也算不出这一块是不是当场新造的）。
-// 这两处当场拒绝，报错落在函数的定义那一处。
+// 参数这一档不设限：实参一律是只读借用，接住的是哪一支函数都不影响"谁留下那一份"这件事，
+// 所以借用不借用不需要写进函数类型。要拦的只剩返回那一处：返回文本、容器、句柄或 `struct`
+// 时，接结果的那一侧算不出这一块是不是当场新造的，说不清归谁，当场拒绝，报错落在函数的定义那一处。
 //
 // en: funcValueType computes the type a function has when handed over as a value: the return
-// type first, then the parameters in order, each one taken with `ref` wrapped in Borrow.
-// A parameter with a default counts in full - a function type cannot say "this one may be
-// omitted", so a call through a value must supply it too; what defaults save is the direct
-// call's side of the ledger.
+// type first, then the parameters in order. A parameter with a default counts in full - a
+// function type cannot say "this one may be omitted", so a call through a value must supply it
+// too; what defaults save is the direct call's side of the ledger.
+// Parameters are unrestricted: an argument is always a read-only borrow, and which function
+// ends up receiving it does not change who keeps a copy, so borrowing needs no place in a
+// function type. Only the return is checked - text, a container, a handle or a `struct` leaves
+// the receiving side unable to work out whether the block was built on the spot, so that is
+// refused where the function is defined.
 func (c *Checker) funcValueType(fi funcInfo) Type {
 	params := make([]Type, 0, len(fi.params))
-	refs := make([]bool, 0, len(fi.params))
-	for i, p := range fi.params {
-		ref := i < len(fi.fn.Params) && fi.fn.Params[i].Ref
-		if !ref && !callPlainValue(p.Typ) {
-			c.fail(fi.fn.Where(), "把 %s 当值交出去不行：它的第 %d 个参数是 %s，这样的参数要么不参与归还，要么写成 ref",
-				fi.fn.NameText, i+1, p.Typ)
-		}
+	for _, p := range fi.params {
 		params = append(params, p.Typ)
-		refs = append(refs, ref)
 	}
 	if fi.ret.Kind != NoRet && !callPlainValue(fi.ret) {
 		c.fail(fi.fn.Where(), "把 %s 当值交出去不行：它返回 %s，这一版只接不参与归还的返回类型",
 			fi.fn.NameText, fi.ret)
 	}
-	return funcTypeOf(fi.ret, params, refs)
+	return funcTypeOf(fi.ret, params)
 }
 
 // callPlainValue 判这一个类型按值走一趟调用会不会产生归还的问题：那六种不参与析构的值类型不会。
@@ -1402,6 +1456,12 @@ func (c *Checker) memberCall(call *ast.Call, m *ast.Member) Type {
 		return mm.sig.Ret
 	case memberStd:
 		c.recordCall(call, CallRef{Kind: CallStd, Std: mm.typ.Name})
+		if mm.typ.Name == "dict.take" && mm.sig.Ret.ByValue() {
+			// 摘出来交的是那一个位置上的持仓。拷贝的那一种没有这一问：读一次就在自己手上，
+			// 桶里那一份本来就是容器自己的。要那条记录不在，写 `remove`。
+			c.fail(call.Where(), "%s 那个位置读一次就在手上，不用摘：要删掉那条记录写 remove", mm.sig.Ret)
+			return errType
+		}
 		if mm.typ.Name == "thread.start" {
 			// 这一条的返回类型跟着第一个入参那一个函数的返回类型走，通用那一段算不出来
 			// （它自己在 thread.go 的 threadStart 里把两个位置都判完）。
@@ -1500,24 +1560,38 @@ func (c *Checker) memberCall(call *ast.Call, m *ast.Member) Type {
 // check.noteConsumed reads.
 func (c *Checker) arg(a ast.Expr, want Type, p Param) {
 	c.exprExpected(a, want)
-	if p.takesRef() {
-		// ref 参数只是借来读一次：那一次读多不出新持有者，所以名字不失效、字段那个位置不动，
-		// `export shared` 的名字与遍历、this 借来的名字也都交得进去。
+	if p.isUserParam() && !c.threadTake[p.Node] && !IsSystemHandle(want.Kind) {
+		// 自己写的函数与方法的每一个参数都是只读借用：那一次读多不出新持有者，
+		// 所以名字不失效、字段那个位置不动，遍历与 this 借来的名字也都交得进去。
+		// 系统给的句柄不在这一档：那一个位置交接出（见下面那一条），否则被调方到帧尽头关一次、
+		// 调用方手里那一个名字也跟着关一次。
+		// `export shared` 的那一个名字仍然交不进去：那一份是跨文件共用的一处可变状态，
+		// 借出去之后调用链上谁都改得到它，与"只能就地用"是同一条规矩。
+		if n, ok := a.(*ast.Name); ok && c.isShared(n.Text) && !want.ByValue() {
+			c.fail(a.Where(), "%s 是 export shared 的名字，只能就地用，不能当参数交出去", n.Text)
+		}
+		return
+	}
+	if want.Kind == Str {
+		// 文本的实参是共用：被调方那一个位置与调用方手里的是同一块，所以这一个名字不作废，
+		// 字段与容器的那一个位置也不抹空。读一个位置拿到的那一份因此交得进去：
+		// 那本来就是原处的一块，多一个位置拿着只是多一个读者，文本不可变，不多出写入者。
+		//
+		// en: A text argument shares: the callee's position and the caller's hold one and the
+		// same block, so the name is not voided and neither a field nor a container position is
+		// emptied. A value read out of a position therefore goes in - it was the original block
+		// anyway, and one more position holding it only means one more reader, since a text is
+		// immutable and adds no writer.
 		return
 	}
 	if c.borrowRead[a] && !want.ByValue() && want.Kind != ErrT {
 		// 读一个位置拿到的那一份是借来的，交给要自己留一份的参数就会有两个持有者。
-		c.fail(a.Where(), "读出来的那一份是只读借用，不能交给要拿走的那个参数：文本拷一份，能摘出来的位置用 remove_at 或 json.take 摘出来")
+		// 字段那一侧同一条：`sink(o.item)` 读的是那个位置，接不进要拿走它的参数。
+		c.fail(a.Where(), "读出来的那一份是只读借用，不能交给要拿走的那个参数：能摘出来的位置用 remove_at、d.take 或 json.take 摘出来")
 		return
 	}
 	if !want.ByValue() && want.Kind != ErrT && c.markFieldTaken(a, want) {
-		// 字段那本账本身没错：记的是"那个槽位读完写空"，后端照它抹那一个字段。
-		// 要拒绝的是这一步悄悄发生：把字段直接交给自己写的函数当实参，交完那个位置就空了，
-		// 下一次读它是运行期的 10092，可在编译期一个字的错都不报（同一条用在容器那个位置上，
-		// 容器那一条写明"被读走的那个位置返回 null"，字段这一侧没写死）。这里当场拒绝。
-		// 正确写法是先接给一个名字再交——接名字那一步本来就是把那个位置过户出来。
-		path := c.fieldPath(a)
-		c.fail(a.Where(), "%s 是字段，直接交出去之后那个位置就空了：先接给一个名字，再拿那个名字交出去", path)
+		// 交进要拿走那一个位置的字段：那一个位置接手，读完字段写空
 		return
 	}
 	if n, ok := a.(*ast.Name); ok && !want.ByValue() && want.Kind != ErrT {
@@ -1531,7 +1605,7 @@ func (c *Checker) arg(a ast.Expr, want Type, p Param) {
 				return
 			}
 			if kind == borrowParam {
-				c.fail(a.Where(), "ref 参数 %s 是只读借用，不能交给要拿走的那个参数", n.Text)
+				c.fail(a.Where(), "参数 %s 是只读借用，不能交给要拿走的那个参数", n.Text)
 				return
 			}
 			c.fail(a.Where(), "%s 是遍历交出的只读借用，不能交给参数", n.Text)
@@ -1613,16 +1687,12 @@ func (c *Checker) valueCall(call *ast.Call, name string, fv Type) Type {
 		c.fail(call.Where(), "%s 只收 %d 个参数，这里给了 %d 个", name, n, len(call.Args))
 		return funcRetOf(fv)
 	}
-	// 那一个名字读一次：它自己不交出什么，交出去的是里面那一份地址
+	// 那一个名字读一次：它自己不交出什么，交出去的是里面那一份地址。
+	// 按值调用走的每一个位置都是只读借用：函数值指向的就是自己写的那一类函数，
+	// 而那一种函数的参数一律是借用，所以这里只配对类型，一本归属的账也不记。
 	c.expr(call.Callee)
 	for i, a := range call.Args {
-		want := fv.Args[i+1]
-		if want.Kind == Borrow {
-			// 借用那一位：读一次就够，不动所有权，也不要求实参是持有者
-			c.exprExpected(a, want.Args[0])
-			continue
-		}
-		c.arg(a, want, Param{})
+		c.exprExpected(a, fv.Args[i+1])
 	}
 	return funcRetOf(fv)
 }
@@ -1755,14 +1825,15 @@ func (c *Checker) convert(cv *ast.Convert) Type {
 			c.fail(cv.Where(), "%s 不必再装箱：它已经在盒子里，直接用它就行", from)
 			return errType
 		}
-		// 装箱就是把那一个值交出去：来源是字段时记字段那一笔，是名字时记原名作废。
-		// 来源是借来的那一份时，盒子装的也是借来的那一份：这一句能读能印，
-		// 但盒子接不进名字、进不了容器、也返回不出去（下面把它登记成同一个借用）。
+		// 装箱就是把那一个值交出去：来源是一个名字时记原名作废，来源是 `class` 的可变字段时
+		// 把那个位置写空。文本那一档不走这条路：装进盒子的是同一块，那一个位置不动。
+		// 来源是借来的那一份时（读容器那一个位置、读树上那一个位置），盒子装的也是借来的那一份：
+		// 这一句能读能印，但盒子接不进名字、进不了容器、也返回不出去（下面登记成同一个借用）。
 		if c.isReadBorrow(cv.What) && !from.ByValue() {
 			c.borrowRead[cv] = true
 			return to
 		}
-		if !from.ByValue() && c.markFieldTaken(cv, to) {
+		if !from.ByValue() && c.markFieldTaken(cv, from) {
 			return to
 		}
 		if n, ok := cv.What.(*ast.Name); ok && !from.ByValue() {
@@ -1828,7 +1899,13 @@ func unicodeConvert(from, to Type) bool {
 }
 
 func (c *Checker) testExpr(t *ast.Test) Type {
+	// 问一次类型不动那一个位置：被问的那一半在交出那一本账上不记（理由写在 markFieldTaken 开头）。
+	// en: Asking a type question leaves positions alone - the half being asked takes no entry in
+	// the handover ledger (the reason is at the top of markFieldTaken).
+	was := c.inTypeTest
+	c.inTypeTest = true
 	from := c.expr(t.What)
+	c.inTypeTest = was
 	to := c.resolveType(t.Typ, t.Where())
 	if c.facts != nil {
 		// 结论类型恒为 boolean，后端要知道的是"问的是哪个类型"，只能单独记一份
@@ -2071,9 +2148,14 @@ func takesIntoCell(t Type) bool {
 // nobody to dismantle the block (measured: `[one]` and `new Holder(p: one)` each leaked 16
 // bytes per iteration).
 func (c *Checker) putInCell(v ast.Expr, t Type) {
+	if t.Kind == Str {
+		// 文本放进一个位置是共用那一块：原名不作废，从别处读来的那一份也放得进去。
+		// 那一个块头从这一句起带着共享的记号，两头到作用域尽头都不归还（见降级那侧的 shareText）。
+		return
+	}
 	if c.borrowRead[v] && takesIntoCell(t) {
-		// 容器那个位置要自己拿着一份；读出来的那一份还归原来那个容器或者那棵树。
-		c.fail(v.Where(), "读出来的那一份是只读借用，不能放进容器那一个位置：文本拷一份，能摘出来的位置用 remove_at 或 json.take 摘出来")
+		// 容器那个位置要自己拿着一份；读出来的那一份还归原来那个容器、那棵树或者那一个字段。
+		c.fail(v.Where(), "读出来的那一份是只读借用，不能放进容器那一个位置：能摘出来的位置用 remove_at、d.take 或 json.take 摘出来")
 		return
 	}
 	if c.markFieldTaken(v, t) {
@@ -2504,12 +2586,12 @@ func readsPosition(name string) bool {
 }
 
 // isReadBorrow 说这一个表达式交出的是一份只读借用：来源是读一个位置（下标与那五个成员，
-// 记在 `borrowRead` 里），或者是一个本来就标着借用的名字（遍历交出的、`ref` 参数、方法接收者）。
+// 记在 `borrowRead` 里），或者是一个本来就标着借用的名字（遍历交出的、实参、方法接收者）。
 // 装箱与拆箱顺着这样一份值写，得到的还是同一份借用，容器、盒子和字段都不改动。
 //
 // en: isReadBorrow says this expression hands back a read-only borrow: either the source is a
 // position read (an index or one of those five members, recorded in borrowRead), or it is a name
-// that already carries a borrow (from a loop, a ref parameter, or a receiver). Boxing or unboxing
+// that already carries a borrow (from a loop, an argument, or a receiver). Boxing or unboxing
 // such a value yields the same borrow and changes nothing - not the container, not the box, not
 // the field.
 func (c *Checker) isReadBorrow(e ast.Expr) bool {

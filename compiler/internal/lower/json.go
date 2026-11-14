@@ -217,6 +217,14 @@ type jstate struct {
 	err   ir.G // 坏在哪一类（0 是没毛病）
 	errAt ir.G // 坏在第几个字节
 	esc   ir.G // 刚读出来的那一个转义解出来占几格（只给数长度用）
+
+	// 下面两格是 `nef.json.of` 走原生容器时的身份链与层数（与打印机那两格同一用途，
+	// 各自一块：只用 json 的程序不必先排出打印机，只用打印机的也不必排出这一族）。
+	// en: The two slots below are nef.json.of's identity chain and depth counter while it walks
+	// native containers - the printer keeps the same pair for the same purpose, but each group
+	// has its own, so a json-only program does not build the printer first.
+	trail ir.G // 那一串身份的堆地址（第一次要用的时候现拿）
+	depth ir.G // 走到第几层
 }
 
 // jsonTextBody 是一条文本的正文起点：句柄指在「字节数 8 ＋ 码点数 8」那两个位置之后。
@@ -235,6 +243,7 @@ func ensureJSON(l *L) {
 	l.json = &jstate{
 		src: l.hidden(), buf: l.hidden(), len: l.hidden(), pos: l.hidden(),
 		err: l.hidden(), errAt: l.hidden(), esc: l.hidden(),
+		trail: l.hidden(), depth: l.hidden(),
 	}
 	for _, name := range jsonFns {
 		l.p.Func(name) // 先占名字：互相回叫的那几支要在别人找它之前先在场
@@ -271,6 +280,7 @@ func ensureJSON(l *L) {
 	jsonBuildToFloat(l)
 	jsonBuildToBool(l)
 	jsonBuildExplain(l)
+	buildJSONWrite(l)
 }
 
 // ---- 发中间码的小工具箱 ----
@@ -687,24 +697,72 @@ func jsonBuildUnesc(l *L) {
 	j.ret(cp)
 }
 
-// jsonMemberFn 是那十四条成员各对应哪一支发出来的函数。
+// jsonMemberFn 是挂在 `Json` 上的成员各对应哪一支发出来的函数。
+// 组名上只剩 `json.parse` 与 `json.explain` 两条；取一个位置的两条（`json.at`、`json.item`）
+// 现在从下标那一路进来，数元素从 `length` 那一路进来，见 lower.go 的 indexRead 与 stdContainer。
 //
-// en: jsonMemberFn maps each of the fourteen members to the function that implements it.
+// en: jsonMemberFn maps each member hung on Json to the function that implements it.
+// Only json.parse and json.explain stay under the group name; the two position reads (json.at,
+// json.item) now arrive through the index path and the count arrives through length - see
+// indexRead and stdContainer in lower.go.
 var jsonMemberFn = map[string]string{
 	"json.parse":      fnJSONParse,
 	"json.explain":    fnJSONExplain,
 	"json.kind":       fnJSONKind,
-	"json.count":      fnJSONCount,
 	"json.keys":       fnJSONKeys,
-	"json.has":        fnJSONHas,
-	"json.at":         fnJSONAt,
-	"json.item":       fnJSONItem,
+	"json.contains":   fnJSONHas,
 	"json.take":       fnJSONTake,
-	"json.take_item":  fnJSONTakeI,
+	"json.take_at":    fnJSONTakeI,
 	"json.to_text":    fnJSONToText,
 	"json.to_integer": fnJSONToInt,
 	"json.to_number":  fnJSONToFloat,
 	"json.to_boolean": fnJSONToBool,
+	"json.to_json":    fnJSONRender,
+	// 构造与写入那一族
+	"json.new_object": fnJSONNewObject,
+	"json.new_array":  fnJSONNewArray,
+	"json.from_value": fnJSONOf,
+	"json.set":        fnJSONSet,
+	"json.add":        fnJSONPush,
+	"json.insert_at":  fnJSONInsertAt,
+	"json.remove":     fnJSONDelKey,
+	"json.remove_at":  fnJSONDelAt,
+	"json.clear":      fnJSONClearNode,
+}
+
+// jsonValueOf 把一个值变成树上的一个节点：本来就是节点的直接交出，别的按形状表现场建一棵。
+//
+// 小数先取位型（与打印机同一条：槽里躺的就是那 64 位）。
+//
+// en: jsonValueOf turns one value into a node on the tree - a node already is one and goes
+// straight in, anything else is built now by its shape description. A float's bits come first,
+// the printer's rule again: those 64 bits are what lie in the slot.
+func (c *fc) jsonValueOf(e ast.Expr) (ir.Val, error) {
+	v, t, err := c.expr(e)
+	if err != nil {
+		return nil, err
+	}
+	if v == nil {
+		return nil, fmt.Errorf("这里需要一个值，但 %s 不返回任何东西", describe(e))
+	}
+	return c.jsonNodeOf(v, t)
+}
+
+func (c *fc) jsonNodeOf(v ir.Val, t check.Type) (ir.Val, error) {
+	if t.Kind == check.Json {
+		return v, nil
+	}
+	d, err := c.l.descOf(t)
+	if err != nil {
+		return nil, err
+	}
+	if t.Kind == check.Float {
+		v = c.bitsOf(v, t)
+	}
+	out := c.f.Temp()
+	c.f.Emit(&ir.Call{D: out, HasD: true, Fn: fnJSONOf, Args: []ir.Val{v, ir.D(d)},
+		FT: []ir.T{ir.TInt, ir.TInt}, RT: ir.TInt})
+	return out, nil
 }
 
 // jsonCall 把一次 json.* 调用降成"叫那一支发出来的函数"。
@@ -725,12 +783,62 @@ var jsonMemberFn = map[string]string{
 // slot, same convention as @str_to_float and @f_sqrt.
 func (c *fc) jsonCall(x *ast.Call, ref check.CallRef, t check.Type) (ir.Val, check.Type, error) {
 	ensureJSON(c.l)
+	// `json.from_value` 那一条交的就是那一个节点本身：建节点的那一支已经在下面那一段发过了，
+	// 不再多叫一次。
+	if ref.Std == "json.from_value" {
+		node, err := c.jsonValueOf(x.Args[0])
+		if err != nil {
+			return nil, t, err
+		}
+		return node, check.Type{Kind: check.Json, Name: "Json"}, nil
+	}
 	fn := jsonMemberFn[ref.Std]
 	if fn == "" {
 		return nil, t, fmt.Errorf("标准库的 %s 还没接到后端", ref.Std)
 	}
+	// 写入那三条：交进去的那一个节点归树上的那一个位置持有，所以它从"这一句没人接住的中转"
+	// 那本账里挑出去，与 `xs.add(值)` 同一条处理。
+	slot, isVal := check.JsonValueArg[ref.Std]
+	var winOuter, winFrom, winStd int
+	if isVal {
+		winOuter, winFrom = c.openWindow()
+		// 这一层窗口就是"只读借用"那一层：值位置里现造的那一块（`[1, 2, 3]` 这样的字面量）
+		// 要登记在这一层上，收尾时除了接进树里的那一个节点以外一律归还。
+		// en: This window is the read-only-borrow layer: the block built on the spot in the value
+		// position (a [1, 2, 3] literal) registers here, and at the close everything returns
+		// except the one node that went into the tree.
+		winStd = c.stdWin
+		c.stdWin = c.borrow
+	}
 	var args []ir.Val
-	for _, e := range x.Args {
+	// 挂在类型上的成员把树写在点号左边，组名式那两条把树写在第一个参数位上。两样并成一串参数：
+	// 点号左边那一个表达式自己的类型是 `Json` 才算成员式——组名 `json` 不是一个有类型的表达式，
+	// 那一路在 `Types` 里没有记录。
+	// en: A member carries the tree left of the dot; the group routines carry it as the first
+	// argument. Both end up as one list: the left side counts as a member only when its own type
+	// is Json - the group name json is not a typed expression and has no entry in Types.
+	if m, ok := x.Callee.(*ast.Member); ok {
+		if mt, has := c.l.f.Types[m.What]; has && mt.Kind == check.Json {
+			recv, _, err := c.expr(m.What)
+			if err != nil {
+				return nil, t, err
+			}
+			c.guardNotNull(recv)
+			args = append(args, recv)
+		}
+	}
+	var keep ir.Val
+	for i, e := range x.Args {
+		if isVal && i == slot {
+			// 那一个位置要的是树上的一个节点：原生类型先按形状表变成节点，本来就是节点的直接交出
+			node, err := c.jsonValueOf(e)
+			if err != nil {
+				return nil, t, err
+			}
+			args = append(args, node)
+			keep = node
+			continue
+		}
 		v, _, err := c.expr(e)
 		if err != nil {
 			return nil, t, err
@@ -750,5 +858,9 @@ func (c *fc) jsonCall(x *ast.Call, ref check.CallRef, t check.Type) (ir.Val, che
 	}
 	d := c.f.Temp()
 	c.f.Emit(&ir.Call{D: d, HasD: true, Fn: fn, Args: args, FT: fts, RT: ir.TInt})
+	if isVal {
+		c.stdWin = winStd
+		c.closeWindow(winOuter, winFrom, keep)
+	}
 	return d, t, nil
 }

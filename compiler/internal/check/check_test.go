@@ -103,7 +103,7 @@ func TestFieldTakeFromBorrowed(t *testing.T) {
 	expectOK(t, pre+"for (o:Outer in os) {\n    console.print((o.inner as object) is Inner)\n}\n")
 	// 容器那一个位置读出来的一份接不进名字：那一句通用的仍然在
 	expectErr(t, "class Bag {\n    n:int\n}\nlet xs:list<Bag> = [new Bag(n: 1)]\nlet one:Bag = xs[0]\n",
-		"读出来的那一份是只读借用，不能收到名字里、写进字段或者交给调用方：能摘出来的位置用 remove_at、d.take 或 json.take 摘出来")
+		"读出来的那一份是只读借用，不能收到名字里、写进字段或者交给调用方：能摘出来的位置用 remove_at、d.take 或 j.take 摘出来")
 }
 
 func TestConstOnlyValueType(t *testing.T) {
@@ -210,7 +210,7 @@ func TestReceiverIsReadOnlyBorrow(t *testing.T) {
 	// 交进要拿走那一个位置（容器 add）仍然拒
 	expectErr(t, "class Bag {\n    n:int\n\n    method boxed() {\n        let bag:list<Bag> = [this]\n    }\n}\n", "this 是方法接收者的只读借用，不能交出去")
 	// 顺着读不改动盒子，接手才拒
-	expectErr(t, "class Bag {\n    n:int\n\n    method boxed():object {\n        return this as object\n    }\n}\n", "读出来的那一份是只读借用，不能收到名字里、写进字段或者交给调用方：能摘出来的位置用 remove_at、d.take 或 json.take 摘出来")
+	expectErr(t, "class Bag {\n    n:int\n\n    method boxed():object {\n        return this as object\n    }\n}\n", "读出来的那一份是只读借用，不能收到名字里、写进字段或者交给调用方：能摘出来的位置用 remove_at、d.take 或 j.take 摘出来")
 }
 
 // TestContainerLiteralTransfers 覆盖：容器字面量里的引用类型元素

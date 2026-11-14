@@ -52,17 +52,17 @@ export method reply_field_of(answer:string, key:string):string {
     if (doc == null) {
         throw (204, "答复不是一段 JSON：" + first_chars_of(answer, 60))
     }
-    let result:Json = json.take(doc, "result")
+    let result:Json = doc.take("result")
     if (result == null) {
         return null
     }
-    let slot:Json = json.take(result, key)
+    let slot:Json = result.take(key)
     if (slot == null) {
         return null
     }
-    // 取到的是数或真假时 json.to_text 也返回空句柄；库里那一串
+    // 取到的是数或真假时 `to_text()` 也返回空句柄；库里那一串
     // sessionId、targetId、base64 全是文本，所以这一条够。
-    return json.to_text(slot)
+    return slot.to_text()
 }
 
 // 把一条截图答复里那串 base64 解码成 png 的字节。解不开是语言的 10014 号，
@@ -119,9 +119,9 @@ export method find_expression(kind:int, target:string, position:int):string {
     return "(document.querySelectorAll(" + quoted + ")[" + number.to_string(position) + "])"
 }
 
-// 多少个元素：三种定位各一条。返回的是文本，因为 json.to_text 只答文本，
+// 多少个元素：三种定位各一条。返回的是文本，因为 `to_text()` 只答文本，
 // 数与真假那两种它返回空句柄。
-// en: How many elements there are, one expression per locating kind. The answer comes back as text because json.to_text only answers for text; a number or a boolean would give it a null handle.
+// en: How many elements there are, one expression per locating kind. The answer comes back as text because to_text() only answers for text; a number or a boolean would give it a null handle.
 export method count_expression(kind:int, target:string):string {
     let quoted:string = js_string(target)
     if (kind == kind_css_local) {

@@ -54,11 +54,13 @@ func TestStdDocZhCarriesTheSiteSentence(t *testing.T) {
 // siteShapeColumns 是容器那一张表里各列对应的形状：作用 | list | dict | hashset。
 var siteShapeColumns = []string{"list", "dict", "hashset"}
 
-// siteShortNames 是"一行一个动作"那种表里短接收者对应的形状：站上写 `s.trim()`、`b.slice()`、`p.wait()`。
+// siteShortNames 是"一行一个动作"那种表里短接收者对应的形状：站上写 `s.trim()`、`b.slice()`、`p.wait()`、
+// `j.kind()`（`j` 是 JSON 那一棵树，它的读取也写成成员）。
 var siteShortNames = map[string]string{
 	"s": "string",
 	"b": "bytes",
 	"p": "process",
+	"j": "json",
 }
 
 // siteSentences 抽出每个落点名对应的那一句说明，另外给一张"这个动作在站上写到过"的表。

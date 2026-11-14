@@ -68,7 +68,7 @@ console.print(total)
 let doc:string = "[1, 2, 3]"
 let total:int = 0
 for (i:int in 0 until @N@) {
-    total = total + json.count(json.parse(doc))
+    total = total + length(json.parse(doc))
 }
 console.print(total)
 `},

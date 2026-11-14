@@ -2,7 +2,7 @@
   "name": "nef",
   "displayName": "nf",
   "description": "nf 语言支持：语法高亮、编译期错误提示、代码补全、悬停说明、转到定义、找引用、重命名与格式化文档，加上断点、单步、变量与内存视图的调试。",
-  "version": "0.8.2",
+  "version": "0.8.3",
   "publisher": "neflang",
   "license": "Apache-2.0",
   "engines": {

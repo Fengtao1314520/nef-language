@@ -142,7 +142,7 @@ export default defineConfig({
             { text: '进程', link: '/stdlib/053_process' },
             { text: '时间', link: '/stdlib/054_time' },
             { text: '正则表达式', link: '/stdlib/055_regular_expression' },
-            { text: '解析 JSON', link: '/stdlib/056_json' },
+            { text: '读写 JSON', link: '/stdlib/056_json' },
             { text: 'TCP 套接字', link: '/stdlib/057_net' },
             { text: 'HTTP 客户端', link: '/stdlib/058_http' },
             { text: '线程', link: '/stdlib/067_thread' }

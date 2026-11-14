@@ -4,6 +4,27 @@
 
 下面每一版指的是仓库里打上该版本号的构建。这个仓库还没有对外发布过任何一版：网站未上线，产物也没进包管理器。
 
+## v0.8.3 - 2026-11-14
+
+这一版把 JSON 那一族收进 `Json` 这个类型：读与写都是它的成员，与 `list`、`dict` 的成员同一性质，并把以前没有的那一面补上——起一棵空的树、往里写、把程序里的一个值变成一棵树、把一棵树渲染成一段文本。版本号开的是 PATCH：[版本与兼容](site/about/066_versions.md)里 MINOR 那一档的门槛是“语言添了一整层，能写出一整类以前写不出的程序”，而 `Json` 这个类型、`json.parse` 与打印一棵树走的那条渲染在前几版就有了，一份带 JSON 正文的请求以前也发得出去（用 `text.escape_json` 与 `number.to_string` 一段一段拼，一份带数组字段的对象实测要 34 行），这一轮那一份记录写成 `json.from_value(记录)` 交进 `http.post` 的正文那一个位置。数：标准库仍 15 组，`组名.动作` 从 95 条到 86 条（`internal/check/expr.go` 的 `stdFuncs` 里带点的那些键），参数名那张表从 155 条到 162 条，悬停说明从 170 条到 177 条，报错原文从 391 句到 395 句（清单文件 393 行到 397 行），错误号新开 10114 一个，关键字仍 35 个，内建名字仍 35 个，每条线程的状态块仍 252,776 字节（75 格），运行期例程从 210 条到 211 条（新增 `@json_shape_fail`），Go 测试从 156 份文件 912 条到 157 份 919 条。
+
+### 新增
+
+- 新增 `tree.to_json()`：把一棵树连同下面的整一支渲染成一段 JSON 文本，与 `console.print` 打印一个 `Json` 给出的那一字不差；被摘走的位置输出成 `null`。这一段文本从此能接给一个名字，也能直接交进要文本的位置，不必再靠 `text.escape_json` 与 `number.to_string` 一段一段拼。
+- 取下标的两条不抛：树里没有那把键、位置越界都返回 `null`，这与容器下标越界抛 10031 是两件事；读出来的那一份照旧是只读借用，要留下一份仍走 `take` 与 `take_at`。
+- 添了往一棵树上写的那一档：`json.new_object()` 与 `json.new_array()` 各起一棵空的树，成员 `set(key, value)`、`add(value)`、`insert_at(index, value)` 往里放，`remove(key)`、`remove_at(index)`、`clear()` 拿走或拆干净，`tree[key] = value` 与 `tree[index] = value` 是那两条的另一种写法。写进那一个位置是交出，覆盖同一个键或同一个位置时换下来的那棵子树当场拆解。
+- 添了 `json.from_value(value)`：按运行期形状表把程序里的一个值变成一棵树。`int`、`float`、`boolean`、`string` 各成一个节点，`list` 成数组，`dict`、`struct` 与 `class` 成对象，一层套一层照字段表与元素类型走；它只读那一个值，返回的是一棵新树。
+- 形状用错新开 10114 号：数组的动作打在对象上、对象的动作打在数组上，当场抛出 `这一棵 Json 不是那一种形状`；位置越界回到容器的 10031 号。写不进 JSON 的那几种类型（`bytes`、四种句柄、`hashset`、函数值，以及容器与字段里的另一棵树）在检查阶段拒绝，句子说出坏在哪一层、该怎么办。
+- `http.post` 与 `http.request` 的正文那一个位置多收一种 `Json`：发出去的是渲染好的那一段文本，树上那一个位置一个字节都不动，同一个变量发第二遍还是那一段。
+
+### 变更
+
+- JSON 那一族的读写统一挂到 `Json` 这个类型上，与 `list`、`dict` 的成员同一性质。十二条组函数改成成员：`json.at(tree, key)` 写 `tree[key]`、`json.item(tree, index)` 写 `tree[index]`、`json.has(tree, key)` 写 `tree.contains(key)`、`json.count(tree)` 写 `length(tree)`、`json.take_item(tree, index)` 写 `tree.take_at(index)`，`json.kind`、`json.keys`、`json.take`、`json.to_text`、`json.to_integer`、`json.to_number`、`json.to_boolean` 各改成同名成员。组名 `json` 上只剩没有接收者的五条：`json.parse`、`json.explain`、`json.new_object`、`json.new_array`、`json.from_value`。旧的组函数写法在检查阶段就被拒绝，不留两套。
+
+### 修复
+
+- 顺带修掉一处漏内存：渲染一个对象时先把 `[` 造出来再被 `{` 盖掉，每输出一个对象漏一块。`console.print(json.parse("{}"))` 那一圈在 `release/v0.8.2/nf.exe` 上实测每轮多留 64 字节（200 圈 13,264、5,000 圈 320,464），当天重编之后两数都是 464；这一处在 `v0.8.2` 的发布件里就有，与本轮新增的写入面无关。
+
 ## v0.8.2 - 2026-11-13
 
 这一层把所有权那一族规则收成一条：自己写的函数与方法的每一个实参一律是只读借用，`ref` 这个记号因此从语言里删掉；文本改成共用一档，落进第二个位置不再作废来源。版本号开的是 PATCH：[版本与兼容](site/about/066_versions.md)里 MINOR 那一档的门槛是“语言添了一整层，能写出一整类以前写不出的程序”，这一轮删掉一个记号、改写既有写法的归属规则，一类新程序也没有多出来，所以末位进号。数：标准库仍 15 组，`组名.动作` 仍 99 条，报错原文从 392 句到 391 句（清单文件 393 行），错误号新开 10097、10098 两个，关键字从 36 个到 35 个，内建名字仍 35 个，导入表仍 70 个名字，每条线程的状态块从 252,256 字节（73 格）到 252,776 字节（75 格），运行期例程从 206 条到 210 条（新增 `@borrow_add`、`@borrow_drop`、`@free_guarded`、`@str_share`）。

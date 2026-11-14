@@ -189,7 +189,7 @@ func (c *Checker) threadStart(call *ast.Call) Type {
 		// 文本不在这一条里：那一条线程拿的是同一块，块头从这一句起带着共享的记号，
 		// 原来那一个名字照旧能用（降级那侧的 shareText 发那一次标记）。
 		if c.borrowRead[call.Args[1]] && !sig.params[0].Typ.ByValue() && sig.params[0].Typ.Kind != Str {
-			c.fail(call.Args[1].Where(), "读出来的那一份是只读借用，不能交给另一条线程：能摘出来的位置用 remove_at、d.take 或 json.take 摘出来")
+			c.fail(call.Args[1].Where(), "读出来的那一份是只读借用，不能交给另一条线程：能摘出来的位置用 remove_at、d.take 或 j.take 摘出来")
 		} else if !c.markFieldTaken(call.Args[1], sig.params[0].Typ) {
 			if n, ok := call.Args[1].(*ast.Name); ok && takesIntoCell(sig.params[0].Typ) &&
 				sig.params[0].Typ.Kind != Str {

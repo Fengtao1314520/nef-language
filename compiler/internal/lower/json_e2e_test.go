@@ -26,23 +26,23 @@ import (
 // json.count、json.keys、json.at、json.item、json.to_*——所以签名对得上，
 // 就说明这十二条成员确实能完整描述这棵树。@PATH@ 由测试替换成一份写好的样例文件路径。
 const jsonSigProg = `method signature(x:Json):string {
-    let k:string = json.kind(x)
+    let k:string = x.kind()
     if (k == "null") {
         return "null"
     }
     if (k == "boolean") {
-        if (json.to_boolean(x, false)) {
+        if (x.to_boolean(false)) {
             return "true"
         }
         return "false"
     }
     if (k == "number") {
-        return "n" + number.to_string(json.to_integer(x, 0)) + "/" + number.to_string(json.to_number(x, 0.0))
+        return "n" + number.to_string(x.to_integer(0)) + "/" + number.to_string(x.to_number(0.0))
     }
     if (k == "string") {
-        return "s:" + json.to_text(x)
+        return "s:" + x.to_text()
     }
-    let n:int = json.count(x)
+    let n:int = length(x)
     let out:string = ""
     if (k == "array") {
         out = "a["
@@ -50,18 +50,18 @@ const jsonSigProg = `method signature(x:Json):string {
             if (i > 0) {
                 out = out + ","
             }
-            out = out + signature(json.item(x, i))
+            out = out + signature(x[i])
         }
         return out + "]"
     }
-    let keys:list<string> = json.keys(x)
+    let keys:list<string> = x.keys()
     out = "o{"
     for (i:int in 0 until n) {
         if (i > 0) {
             out = out + ","
         }
         let key:string = keys[i] + ""
-        out = out + key + ":" + signature(json.at(x, key))
+        out = out + key + ":" + signature(x[key])
     }
     return out + "}"
 }
@@ -121,14 +121,14 @@ func TestJSONAccessors(t *testing.T) {
 		{"印一整棵树走原文的写法，count 数成员", `
 let j:Json = json.parse("{ \"a\": [1, 2], \"b\": \"甲\" }")
 console.print(j)
-console.print(json.count(j))
+console.print(length(j))
 `, "{\"a\":[1,2],\"b\":\"甲\"}\n2\n"},
 		{"读两遍都在，摘下来那一格才空", `
 let j:Json = json.parse("{ \"a\": 1 }")
-console.print(json.kind(json.at(j, "a")), json.to_integer(json.at(j, "a"), -1))
-let one:Json = json.take(j, "a")
-console.print(json.kind(one), json.to_integer(one, -1))
-console.print(json.at(j, "a"))
+console.print(j["a"].kind(), j["a"].to_integer(-1))
+let one:Json = j.take("a")
+console.print(one.kind(), one.to_integer(-1))
+console.print(j["a"])
 console.print(j)
 `, "number 1\nnumber 1\nnull\n{\"a\":null}\n"},
 		{"没毛病那一句是空的，坏了那句说清行列", `
@@ -137,21 +137,21 @@ console.print(json.explain("[1,"))
 `, "\n第 1 行第 4 列：这一片到这儿就断了，后头还差东西\n"},
 		{"数组按下标摘一个，越界给 null", `
 let j:Json = json.parse("[10, 20, 30]")
-console.print(json.count(j))
-let mid:Json = json.take_item(j, 1)
-console.print(json.kind(mid), json.to_integer(mid, 0))
-console.print(json.item(j, 9) == null)
+console.print(length(j))
+let mid:Json = j.take_at(1)
+console.print(mid.kind(), mid.to_integer(0))
+console.print(j[9] == null)
 console.print(j)
 `, "3\nnumber 20\ntrue\n[10,null,30]\n"},
 		{"has、keys 与那三条带默认值的取法", `
 let j:Json = json.parse("{ \"甲\": true, \"乙\": 2.5, \"丙\": \"喂\" }")
-console.print(json.has(j, "甲"), json.has(j, "丁"))
-let keys:list<string> = json.keys(j)
+console.print(j.contains("甲"), j.contains("丁"))
+let keys:list<string> = j.keys()
 console.print(length(keys), keys[0], keys[2])
-let v:Json = json.take(j, "乙")
-console.print(json.to_number(v, 0.0), json.to_integer(v, -1))
-console.print(json.to_text(json.at(j, "丙")))
-console.print(json.to_text(j), json.to_boolean(json.at(j, "甲"), false))
+let v:Json = j.take("乙")
+console.print(v.to_number(0.0), v.to_integer(-1))
+console.print(j["丙"].to_text())
+console.print(j.to_text(), j["甲"].to_boolean(false))
 `, "true false\n3 甲 丙\n2.5 -1\n喂\nnull true\n"},
 	}
 	for _, c := range cases {
@@ -184,7 +184,7 @@ console.print(total)
 let total:int = 0
 for (i:int in 0 until @N@) {
     let j:Json = json.parse("[1, \"甲\", { \"k\": 2 }]")
-    total = total + json.count(j)
+    total = total + length(j)
 }
 console.print(total)
 `, 0},
@@ -192,9 +192,9 @@ console.print(total)
 let total:int = 0
 for (i:int in 0 until @N@) {
     let j:Json = json.parse("{ \"a\": { \"b\": [1, 2] } }")
-    let one:Json = json.take(j, "a")
-    let two:Json = json.take(one, "b")
-    total = total + json.count(two)
+    let one:Json = j.take("a")
+    let two:Json = one.take("b")
+    total = total + length(two)
 }
 console.print(total)
 `, 0},
@@ -225,12 +225,12 @@ for (i:int in 0 until 500) {
     deep = deep + "]"
 }
 let j:Json = json.parse(deep)
-console.print(json.kind(j), json.count(j))
+console.print(j.kind(), length(j))
 let inmost:Json = j
-while (json.count(inmost) == 1) {
-    inmost = json.take_item(inmost, 0)
+while (length(inmost) == 1) {
+    inmost = inmost.take_at(0)
 }
-console.print(json.kind(inmost), json.count(inmost))
+console.print(inmost.kind(), length(inmost))
 `)
 	// 五百层每层只包含一个子层，所以最外层是 array 1，剥到尽头是空数组 array 0。
 	if code != 0 || got != "array 1\narray 0\n" {

@@ -21,7 +21,7 @@
 | `process` | 启动一个程序：等它运行结束并取得退出码，不再等待时关闭对应的句柄 | [进程](/stdlib/053_process) |
 | `time` | 当前时刻、程序运行时长、本机时区比 UTC 快几分钟 | [时间](/stdlib/054_time) |
 | `regular_expression` | 正则匹配、查找、替换与切分 | [正则表达式](/stdlib/055_regular_expression) |
-| `json` | 解析一段 JSON：拆成树、取值、说明错误出现在哪一行 | [解析 JSON](/stdlib/056_json) |
+| `json` | 读写一段 JSON：拆成树、取值、往里写、说明错误出现在哪一行 | [读写 JSON](/stdlib/056_json) |
 | `net` | TCP：建立连接、打开端口等待接入、收发字节、关闭 | [TCP 套接字](/stdlib/057_net) |
 | `http` | 获取一个网页：GET、POST，返回状态码、响应头与正文 | [HTTP 客户端](/stdlib/058_http) |
 | `thread` | 起一条线程跑一个函数：等它跑完取回返回值，名字走到尽头自动等一次 | [线程](/stdlib/067_thread) |

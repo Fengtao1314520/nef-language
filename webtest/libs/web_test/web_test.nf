@@ -180,7 +180,7 @@ method read_message():string {
 
 // 送一条命令，读到 id 对得上的那一条答复为止。没有 id 的消息是浏览器主动发的通知，
 // 存进 link.events 等上层来取。
-// 必须先判 `id` 位置是否存在：json.to_integer 拿到空句柄会抛 10092。
+// 必须先判 `id` 位置是否存在：`to_integer(0)` 拿到空句柄会抛 10092。
 method ask(page_index:int, method_name:string, params:string):string {
     link.next_id = link.next_id + 1
     let id:int = link.next_id
@@ -196,14 +196,14 @@ method ask(page_index:int, method_name:string, params:string):string {
         if (doc == null) {
             throw (code_reply_not_json, "浏览器返回的不是一段 JSON：" + first_chars_of(one, 60))
         }
-        let id_slot:Json = json.take(doc, "id")
+        let id_slot:Json = doc.take("id")
         if (id_slot == null) {
             store_event(one)
         } else {
-            if (json.to_integer(id_slot, 0) == id) {
+            if (id_slot.to_integer(0) == id) {
                 // 答复带 error 位置就是浏览器拒绝了这条命令，把原文带出去。不报这一句，
                 // "命令送出但未生效"这一类问题就无从定位。
-                if (json.at(doc, "error") != null) {
+                if (doc["error"] != null) {
                     throw (code_browser_error, "浏览器拒了这条命令（" + method_name + "）：" + first_chars_of(one, 160))
                 }
                 return one
@@ -225,19 +225,19 @@ method store_event(body:string) {
     if (doc == null) {
         return
     }
-    let which:Json = json.take(doc, "method")
+    let which:Json = doc.take("method")
     if (which == null) {
         return
     }
-    let name:string = json.to_text(which)
+    let name:string = which.to_text()
     if (name == null) {
         return
     }
     // 不带 sessionId 的是浏览器层的通知，键的开头用 "*" 占位：空句柄拼进 `+` 会触发运行期 10092。
-    let here:Json = json.take(doc, "sessionId")
+    let here:Json = doc.take("sessionId")
     let session:string = "*"
     if (here != null) {
-        let got:string = json.to_text(here)
+        let got:string = here.to_text()
         if (got != null) {
             session = got
         }
@@ -303,34 +303,34 @@ method session_of(page_index:int):string {
 
 // 送一段 JS 到那一页执行，返回它算出来的那段文本。算不出东西返回空句柄。
 // 库里所有读与写都从这一条走，所以那些 JS 一律把结果写成文本：
-// 数与真假经 json.to_text 会得到空句柄。
+// 数与真假经 `to_text()` 会得到空句柄。
 method run_js_in(page_index:int, expression:string):string {
     let answer:string = ask(page_index, "Runtime.evaluate", "{\"expression\":" + json_string_of(expression) + ",\"returnByValue\":true}")
     let doc:Json = json.parse(answer)
     if (doc == null) {
         throw (code_reply_not_json, "这段 JS 的答复不是 JSON：" + first_chars_of(answer, 60))
     }
-    if (json.at(doc, "error") != null) {
+    if (doc["error"] != null) {
         throw (code_browser_error, "这段 JS 被浏览器拒了：" + first_chars_of(answer, 120))
     }
-    let result:Json = json.take(doc, "result")
+    let result:Json = doc.take("result")
     if (result == null) {
         return null
     }
     // 页面里那段 JS 自己抛出的错走 exceptionDetails，不走顶层的 error（两者不同：
     // 前者是命令未被识别，后者是命令已识别、在页面上执行时出错）。
-    if (json.at(result, "exceptionDetails") != null) {
+    if (result["exceptionDetails"] != null) {
         throw (code_browser_error, "这段 JS 在页面上出了错：" + first_chars_of(expression + " || ", 120) + first_chars_of(answer, 200))
     }
-    let inner:Json = json.take(result, "result")
+    let inner:Json = result.take("result")
     if (inner == null) {
         return null
     }
-    let slot:Json = json.take(inner, "value")
+    let slot:Json = inner.take("value")
     if (slot == null) {
         return null
     }
-    return json.to_text(slot)
+    return slot.to_text()
 }
 
 method count_in(page_index:int, kind:int, selector:string):int {
@@ -538,18 +538,18 @@ export class Browser {
         let doc:Json = json.parse(ask(-1, "Target.getTargets", "{}"))
         let result:Json = null
         if (doc != null) {
-            result = json.take(doc, "result")
+            result = doc.take("result")
         }
         if (result != null) {
-            let items:Json = json.take(result, "targetInfos")
+            let items:Json = result.take("targetInfos")
             if (items != null) {
-                for (i:int in 0 until json.count(items)) {
-                    let one_info:Json = json.take_item(items, i)
+                for (i:int in 0 until length(items)) {
+                    let one_info:Json = items.take_at(i)
                     if (one_info != null) {
-                        let kind_slot:Json = json.take(one_info, "type")
-                        let id_slot:Json = json.take(one_info, "targetId")
-                        if (kind_slot != null && id_slot != null && json.to_text(kind_slot) == "page") {
-                            let id:string = json.to_text(id_slot)
+                        let kind_slot:Json = one_info.take("type")
+                        let id_slot:Json = one_info.take("targetId")
+                        if (kind_slot != null && id_slot != null && kind_slot.to_text() == "page") {
+                            let id:string = id_slot.to_text()
                             if (id != null) {
                                 out.add(id)
                             }

@@ -227,6 +227,15 @@ func (c *Checker) assignStmt(a *ast.Assign) {
 			c.exprExpected(target.At, base.Args[0])
 			c.exprExpected(a.Value, base.Args[1])
 			c.transferOut(base, target, a.Value)
+		case Json:
+			// 树上写一个位置：方括号里是文本就是对象那一档（`tree[键] = 值` 与 `tree.set(键, 值)`
+			// 是同一条），是整数就是数组那一档（`tree[位置] = 值` 与 `xs[位置] = 值` 同一条边界）。
+			// 读那一路按尖括号里那一层分派，写这一路同一件事。
+			at := c.expr(target.At)
+			if at.Kind != ErrT && at.Kind != Str && at.Kind != Int {
+				c.fail(target.At.Where(), "Json 的方括号里写一把键或者一个位置：文本走对象，整数走数组")
+			}
+			c.jsonArg(a.Value)
 		default:
 			c.fail(a.Where(), "%s 不能用方括号改写", base)
 		}
@@ -351,7 +360,7 @@ func (c *Checker) transferOut(base Type, idx *ast.Index, val ast.Expr) {
 		return // 文本那一个位置是共用那一块：原名不作废，读来的那一份也写得进去
 	}
 	if c.borrowRead[val] {
-		c.fail(val.Where(), "读出来的那一份是只读借用，不能放进容器那一个位置：能摘出来的位置用 remove_at、d.take 或 json.take 摘出来")
+		c.fail(val.Where(), "读出来的那一份是只读借用，不能放进容器那一个位置：能摘出来的位置用 remove_at、d.take 或 j.take 摘出来")
 		return
 	}
 	if c.markFieldTaken(val, elem) {
@@ -591,7 +600,7 @@ func (c *Checker) takeFrom(v ast.Expr, t Type) {
 	}
 	if c.borrowRead[v] {
 		// 读一个位置拿到的那一份归原来的容器、那棵树或者那一个字段，收到名字里就会有两个持有者。
-		c.fail(v.Where(), "读出来的那一份是只读借用，不能收到名字里、写进字段或者交给调用方：能摘出来的位置用 remove_at、d.take 或 json.take 摘出来")
+		c.fail(v.Where(), "读出来的那一份是只读借用，不能收到名字里、写进字段或者交给调用方：能摘出来的位置用 remove_at、d.take 或 j.take 摘出来")
 		return
 	}
 	if n, ok := v.(*ast.Name); ok {

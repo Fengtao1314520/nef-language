@@ -59,7 +59,7 @@ method text_of(slot:Json):string {
     if (slot == null) {
         return ""
     }
-    let got:string = json.to_text(slot)
+    let got:string = slot.to_text()
     if (got == null) {
         return ""
     }
@@ -87,7 +87,7 @@ method collect(target_dir:string, stem_name:string) {
             console.print("  报告里有一行不是 JSON，跳过去")
             continue
         }
-        let kind:string = text_of(json.at(doc, "state"))
+        let kind:string = text_of(doc["state"])
         total = total + 1
         if (kind == "pass") {
             passed = passed + 1
@@ -97,8 +97,8 @@ method collect(target_dir:string, stem_name:string) {
         }
         if (kind == "fail") {
             failed = failed + 1
-            let title:string = text_of(json.at(doc, "case"))
-            let why:string = text_of(json.at(doc, "msg"))
+            let title:string = text_of(doc["case"])
+            let why:string = text_of(doc["msg"])
             let note:string = stem_name + " / " + title + "：" + why
             fail_notes.add(note)
         }

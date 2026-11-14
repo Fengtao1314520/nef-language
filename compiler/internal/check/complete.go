@@ -60,19 +60,20 @@ type Member struct {
 	Doc any
 }
 
-// stdMemberNames 是容器、文本、字节块、套接字、监听句柄、进程句柄这几类值上可能出现的全部成员名。
+// stdMemberNames 是容器、文本、字节块、JSON 树、套接字、监听句柄、进程句柄这几类值上可能出现的全部成员名。
 // 每一种实际有哪些成员不写在这里，由 stdMember 逐条问出来（`contains` 在 list 上就没有）。
 //
 // en: stdMemberNames is every member name that could appear on the containers, text, byte
-// blocks, sockets, listeners and process handles. Which ones each of them really has is not
-// written here - stdMember answers that one at a time (`contains` does not exist on a list).
+// blocks, JSON trees, sockets, listeners and process handles. Which ones each of them really has
+// is not written here - stdMember answers that one at a time (`contains` does not exist on a
+// list).
 var stdMemberNames = []string{
 	"accept", "add", "add_all", "clear", "close", "contains", "difference", "ends_with",
-	"first", "get", "index_of", "insert_at", "intersect", "keys", "last", "last_index_of",
+	"first", "get", "index_of", "insert_at", "intersect", "kind", "keys", "last", "last_index_of",
 	"pad_end", "pad_start", "recv_into", "remove", "remove_at", "repeat", "replace", "reverse",
-	"send", "slice", "sort", "split", "starts_with", "take", "to_base64", "to_bytes", "to_list",
-	"to_lower", "to_set", "to_upper", "trim", "trim_end", "trim_start", "union", "values", "id",
-	"wait",
+	"send", "set", "slice", "sort", "split", "starts_with", "take", "take_at", "to_base64", "to_boolean",
+	"to_bytes", "to_integer", "to_json", "to_list", "to_number", "to_set", "to_text", "to_upper",
+	"to_lower", "trim", "trim_end", "trim_start", "union", "values", "id", "wait",
 }
 
 // GroupNames 返回标准库的组名，编辑器在行首打 `con` 也能补出 `console`。
@@ -350,7 +351,7 @@ func StdParameters(dotName string) []string {
 // uses this to find that one member instead of trying eight shapes in turn (`add` on a list and
 // `add` on a dict are two different actions).
 func kindOfGroup(group string) (Kind, bool) {
-	for _, k := range []Kind{List, Dict, Set, Str, Bytes, Socket, Listener, Process, Thread} {
+	for _, k := range []Kind{List, Dict, Set, Str, Bytes, Json, Socket, Listener, Process, Thread} {
 		if containerGroup(k) == group {
 			return k, true
 		}

@@ -142,7 +142,7 @@ description: 每个核心词一句通俗定义、一条新手最容易弄错的�
 
 **摘出来（take out）**
 
-- 通俗定义：把一个值从容器或者 JSON 树里拿走，那个位置之后是 `null`：`let x:string = items.remove_at(0)`（后面的位置依次前移）、`let node:Json = json.take(doc, "a")`（树上那个位置之后是 `null`）。删除那三条（`xs.remove(值)`、`d.remove(键)`、`s.remove(值)`）只把那一条删掉，不当作值交出来，编译器不让接（写 `let gone:string = xs.remove("甲")` 报“remove 不返回值，那一个位置上没有值可用”），删掉的那一条当场释放。
+- 通俗定义：把一个值从容器或者 JSON 树里拿走，那个位置之后是 `null`：`let x:string = items.remove_at(0)`（后面的位置依次前移）、`let node:Json = doc.take("a")`（树上那个位置之后是 `null`）。删除那三条（`xs.remove(值)`、`d.remove(键)`、`s.remove(值)`）只把那一条删掉，不当作值交出来，编译器不让接（写 `let gone:string = xs.remove("甲")` 报“remove 不返回值，那一个位置上没有值可用”），删掉的那一条当场释放。
 - 常见误区：以为读一次就等于拿到手。读一个位置不产生新持有者，读完还在容器里；要留下来，文本直接接给一个名字（共用同一块），可变的那一种要摘出来。
 - 别的语言里：与 Rust 的 `Vec::remove(i)` 最接近，读和移是两个动作；Go、Python、C# 读下标不损失容器内容，要删才拿得到值。
 

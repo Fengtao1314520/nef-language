@@ -759,6 +759,22 @@ func (c *fc) indexRead(x *ast.Index, t check.Type) (ir.Val, check.Type, error) {
 			Args: []ir.Val{base, at}, FT: []ir.T{ir.TInt, ir.TInt}, RT: ir.TInt})
 		return d, t, nil
 	}
+	if bt.Kind == check.Json {
+		// 树上的一个位置：键是文本走 nef.json.at，是整数走 nef.json.item，两样都不改动那个位置。
+		// 取不到返回空句柄，与容器下标那一条越界就抛不同——树里没有那个键是常态，不是错。
+		// en: One position of a tree: a text key takes nef.json.at, an integer takes nef.json.item,
+		// and neither touches the position. A miss answers an empty handle - unlike a container
+		// index, where out of range throws; having no such key in a tree is ordinary, not an error.
+		ensureJSON(c.l)
+		fn := fnJSONAt
+		if kt, ok := c.l.f.Types[x.At]; ok && kt.Kind == check.Int {
+			fn = fnJSONItem
+		}
+		d := c.f.Temp()
+		c.f.Emit(&ir.Call{D: d, HasD: true, Fn: fn, Args: []ir.Val{base, at},
+			FT: []ir.T{ir.TInt, ir.TInt}, RT: ir.TInt})
+		return d, t, nil
+	}
 	cell, err := c.cellOf(base, bt, at)
 	if err != nil {
 		return nil, t, err
@@ -845,7 +861,7 @@ func (c *fc) noteBorrowed(v ir.Val, t check.Type) {
 // noteFreshValue 登记"这一个式子当场造出来的那一块"，只登记在最上面那一层窗口属于
 // 一条只读借用的标准库动作的那一种场合。
 //
-// 走得到的形状是 `length(s.trim())`、`"甲乙".to_bytes().to_base64()`、`json.count(json.parse(…))`、
+// 走得到的形状是 `length(s.trim())`、`"甲乙".to_bytes().to_base64()`、`length(json.parse(…))`、
 // `console.print(["甲","乙"])` 这一类：交进去的那一块是这一刻才要出来的，外面那一条只读它一次、
 // 不收留它，语言里又没有名字接住——不登记就每一轮遗留一块（实测每轮 40 到 312 字节）。
 // 收的式子只有这六种：一次调用、`new`、清单／字典／集合／struct 四种字面量。
@@ -871,7 +887,7 @@ func (c *fc) noteBorrowed(v ir.Val, t check.Type) {
 //
 // en: noteFreshValue registers "the block this expression built on the spot", and only when the
 // topmost open window belongs to a read-only-borrow standard-library action. The shapes it reaches are
-// `length(s.trim())`, `"ab".to_bytes().to_base64()`, `json.count(json.parse(...))`,
+// `length(s.trim())`, `"ab".to_bytes().to_base64()`, `length(json.parse(...))`,
 // `console.print(["a","b"])`: what goes in was asked for at this moment, the action above reads it
 // once and keeps nothing, and no name holds it - unregistered, each round leaves one block behind
 // (measured 40 to 312 bytes a round). Six node kinds qualify: a call, `new`, and the four literals
@@ -1280,6 +1296,17 @@ func (c *fc) stdContainer(x *ast.Call, ref check.CallRef, t check.Type) (ir.Val,
 		case check.Bytes:
 			// 字节块的"多长"就是它有几个字节：那个位置与容器的 CellLen 同为偏移 0
 			off = runtime.BytesLen
+		case check.Json:
+			// 树上数个数没有现成的格子可读：数组数那一张值表，对象数那一张键表，别的种类给 0，
+			// 这三件事都在 nef.json.count 里；组函数 `json.count(树)` 现在的写法是 `length(树)`。
+			// en: A tree has no ready slot to read the count from: an array counts its value
+			// table, an object its key table, anything else answers 0 - all three live in
+			// nef.json.count. Ruling 128 turned json.count(tree) into length(tree).
+			ensureJSON(c.l)
+			d := c.f.Temp()
+			c.f.Emit(&ir.Call{D: d, HasD: true, Fn: fnJSONCount, Args: []ir.Val{v},
+				FT: []ir.T{ir.TInt}, RT: ir.TInt})
+			return d, t, nil
 		default:
 			return nil, t, fmt.Errorf("length 收不了 %s", vt)
 		}
@@ -5169,6 +5196,33 @@ func (c *fc) httpAction(x *ast.Call, ref check.CallRef, t check.Type) (ir.Val, c
 		vals[i], kinds[i] = v, vt
 	}
 
+	// 正文那一个位置写的是一棵树：先把整棵树渲染成一段文本，再把那一段编成字节块。
+	// `@http_begin` 发完就不再拿那一块，所以两块都在这一句里还掉，不交给谁持有。
+	//
+	// en: Writing a tree in the body position: the whole tree renders to one text first, and that
+	// text becomes a byte block. @http_begin stops using the block once it has been sent, so both
+	// blocks are returned in this sentence and nobody is made their holder.
+	bodySlot := -1
+	switch ref.Std {
+	case "http.post":
+		bodySlot = 1
+	case "http.request":
+		bodySlot = 3
+	}
+	var sentBody ir.Val
+	if bodySlot >= 0 && kinds[bodySlot].Kind == check.Json {
+		ensureJSON(c.l)
+		txt := c.f.Temp()
+		c.f.Emit(&ir.Call{D: txt, HasD: true, Fn: fnJSONRender, Args: []ir.Val{vals[bodySlot]},
+			FT: []ir.T{ir.TInt}, RT: ir.TInt})
+		block := c.f.Temp()
+		c.f.Emit(&ir.Call{D: block, HasD: true, Fn: "@str_to_bytes", Args: []ir.Val{txt},
+			FT: []ir.T{ir.TInt}, RT: ir.TInt})
+		c.f.Emit(&ir.Call{Fn: "@free_guarded", Args: []ir.Val{txt}, FT: []ir.T{ir.TInt}})
+		vals[bodySlot] = block
+		sentBody = block
+	}
+
 	// 三个成员落到同一段码。封装那两条把方法与两个开关都交 0：运行期见到方法那个位置是 0
 	// 就按"有没有正文"选 GET 或 POST，与加这一条之前走的是同一条路。头那一个位置默认也是 0
 	// （"不追加任何头"），写了第三个（get）或第四个（post）实参才把用户那一条 `list<string>` 交下去。
@@ -5221,6 +5275,9 @@ func (c *fc) httpAction(x *ast.Call, ref check.CallRef, t check.Type) (ir.Val, c
 	}
 	c.f.Emit(&ir.Call{Fn: "@http_begin", Args: []ir.Val{url, send, ms, method, headers, ignoreV, maxV},
 		FT: []ir.T{ir.TInt, ir.TInt, ir.TInt, ir.TInt, ir.TInt, ir.TInt, ir.TInt}})
+	if sentBody != nil {
+		c.f.Emit(&ir.Call{Fn: "@free_guarded", Args: []ir.Val{sentBody}, FT: []ir.T{ir.TInt}})
+	}
 	// 四个位置都只被读一次（网址拆完就写进状态格、正文发出去就没人再拿、头逐条追加完、
 	// 方法比完就交给系统），所以当场造出来的那几块由 `call` 开头那一层只读借用的窗口归还，
 	// 与其他每一组标准库动作同一条路（`noteFreshValue`）。
@@ -5889,6 +5946,23 @@ func (c *fc) rtOf(ty ast.Type) ir.T {
 }
 
 func (c *fc) assign(x *ast.Assign) error {
+	// 往一棵 Json 的一个位置里写：右边那一个值不住进那一个位置，它是"读一次就丢"的来源——
+	// 逐格变成节点之后进树的是那一个新节点。所以这一句自己开一层只读借用的窗口，
+	// 把右边现造的那一块登记上，收尾除了那个节点以外一律归还。
+	if ix, ok := x.Target.(*ast.Index); ok {
+		if bt, has := c.l.f.Types[ix.What]; has && bt.Kind == check.Json {
+			outer, from := c.openWindow()
+			saved := c.stdWin
+			c.stdWin = c.borrow
+			node, err := c.jsonValueOf(x.Value)
+			c.stdWin = saved
+			c.closeWindow(outer, from, node)
+			if err != nil {
+				return err
+			}
+			return c.storeTo(x.Target, node, check.Type{Kind: check.Json, Name: "Json"})
+		}
+	}
 	outer, from := c.openWindow()
 	v, vt, err := c.expr(x.Value)
 	if err != nil {
@@ -6002,6 +6076,22 @@ func (c *fc) storeToPath(target ast.Expr, v ir.Val, vt check.Type) ([]ir.Val, er
 		}
 		c.markPos(t.Where()) // 往一个位置里写：越界、没有这个键、遍历途中改了容器都从这一处报
 		c.guardNotNull(base)
+		if bt.Kind == check.Json {
+			// 树上写一个位置：方括号里是文本走 `set`，是整数走 `replace_at`，
+			// 两条都在放进去之前把换下来的那棵子树拆掉。那一个节点归树上的位置持有，
+			// 所以从这一句的中转账里挑出去（与字典那一条把键挑出去同一件事）。
+			node, err := c.jsonNodeOf(v, vt)
+			if err != nil {
+				return nil, err
+			}
+			fn := fnJSONReplaceAt
+			if kt, has := c.l.f.Types[t.At]; has && kt.Kind == check.Str {
+				fn = fnJSONSet
+			}
+			c.f.Emit(&ir.Call{Fn: fn, Args: []ir.Val{base, at, node},
+				FT: []ir.T{ir.TInt, ir.TInt, ir.TInt}})
+			return []ir.Val{node}, nil
+		}
 		if bt.Kind == check.Dict {
 			// `d[k] = v` 与 `d.add(k, v)` 是同一条语言规则：没有这个键就是添一条，
 			// 所以这里不能走 @map_at——那一条找不到键要抛 10032 号。

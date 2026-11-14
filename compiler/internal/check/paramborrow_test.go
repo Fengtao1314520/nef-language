@@ -44,7 +44,7 @@ func TestParamRefusesToTakeAway(t *testing.T) {
 	expectErr(t, "method q(s:string) { let box:object = s }\n", "这里要的是 object，给的是 string；类型之间不自动转换")
 	// 可变的那一种照旧拒绝，各有一句报错文案
 	expectErr(t, "class C { }\nmethod q(c:C) { let o:object = c as object }\n",
-		"读出来的那一份是只读借用，不能收到名字里、写进字段或者交给调用方：能摘出来的位置用 remove_at、d.take 或 json.take 摘出来")
+		"读出来的那一份是只读借用，不能收到名字里、写进字段或者交给调用方：能摘出来的位置用 remove_at、d.take 或 j.take 摘出来")
 	expectOK(t, "class C { n:int }\nmethod q(c:C):boolean { return (c as object) is C }\n")
 	// 借来的那一个对象句柄本身交不出去：那一份是调用方手里的
 	expectErr(t, "class Bag {\n    n:int\n}\nmethod q(c:Bag) { let out:Bag = c }\n", "参数 c 是只读借用，不能交出去")
@@ -54,7 +54,7 @@ func TestParamRefusesToTakeAway(t *testing.T) {
 	// 借来的容器里读一个位置：元素是文本时那一个位置不改动、也不多出可归还的持有者，所以接得住；
 	// 元素是可变的那一种时照旧拒（借来的那一个容器本身仍读得到）。
 	expectOK(t, "method q(xs:list<string>) { let out:string = xs[0]\n    console.print(out, xs[0]) }\n")
-	expectErr(t, "class Bag {\n    n:int\n}\nmethod q(xs:list<Bag>) { let out:Bag = xs[0] }\n", "读出来的那一份是只读借用，不能收到名字里、写进字段或者交给调用方：能摘出来的位置用 remove_at、d.take 或 json.take 摘出来")
+	expectErr(t, "class Bag {\n    n:int\n}\nmethod q(xs:list<Bag>) { let out:Bag = xs[0] }\n", "读出来的那一份是只读借用，不能收到名字里、写进字段或者交给调用方：能摘出来的位置用 remove_at、d.take 或 j.take 摘出来")
 	// 借来的那一份交不进容器那一个位置：那一个位置要自己拿着一份
 	expectErr(t, "method q(xs:list<int>) { let bag:list<list<int>> = [xs] }\n",
 		"参数 xs 是只读借用，不能交出去")

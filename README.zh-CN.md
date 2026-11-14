@@ -71,7 +71,7 @@ for (x:int in xs) {
 console.print("hello, " + name + "; sum = " + number.to_string(total))
 ```
 
-存成 `hello.nf`，运行 `./nf.exe hello.nf`。类型标注是声明的一部分；`total = total + x` 只是把一个 `int` 重新赋值。读列表里的那个位置（`xs[0]`）交出的是只读借用：那个位置读完还在，借用不能接给一个名字、写进字段、`return` 给调用方，也进不了容器的一个位置。文本同在这一档里，但接给一个名字算共用同一块，所以 `let s:string = xs[0]` 合法。要把可变的那一个留下来就写 `xs.remove_at(0)` 摘出来（字典是 `d.take(key)`，JSON 树是 `json.take(tree, key)`）。
+存成 `hello.nf`，运行 `./nf.exe hello.nf`。类型标注是声明的一部分；`total = total + x` 只是把一个 `int` 重新赋值。读列表里的那个位置（`xs[0]`）交出的是只读借用：那个位置读完还在，借用不能接给一个名字、写进字段、`return` 给调用方，也进不了容器的一个位置。文本同在这一档里，但接给一个名字算共用同一块，所以 `let s:string = xs[0]` 合法。要把可变的那一个留下来就写 `xs.remove_at(0)` 摘出来（字典是 `d.take(key)`，JSON 树是 `tree.take(key)`）。
 
 ## 命令行
 

@@ -30,7 +30,7 @@ func TestEveryBuiltinParamHasADisplayName(t *testing.T) {
 	}
 
 	// 容器、文本、字节块、套接字、监听句柄、进程句柄上的成员。
-	for _, k := range []Kind{List, Dict, Set, Str, Bytes, Socket, Listener, Process, Thread} {
+	for _, k := range []Kind{List, Dict, Set, Str, Bytes, Json, Socket, Listener, Process, Thread} {
 		group := containerGroup(k)
 		shape := Type{Kind: k, Name: group}
 		switch k {
@@ -70,7 +70,7 @@ func TestEveryBuiltinParamHasADisplayName(t *testing.T) {
 
 // memberExists 判断"形状.名字"这一条在 stdMember 那儿能否识别。
 func memberExists(group, name string) bool {
-	for _, k := range []Kind{List, Dict, Set, Str, Bytes, Socket, Listener, Process, Thread} {
+	for _, k := range []Kind{List, Dict, Set, Str, Bytes, Json, Socket, Listener, Process, Thread} {
 		if containerGroup(k) != group {
 			continue
 		}

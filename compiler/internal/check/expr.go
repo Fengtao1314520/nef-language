@@ -897,11 +897,13 @@ func (c *Checker) resolveMember(m *ast.Member) (member, bool) {
 }
 
 // containerGroup 给容器与文本的 Kind 一个能拼进落点名的组名。
-// bytes 也拼在这一侧：它身上的 `slice` 与三种容器同一种写法。
+// bytes 也拼在这一侧：它身上的 `slice` 与三种容器同一种写法。`Json` 也拼在这一侧：它那一族
+// 读取挂在类型上，落点名还是 `json.kind` 这一种写法。
 //
 // en: containerGroup gives the Kind of a container or a piece of text the group name that fits
 // into a dotted name. bytes joins on the same side: its `slice` is spelled the same way as the
-// three containers'.
+// three containers'. Json joins there too: its read-outs hang on the type as members, so the
+// destination is still spelled `json.kind`.
 func containerGroup(k Kind) string {
 	switch k {
 	case List:
@@ -914,6 +916,8 @@ func containerGroup(k Kind) string {
 		return "string"
 	case Bytes:
 		return "bytes"
+	case Json:
+		return "json"
 	case Socket:
 		return "socket"
 	case Listener:
@@ -1080,6 +1084,52 @@ func stdMember(base Type, name string) member {
 			// 就是供阅读（或写进一段 JSON）的那串字符，不再是另一块字节。
 			return member{kind: memberStd, typ: Type{Kind: FuncT, Name: group}, sig: methodSig{Ret: typeStr}}
 		}
+	case Json:
+		// `Json` 那一路读取挂在类型上，名字与容器共用（`keys`、`contains`、`take`）。
+		// 按位置摘出来那一条叫 `take_at`，与 `remove_at` 同一个后缀；取一个位置写成
+		// `tree[键]` 与 `tree[位置]`，与 `d[键]`、`xs[位置]` 同一条路。
+		// en: Ruling 128 hangs the Json read-outs on the type, sharing container names; taking one
+		// out by position is `take_at`, the same suffix as `remove_at`. Reading a position is
+		// spelled `tree[key]` and `tree[index]`, the same path as `d[key]` and `xs[i]`.
+		switch name {
+		case "kind", "to_text", "to_json":
+			return member{kind: memberStd, typ: Type{Kind: FuncT, Name: group}, sig: methodSig{Ret: typeStr}}
+		case "keys":
+			return member{kind: memberStd, typ: Type{Kind: FuncT, Name: group}, sig: methodSig{Ret: typeStrList}}
+		case "contains":
+			return member{kind: memberStd, typ: Type{Kind: FuncT, Name: group}, sig: methodSig{Params: []Param{{Typ: typeStr}}, Ret: typeBool}}
+		case "take":
+			return member{kind: memberStd, typ: Type{Kind: FuncT, Name: group}, sig: methodSig{Params: []Param{{Typ: typeStr}}, Ret: typeJson}}
+		case "take_at":
+			return member{kind: memberStd, typ: Type{Kind: FuncT, Name: group}, sig: methodSig{Params: []Param{{Typ: typeInt}}, Ret: typeJson}}
+		case "to_integer":
+			return member{kind: memberStd, typ: Type{Kind: FuncT, Name: group}, sig: methodSig{Params: []Param{{Typ: typeInt}}, Ret: typeInt}}
+		case "to_number":
+			return member{kind: memberStd, typ: Type{Kind: FuncT, Name: group}, sig: methodSig{Params: []Param{{Typ: typeFloat}}, Ret: typeFloat}}
+		case "to_boolean":
+			return member{kind: memberStd, typ: Type{Kind: FuncT, Name: group}, sig: methodSig{Params: []Param{{Typ: typeBool}}, Ret: typeBool}}
+		// 写入那一族：名字与容器共用（`add`、`insert_at`、`remove`、`remove_at`、`clear`），
+		// 对象那一路的"收下这一对"另起一个名字 `set`——`add` 在数组那一路只收一个值，
+		// 同一棵树上两条 `add` 各收几个参数不是这门语言的写法。值那一个位置不收类型标注：
+		// 能写成 JSON 的那几类都算，其中 `Json` 按交出处理（见 jsonArg）。
+		// en: The write family shares the containers' names (add, insert_at, remove, remove_at,
+		// clear); the object side spells storing a pair `set`, because add takes one value on an
+		// array and two spellings of add with different arities on one type are not this
+		// language. The value position carries no annotation: whatever can be written as JSON
+		// counts, and a Json among them goes in as a handover (see jsonArg).
+		case "set":
+			return member{kind: memberStd, typ: Type{Kind: FuncT, Name: group}, sig: methodSig{Params: []Param{{Typ: typeStr}, {Typ: typeJson}}}}
+		case "add":
+			return member{kind: memberStd, typ: Type{Kind: FuncT, Name: group}, sig: methodSig{Params: []Param{{Typ: typeJson}}}}
+		case "insert_at":
+			return member{kind: memberStd, typ: Type{Kind: FuncT, Name: group}, sig: methodSig{Params: []Param{{Typ: typeInt}, {Typ: typeJson}}}}
+		case "remove":
+			return member{kind: memberStd, typ: Type{Kind: FuncT, Name: group}, sig: methodSig{Params: []Param{{Typ: typeStr}}, Ret: typeBool}}
+		case "remove_at":
+			return member{kind: memberStd, typ: Type{Kind: FuncT, Name: group}, sig: methodSig{Params: []Param{{Typ: typeInt}}, Ret: typeJson}}
+		case "clear":
+			return member{kind: memberStd, typ: Type{Kind: FuncT, Name: group}}
+		}
 	case Socket:
 		// 网络那三条：accept 只有监听句柄有，send／recv_into／close 只有套接字有。
 		// 交进去与收进来的都是 `bytes` 那一块：一次到手多少字节不可控，就地填才用得起。
@@ -1123,6 +1173,115 @@ func stdMember(base Type, name string) member {
 		}
 	}
 	return member{}
+}
+
+// JsonValueArg 说的是写入那三条里，哪一个入参要变成树上的一个位置：那一个位置不跟类型标注走，
+// 跟着实参的形状走（`jsonArg` 说的是什么形状算能写成 JSON），其中 `Json` 那一种是交出去。
+// 降级那一路读同一张表：那一个位置的值要先变成一个节点。
+//
+// en: JsonValueArg names, for the three write members, which incoming position becomes one
+// position on the tree. That position takes no annotation - it follows the shape of the argument
+// (jsonArg says which shapes count as writable as JSON), and a Json among them is handed over.
+// The lowering reads the same table: that position's value becomes a node first.
+var JsonValueArg = map[string]int{
+	"json.set":       1,
+	"json.add":       0,
+	"json.insert_at": 1,
+}
+
+// jsonArg 查写入那三条的值位置：能写成 JSON 的那几类都收，`Json` 那一种按交出处理。
+//
+// en: jsonArg checks the value position of the three write members: everything writable as JSON
+// is accepted, and a Json goes in as a handover.
+func (c *Checker) jsonArg(a ast.Expr) {
+	t := c.infer(a, typeAuto)
+	if t.Kind == ErrT {
+		return
+	}
+	if why, ok := c.canBeJson(t, nil, true); !ok {
+		c.fail(a.Where(), "%s 写不成 JSON：%s", t, why)
+		return
+	}
+	if t.Kind == Json {
+		c.arg(a, typeJson, Param{})
+		return
+	}
+	c.refuseNoValue(a, t)
+}
+
+// canBeJson 说这一个类型写得进一棵 Json，返回的是写不进时那一句理由的后半段。
+//
+// 容器逐层往里问（`list<hashset<int>>` 那一层坏在哪儿就说哪儿）；`class` 与 `struct` 问字段表，
+// 认过的名字记下来，两个类互相引用时不会转回自己。`Json` 只在写入那三条的入参上收（allowJson），
+// `json.from_value` 那一路不收：那一棵本来已经是树。
+//
+// en: canBeJson says whether values of this type go into a Json tree and returns the second half
+// of the sentence for the types that do not. Containers are asked one layer in (so
+// list<hashset<int>> says where the problem sits); class and struct ask their field tables,
+// remembering the names already visited so two classes pointing back at each other cannot loop
+// back into themselves. Json is accepted only on the three write members (allowJson);
+// json.from_value refuses it - that one is already a tree.
+func (c *Checker) canBeJson(t Type, seen map[string]bool, allowJson bool) (string, bool) {
+	switch t.Kind {
+	case Int, Byte, Float, Bool, Str, Unicode, Enum, Obj:
+		return "", true
+	case Json:
+		if allowJson {
+			return "", true
+		}
+		return "那一棵本来就是树：要写成文本写 j.to_json()", false
+	case List:
+		if len(t.Args) == 0 {
+			return "里面装的是什么没说清楚", false
+		}
+		return c.canBeJson(t.Args[0], seen, false)
+	case Set:
+		return "它没有先后；写成 JSON 的数组要先有一个顺序，这一版不替你排", false
+	case Dict:
+		if len(t.Args) < 2 {
+			return "键与值装的是什么没说清楚", false
+		}
+		if why, ok := c.canBeJson(t.Args[0], seen, false); !ok {
+			return "字典的键那一种写不成一把键；" + why, false
+		}
+		return c.canBeJson(t.Args[1], seen, false)
+	case Struct, Class:
+		if seen == nil {
+			seen = map[string]bool{}
+		}
+		if seen[t.Name] {
+			return "", true
+		}
+		seen[t.Name] = true
+		lay := c.layout(t.Name)
+		if lay == nil {
+			return "没有这一张字段表", false
+		}
+		for _, f := range lay.fields {
+			if why, ok := c.canBeJson(f.Typ, seen, false); !ok {
+				return fmt.Sprintf("%s 的字段 %s 写不成：%s", bareName(t.Name), f.Name, why), false
+			}
+		}
+		return "", true
+	case Bytes:
+		return "那是一段连续内存，JSON 里没有这一档；要发出去先写 b.to_base64() 存成文本", false
+	case Socket, Listener, Process, Thread:
+		return "那是操作系统给的句柄，不是一个能写进正文的值", false
+	case FuncVal:
+		return "它是机器代码里的一个入口，不是一个可展示的值", false
+	}
+	return "没有写进 JSON 的这一档", false
+}
+
+// JSONBodySlot 说这一个落点的这一个入参位置是"要发出去的正文"：那一个位置除了 `bytes`
+// 那一块，还收一棵 `Json`——发出去的是渲染好的那一段文本，树上那一个位置一个字节都不动。
+// 只有 http 那两条有正文这个位置，`http.get` 没有。
+//
+// en: JSONBodySlot says this position of this destination is "the body to send": besides a bytes
+// block it also takes a Json, and what goes out is the rendered text while the tree keeps every
+// position as it was. Only those two http members have a body; http.get has none.
+func JSONBodySlot(name string, i int) bool {
+	return (name == "http.post" && i == 1) || (name == "http.request" && i == 3)
 }
 
 // memberRange 把那三条成员的范围钉在检查阶段：哪些类型能排序、keys 与 values 交得回什么，
@@ -1490,11 +1649,22 @@ func (c *Checker) memberCall(call *ast.Call, m *ast.Member) Type {
 				continue
 			}
 			if i < len(mm.sig.Params) {
+				if slot, ok := JsonValueArg[mm.typ.Name]; ok && i == slot {
+					c.jsonArg(a)
+					got = append(got, typeJson)
+					continue
+				}
 				if mm.takes || (mm.takesVal && i == len(mm.sig.Params)-1) {
 					c.arg(a, mm.sig.Params[i].Typ, mm.sig.Params[i])
 					got = append(got, mm.sig.Params[i].Typ)
 				} else {
 					p := mm.sig.Params[i].Typ
+					if JSONBodySlot(mm.typ.Name, i) && c.exprTypeOf(a).Kind == Json {
+						// 正文那一个位置多收一棵树：发出去的是渲染好的那一段文本，
+						// 树上那个位置一个字节都不动，所以走的还是只读借用。
+						got = append(got, c.exprExpected(a, typeJson))
+						continue
+					}
 					t := c.argBorrow(a, p)
 					// 参数槽位上没写类型（ErrT：`number.to_string`、`length`、`math.absolute_value` 那一类）
 					// 就跟变长那一侧同一件事：那一个位置得自己带形状，裸的 null 与不返回值的那一种都没有。
@@ -1508,6 +1678,15 @@ func (c *Checker) memberCall(call *ast.Call, m *ast.Member) Type {
 					// 把一条语言规则说成了后端少做的一块。
 					if p.Kind == ErrT && t.Kind == Str && mm.typ.Name == "number.to_string" {
 						c.fail(a.Where(), "number.to_string 不接 string：文本本来就是文本，接进来只会白拷一份")
+					}
+					// `json.from_value` 那一个位置跟着实参走，走的是形状表：写不进的那几种
+					// 在这一步就说清是哪一层写不进，不留到运行期交一个 null 节点。
+					if mm.typ.Name == "json.from_value" && t.Kind != ErrT {
+						if t.Kind == Json {
+							c.fail(a.Where(), "Json 本来就是一棵树：要写成文本写 j.to_json()")
+						} else if why, ok := c.canBeJson(t, nil, false); !ok {
+							c.fail(a.Where(), "%s 写不成 JSON：%s", t, why)
+						}
 					}
 					got = append(got, t)
 				}
@@ -1587,7 +1766,7 @@ func (c *Checker) arg(a ast.Expr, want Type, p Param) {
 	if c.borrowRead[a] && !want.ByValue() && want.Kind != ErrT {
 		// 读一个位置拿到的那一份是借来的，交给要自己留一份的参数就会有两个持有者。
 		// 字段那一侧同一条：`sink(o.item)` 读的是那个位置，接不进要拿走它的参数。
-		c.fail(a.Where(), "读出来的那一份是只读借用，不能交给要拿走的那个参数：能摘出来的位置用 remove_at、d.take 或 json.take 摘出来")
+		c.fail(a.Where(), "读出来的那一份是只读借用，不能交给要拿走的那个参数：能摘出来的位置用 remove_at、d.take 或 j.take 摘出来")
 		return
 	}
 	if !want.ByValue() && want.Kind != ErrT && c.markFieldTaken(a, want) {
@@ -1747,6 +1926,23 @@ func (c *Checker) indexExpr(ix *ast.Index) Type {
 		// 这一档只有读与写，没有"读走"那一本账——那个位置里放的是值类型。
 		c.exprExpected(ix.At, typeInt)
 		return typeByte
+	case Json:
+		// 树上的一个位置读出来是只读借用，与容器那个位置同一本账；要留下一份走
+		// `take` 与 `take_at`。键那一种取对象、整数那一种取数组，两样都收，
+		// 走哪一条由键自己的类型决定，与 `d[键]`、`xs[位置]` 分不开。
+		// en: Reading one position of a tree yields a read-only borrow, the same ledger as a
+		// container position; keeping it goes through `take` and `take_at`. A text key reads an
+		// object and an integer reads an array; which one is decided by the key's own type.
+		switch c.exprTypeOf(ix.At).Kind {
+		case Int:
+			c.exprExpected(ix.At, typeInt)
+		case Str:
+			c.exprExpected(ix.At, typeStr)
+		default:
+			c.exprExpected(ix.At, typeInt)
+		}
+		c.borrowRead[ix] = true
+		return typeJson
 	case ErrT:
 		return errType
 	}
@@ -2155,7 +2351,7 @@ func (c *Checker) putInCell(v ast.Expr, t Type) {
 	}
 	if c.borrowRead[v] && takesIntoCell(t) {
 		// 容器那个位置要自己拿着一份；读出来的那一份还归原来那个容器、那棵树或者那一个字段。
-		c.fail(v.Where(), "读出来的那一份是只读借用，不能放进容器那一个位置：能摘出来的位置用 remove_at、d.take 或 json.take 摘出来")
+		c.fail(v.Where(), "读出来的那一份是只读借用，不能放进容器那一个位置：能摘出来的位置用 remove_at、d.take 或 j.take 摘出来")
 		return
 	}
 	if c.markFieldTaken(v, t) {
@@ -2381,24 +2577,20 @@ var stdFuncs = map[string]stdSig{
 	// 换当前目录（返回真／假，与 `file.create_directories` 同一答复风格）与本地比 UTC 快几分钟。
 	"environment.set_current_directory": {params: []Param{{Typ: typeStr}}, ret: typeBool},
 	"time.utc_offset":                   {ret: typeInt},
-	// json 那一组。这一版只做读：把一段文本拆成一棵树，再从树上取。
-	// 取不到一律返回 null，不新增错误码——所以 json.at／item／to_text 的返回类型
-	// 是可空的引用类型；那三条返回值类型的（to_integer／to_number／to_boolean）
-	// 多带一个默认值，与 `dict.get(键, 默认)` 同一种形状（值类型不能取 null）。
-	"json.parse":      {params: []Param{{Typ: typeStr}}, ret: typeJson},
-	"json.explain":    {params: []Param{{Typ: typeStr}}, ret: typeStr},
-	"json.kind":       {params: []Param{{Typ: typeJson}}, ret: typeStr},
-	"json.count":      {params: []Param{{Typ: typeJson}}, ret: typeInt},
-	"json.keys":       {params: []Param{{Typ: typeJson}}, ret: typeStrList},
-	"json.has":        {params: []Param{{Typ: typeJson}, {Typ: typeStr}}, ret: typeBool},
-	"json.at":         {params: []Param{{Typ: typeJson}, {Typ: typeStr}}, ret: typeJson},
-	"json.take":       {params: []Param{{Typ: typeJson}, {Typ: typeStr}}, ret: typeJson},
-	"json.item":       {params: []Param{{Typ: typeJson}, {Typ: typeInt}}, ret: typeJson},
-	"json.take_item":  {params: []Param{{Typ: typeJson}, {Typ: typeInt}}, ret: typeJson},
-	"json.to_text":    {params: []Param{{Typ: typeJson}}, ret: typeStr},
-	"json.to_integer": {params: []Param{{Typ: typeJson}, {Typ: typeInt}}, ret: typeInt},
-	"json.to_number":  {params: []Param{{Typ: typeJson}, {Typ: typeFloat}}, ret: typeFloat},
-	"json.to_boolean": {params: []Param{{Typ: typeJson}, {Typ: typeBool}}, ret: typeBool},
+	// json 那一组：组名上只留没有接收者的两条：把文本拆成树、说清楚为什么拆不成。
+	// 树上的读取、写入与渲染全挂在 `Json` 这个类型上（见 stdMember 的 Json 那一段与
+	// `internal/check/params.go` 的成员那一段）；取一个位置写成 `tree[键]` 与 `tree[位置]`，
+	// 数元素写成 `length(tree)`。取不到一律返回 null，不新增错误码——所以 `tree[键]`、
+	// `to_text` 的返回类型是可空的引用类型；那三条返回值类型的（`to_integer`／`to_number`／
+	// `to_boolean`）多带一个默认值，与 `dict.get(键, 默认)` 同一种形状（值类型不能取 null）。
+	"json.parse":   {params: []Param{{Typ: typeStr}}, ret: typeJson},
+	"json.explain": {params: []Param{{Typ: typeStr}}, ret: typeStr},
+	// 起一棵空的树那两条与"把程序里的一个值变成一棵树"那一条都没有接收者，所以挂在组名上
+	// （与 `bytes.new`、`net.connect` 同一档）。从值变成树靠的是形状表：那一个位置不收标注，
+	// 跟着实参走，能写成 JSON 的那几类才算（见 canBeJson）。
+	"json.new_object": {ret: typeJson},
+	"json.new_array":  {ret: typeJson},
+	"json.from_value": {params: []Param{{Typ: errType}}, ret: typeJson},
 	// bytes 那一组。造出来、读回 base64、并起几块这三条挂在组名上，
 	// 取与放走下标与 `length`，`slice` 与 `to_base64` 挂在值身上。
 	"bytes.new":         {params: []Param{{Typ: typeInt}}, ret: typeBytes},
@@ -2505,7 +2697,7 @@ func (c *Checker) refuseNoValue(a ast.Expr, t Type) {
 // points, containers count the elements inside, and no other type has a length.
 func hasLength(t Type) bool {
 	switch t.Kind {
-	case List, Dict, Set, Str, Bytes:
+	case List, Dict, Set, Str, Bytes, Json:
 		return true
 	}
 	return false
@@ -2557,8 +2749,6 @@ func (c *Checker) stdCall(call *ast.Call, name string, sig stdSig) Type {
 		got = append(got, want)
 	}
 	c.checkRadix(call, name)
-	// `json.at(树, 键)` 与 `json.item(树, 第几个)` 读的是树上那一个位置，与容器下标同一本账：
-	// 读出来不拿走，树上那个位置之后还在。
 	if sig.poly == 0 && !sig.ret.ByValue() && readsPosition(name) {
 		c.borrowRead[call] = true
 	}
@@ -2571,15 +2761,19 @@ func (c *Checker) stdCall(call *ast.Call, name string, sig stdSig) Type {
 	return Type{Kind: NoRet}
 }
 
-// readsPosition 说这一个名字读的是"某个容器或者某棵树里的一个位置"，返回的是那一个位置上
-// 现成的值，不是新的一份。容器下标走 `takeOut`，这五个成员走这里，两处登记同一本账。
+// readsPosition 说这一个名字读的是"某个容器里的一个位置"，返回的是那一个位置上
+// 现成的值，不是新的一份。容器下标走 `takeOut`，这三个成员走这里，两处登记同一本账。
+// 树上的那一个位置从前也是这一族（`json.at`、`json.item`），现在写成
+// `tree[键]` 与 `tree[位置]`，和下标同一条路，不再占这一个表。
 //
-// en: readsPosition says the name reads one position inside a container or inside a tree and
-// hands back the value that is already there, not a new one. Container indices register in
-// takeOut; these five members register here - one ledger for both.
+// en: readsPosition says the name reads one position inside a container and hands back the value
+// already there, not a new one. Container indices register in takeOut; these three members
+// register here - one ledger for both. The tree used to be in this family (json.at, json.item);
+// it is now spelled tree[key] and tree[index], sharing the index path, so it no
+// longer needs this table.
 func readsPosition(name string) bool {
 	switch name {
-	case "list.first", "list.last", "dict.get", "json.at", "json.item":
+	case "list.first", "list.last", "dict.get":
 		return true
 	}
 	return false

@@ -112,8 +112,8 @@ Reading a list position (`xs[0]`) borrows the value: the slot keeps its
 content. A borrow cannot be stored into a name, a field, a return or another
 container. Text reads differently, because several handles share one block:
 `let s:string = xs[0]` is legal. To take a mutable element out and own it,
-write `xs.remove_at(0)` (a dict has `d.take(key)`, a JSON tree `json.take(tree,
-key)`).
+write `xs.remove_at(0)` (a dict has `d.take(key)`, a JSON tree has
+`tree.take(key)`).
 
 ## Command line
 

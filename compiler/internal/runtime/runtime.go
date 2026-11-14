@@ -73,6 +73,9 @@ const (
 	codeBorrowed     = 10097 // 要收回的这一块正被借用
 	codeBorrowFull   = 10098 // 同时挂着的借用超出这一版的表
 	borrowTableSlots = 64    // 每线程那张借用表的格数
+
+	// 往一棵 Json 上写：数组的动作打在对象上、对象的动作打在数组上。
+	codeJsonShape = 10114 // 这一棵 Json 不是那一种形状
 )
 
 // 帧里的位置。
@@ -289,6 +292,8 @@ func Build() Blob {
 	b.routine("@borrow_add", borrowAdd)
 	b.routine("@borrow_drop", borrowDrop)
 	b.routine("@free_guarded", freeGuarded)
+	// 往一棵 Json 上写那一档的形状不符（10114 号）：只叫 @throw，排在它之后。
+	b.routine("@json_shape_fail", jsonShapeFail)
 	// @str_share 排在 @free 之后只是因为它与那一块的归还同属一本账；它自己谁都不叫。
 	b.routine("@str_share", strShare)
 	// `bytes` 那一档：三条都只要 @alloc 与 @throw，slice 要先有 bytes_new。
@@ -1013,6 +1018,8 @@ func dataBytes() ([]byte, map[string]int) {
 	// 借用表那两条（10097 与 10098）：借出去的那一块正被收回，与借用表排满。
 	put("sBorrowed", strObject("要收回的这一块正被借用"))
 	put("sBorrowFull", strObject("同时挂着的借用太多"))
+	// 往一棵 Json 上写那一档：数组与对象用反了（10114 号）
+	put("sJsonShape", strObject("这一棵 Json 不是那一种形状"))
 	// M2b 那七条要说的话：10045 号只有一句，10043 号有两句——问属性时遇到目录、与打开目录失败。
 	put("sNoAttrs", strObject("拿不到这个文件的属性"))
 	put("sIsDir", strObject("那是一个目录，不是一个文件"))
@@ -3820,6 +3827,25 @@ func freeGuarded(b *rt) {
 	a.Mark(give)
 	b.get(x64.RCX, 0)
 	b.call("@free")
+	b.epilogue()
+}
+
+// @json_shape_fail()：往一棵 Json 上写时，数组的动作打在对象上、对象的动作打在数组上，
+// 当场抛 10114 号。
+//
+// 抛这一步放在运行期这一侧而不是发射出来的那几支 `nef.json.*` 里：抛出要走帧清理，
+// 那套登记是降级侧给用户的帧摆的，编译器自己排的那几支只有几个槽位，没有可回退的账。
+// 借用表那两条（10097、10098）同一条理由。
+//
+// en: @json_shape_fail() throws code 10114 when a write hits a Json of the other shape - an
+// array's action on an object, or an object's on an array. The throw lives on the runtime side
+// rather than inside the emitted nef.json.* functions, because throwing walks the frame cleanup
+// and that ledger is arranged by the lowering for the user's frames; the functions the compiler
+// lays out itself hold only a few slots and have no books to unwind. The two borrow-table codes
+// (10097, 10098) stay here for the same reason.
+func jsonShapeFail(b *rt) {
+	b.prologue()
+	b.throwWith(codeJsonShape, "sJsonShape")
 	b.epilogue()
 }
 

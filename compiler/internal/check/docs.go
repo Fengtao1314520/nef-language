@@ -453,51 +453,36 @@ var stdDocs = map[string]StdDoc{
 		Eg: `let parts: list<string> = regular_expression.split("甲,乙;丙", "[,;]")`,
 	},
 
-	// —— json：解析 JSON
-	"json.at": {
-		Zh: "读对象里该键对应的值。读了不拿走：那一个位置之后还留着，同一把键可以读第二遍。",
-		En: "Reads the value under a key in an object without taking it away: the position keeps its value and the same key can be read again.",
-		Eg: `let tree: Json = json.parse("{\"a\": 1}")` + "\n" + `console.print(json.kind(json.at(tree, "a")))`,
-	},
+	// —— json：解析 JSON。取一个位置写成 `tree[键]` 与 `tree[位置]`，个数走 `length(tree)`。
 	"json.take": {
 		Zh: "把对象里该键对应的值从树上摘下来交给调用方：那一个位置之后是 null，键还留着。要接给一个名字就写这一条。",
 		En: "Takes the value under a key off the tree and hands it to the caller: that position reads null afterwards while the key stays. Use this one to bind the value to a name.",
-		Eg: `let tree: Json = json.parse("{\"a\": 1}")` + "\n" + `let one: Json = json.take(tree, "a")`,
-	},
-	"json.count": {
-		Zh: "数组有多少个元素、对象有多少个成员；其他种类返回 0。",
-		En: "How many members a node has: elements for an array, keys for an object, 0 for anything else.",
-		Eg: `let tree: Json = json.parse("[1, 2]")` + "\n" + `let n: int = json.count(tree)`,
+		Eg: `let tree: Json = json.parse("{\"a\": 1}")` + "\n" + `let one: Json = tree.take("a")`,
 	},
 	"json.explain": {
 		Zh: "返回一句说明，带行与列，例如 第 1 行第 15 列：这里该是一个值。文本本身没有问题时返回空文本。",
 		En: "One sentence with the line and column, such as line 1 column 15: a value belongs here. An empty text when the text is fine.",
 		Eg: `let why: string = json.explain("{")`,
 	},
-	"json.has": {
+	"json.contains": {
 		Zh: "判断对象里有没有这个键。只询问，不改动那个位置。",
 		En: "Whether an object has that key.",
-		Eg: `let tree: Json = json.parse("{\"a\": 1}")` + "\n" + `let seen: boolean = json.has(tree, "a")`,
+		Eg: `let tree: Json = json.parse("{\"a\": 1}")` + "\n" + `let seen: boolean = tree.contains("a")`,
 	},
-	"json.item": {
-		Zh: "读数组里指定位置的元素。读了不拿走：那一个位置之后还留着。位置为负、或者不小于个数时，返回 null。",
-		En: "Reads the element at a position in an array without taking it away: the position keeps its value. A negative index, or one at or past the count, gives null.",
-		Eg: `let tree: Json = json.parse("[1, 2]")` + "\n" + `console.print(json.kind(json.item(tree, 1)))`,
-	},
-	"json.take_item": {
+	"json.take_at": {
 		Zh: "把数组里那个位置的元素从树上摘下来交给调用方：那一个位置之后是 null，个数不变。要接给一个名字就写这一条。",
 		En: "Takes the element at a position off the tree and hands it to the caller: that position reads null afterwards while the count stays. Use this one to bind the value to a name.",
-		Eg: `let tree: Json = json.parse("[1, 2]")` + "\n" + `let second: Json = json.take_item(tree, 1)`,
+		Eg: `let tree: Json = json.parse("[1, 2]")` + "\n" + `let second: Json = tree.take_at(1)`,
 	},
 	"json.keys": {
 		Zh: "返回对象的全部键，顺序依照原文。不是对象时返回空列表。返回的是拷贝，树里的键还在原来的位置。",
 		En: "Returns every key of an object, in the order they appear in the text; a node that is not an object returns an empty list. The result is a copy: the keys stay where they are in the tree.",
-		Eg: `let tree: Json = json.parse("{\"a\": 1}")` + "\n" + `let names: list<string> = json.keys(tree)`,
+		Eg: `let tree: Json = json.parse("{\"a\": 1}")` + "\n" + `let names: list<string> = tree.keys()`,
 	},
 	"json.kind": {
 		Zh: "判断一个值是哪一类：null、boolean、number、string、array、object 六个词之一。",
 		En: "Returns which kind this value is, one of the six words null, boolean, number, string, array, object.",
-		Eg: `let tree: Json = json.parse("[]")` + "\n" + `let which: string = json.kind(tree)`,
+		Eg: `let tree: Json = json.parse("[]")` + "\n" + `let which: string = tree.kind()`,
 	},
 	"json.parse": {
 		Zh: "解析成功时返回树根，解析失败时返回 null。想知道为什么读取失败，紧接着用同一段文本调用 json.explain。",
@@ -507,22 +492,72 @@ var stdDocs = map[string]StdDoc{
 	"json.to_boolean": {
 		Zh: "只有 true 与 false 能取到值，其他情况返回默认值。",
 		En: "Reads the node as a boolean, falling back to the second argument when it is not a boolean.",
-		Eg: `let tree: Json = json.parse("true")` + "\n" + `let flag: boolean = json.to_boolean(tree, false)`,
+		Eg: `let tree: Json = json.parse("true")` + "\n" + `let flag: boolean = tree.to_boolean(false)`,
 	},
 	"json.to_integer": {
 		Zh: "只有整数形态的数能取到值（3、-12），其他情况返回默认值。",
 		En: "Reads the node as an integer, falling back to the second argument when it is not an integer.",
-		Eg: `let tree: Json = json.parse("7")` + "\n" + `let n: int = json.to_integer(tree, 0)`,
+		Eg: `let tree: Json = json.parse("7")` + "\n" + `let n: int = tree.to_integer(0)`,
 	},
 	"json.to_number": {
 		Zh: "两种形态的数都能取到值，3 也算作 3.0，其他情况返回默认值。",
 		En: "Reads the node as a float, falling back to the second argument when it is not a float.",
-		Eg: `let tree: Json = json.parse("7")` + "\n" + `let f: float = json.to_number(tree, 0.0)`,
+		Eg: `let tree: Json = json.parse("7")` + "\n" + `let f: float = tree.to_number(0.0)`,
 	},
 	"json.to_text": {
 		Zh: "返回文本类型的值的内容，返回的是一份拷贝。其他种类返回 null。",
 		En: "Reads the node as a text; a node that is not text gives an empty text.",
-		Eg: `let tree: Json = json.parse("\"甲\"")` + "\n" + `let s: string = json.to_text(tree)`,
+		Eg: `let tree: Json = json.parse("\"甲\"")` + "\n" + `let s: string = tree.to_text()`,
+	},
+	"json.to_json": {
+		Zh: "把这棵树连同下面的整一支渲染成一段 JSON 文本，与 console.print 打印一个 Json 给出的那一字不差。被读走的位置写成 null。",
+		En: "Renders this node and everything under it as one JSON text, byte for byte what console.print shows for a Json; a position that was read out comes back as null.",
+		Eg: `let tree: Json = json.parse("{\"a\": 1}")` + "\n" + `let printed: string = tree.to_json()`,
+	},
+	"json.new_object": {
+		Zh: "造一棵空的树，形状是对象：还没有成员，`set(key, value)` 与 `tree[key] = value` 往里放。",
+		En: "Makes an empty tree shaped like an object: no members yet, and set(key, value) or tree[key] = value puts them in.",
+		Eg: `let body: Json = json.new_object()`,
+	},
+	"json.new_array": {
+		Zh: "造一棵空的树，形状是数组：`add(value)` 往尾巴上放，`insert_at(index, value)` 往中间放。",
+		En: "Makes an empty tree shaped like an array: add(value) appends, insert_at(index, value) puts one in the middle.",
+		Eg: `let row: Json = json.new_array()`,
+	},
+	"json.from_value": {
+		Zh: "把程序里的一个值变成一棵树：int、float、boolean、string、byte、unicode、enum 各成一个节点，list 成数组，dict 与 struct、class 成对象，一层套一层照形状表走。这一条只读那个值，不动它的归属，返回的是一棵新树。字节块、句柄与 hashset 写不成 JSON，在检查阶段就说出是哪一层写不成。",
+		En: "Turns one program value into a tree: int, float, boolean, string, byte, unicode and enum each make a node, a list makes an array, a dict, struct or class makes an object, and the walk goes inward by the shape table. It only reads that value - ownership stays where it was, and what comes back is a new tree. A byte block, a handle or a hashset cannot be written as JSON, and the checking phase names the layer that cannot.",
+		Eg: `let scores: list<int> = [90, 92]` + "\n" + `let tree: Json = json.from_value(scores)`,
+	},
+	"json.set": {
+		Zh: "往对象里收下这一对：已有这把键就覆盖那一个位置、把换下来的那棵子树拆掉，没有就添一条。键与值各拷一份或交一份进来，所以调用方手里的那两个名字不受影响；交进来的是另一棵树时，那个名字当场作废。",
+		En: "Stores this pair in an object: an existing key overwrites that position and the subtree it swaps out is dismantled, a new one appends. Key and value are each copied or handed over, so the caller's two names are unaffected - except another tree, whose name is void on the spot.",
+		Eg: `let body: Json = json.new_object()` + "\n" + `body.set("name", "nef")`,
+	},
+	"json.add": {
+		Zh: "往数组的尾巴上放一个值。打成对象的那一棵当场抛 10114 号。",
+		En: "Appends one value to an array. Doing it to an object throws code 10114 on the spot.",
+		Eg: `let row: Json = json.new_array()` + "\n" + `row.add(3)`,
+	},
+	"json.insert_at": {
+		Zh: "在数组的那个位置前面放进去一个值，位置等于长度就是往尾巴上放。位置越界当场抛 10031 号，与 `xs.insert_at` 同一条边界。",
+		En: "Puts one value into an array before that position; a position equal to the length appends. A position outside the range throws code 10031, the same boundary as xs.insert_at.",
+		Eg: `let row: Json = json.new_array()` + "\n" + `row.insert_at(0, 3)`,
+	},
+	"json.remove": {
+		Zh: "把那把键连同它的值一起拿走，键在返回真、不在返回假。拿走的值当场拆掉。",
+		En: "Takes that key and its value off the tree, answering true when the key was there and false when it was not. The value taken off is dismantled.",
+		Eg: `let tree: Json = json.parse("{\"a\": 1}")` + "\n" + `let gone: boolean = tree.remove("a")`,
+	},
+	"json.remove_at": {
+		Zh: "把数组里那个位置的元素摘下来交给调用方，后面的依次前移。摘下来的那一棵由接住它的那个名字持有；位置越界当场抛 10031 号。",
+		En: "Takes the element at a position off the array and hands it to the caller while the rest shift forward. The node taken off belongs to the name that receives it; a position outside the range throws code 10031.",
+		Eg: `let row: Json = json.parse("[1, 2]")` + "\n" + `let last: Json = row.remove_at(1)`,
+	},
+	"json.clear": {
+		Zh: "把这棵树下面的全部成员拆干净，对象与数组本身留着接着用。清空之后长度是 0，先前借出去的那一块会被查到（10097 号）。",
+		En: "Dismantles everything under this node and keeps the object or array itself for further use. The length is 0 afterwards, and a block still on loan is caught (code 10097).",
+		Eg: `let row: Json = json.parse("[1, 2]")` + "\n" + `row.clear()`,
 	},
 
 	// —— bytes：字节块
@@ -569,12 +604,12 @@ var stdDocs = map[string]StdDoc{
 		Eg: `let page: Response = http.get("https://example.com/", 5000, ["Authorization: Bearer abc123"])`,
 	},
 	"http.post": {
-		Zh: "发送一个 POST 请求，传入的字节块就是发送出去的正文；headers 省掉就是不追加任何头。它是 http.request 的封装：方法写成 POST；要带自定义头把那一串 \"名字: 值\" 写进最后的 headers。",
-		En: "Sends a POST request with the given bytes as the body, unchanged; omitting headers appends none. A wrapper over http.request with the method fixed to POST; pass your list of \"name: value\" lines as headers to send custom headers.",
+		Zh: "发送一个 POST 请求，传入的字节块就是发送出去的正文；body 也可以是一棵 Json，发出去的是渲染好的那一段文本；headers 省掉就是不追加任何头。它是 http.request 的封装：方法写成 POST；要带自定义头把那一串 \"名字: 值\" 写进最后的 headers。",
+		En: "Sends a POST request with the given bytes as the body, unchanged; a Json works in the same slot and goes out as the text it renders to. Omitting headers appends none. A wrapper over http.request with the method fixed to POST; pass your list of \"name: value\" lines as headers to send custom headers.",
 		Eg: `let page: Response = http.post("https://example.com/", bytes.new(2), 5000, ["Content-Type: application/octet-stream"])`,
 	},
 	"http.request": {
-		Zh: "发送一个请求，等待整个响应接收完成，返回状态码、头与正文。method 认 GET、POST、PUT、DELETE、PATCH、HEAD、OPTIONS 七个词，大小写不敏感，其余抛 10108。headers 一行一个头，写成 \"名字: 值\"：名字为空、没有冒号、含回车或换行都抛 10109，消息里说是第几行；名字两侧与值左侧的空白去掉，一行最长 4096 个字符。body 是发送出去的字节块，不发送就写 null。ignore_cert_error 写 true 时忽略全部五种证书错误（名字不符、过期、未知 CA、用途不符、弱签名），只在受控测试环境用，默认 false 仍然校验。max_body_bytes 是应答正文的字节上限：0 表示不限，负数抛 10107，超过上限抛 10106 并且这一次拿不到 Response。给了 Authorization、Cookie、Proxy-Authorization 三者之一时，这一次不自动跟随重定向，30x 原样返回；没给这三个头就照旧跟随到底。压缩应答会解开之后再交给 body：gzip 由系统解开，deflate 由库自己解开（zlib 包裹与不带包裹的 raw 两种都认），解不开抛 10113；max_body_bytes 按解开之后的大小算。",
+		Zh: "发送一个请求，等待整个响应接收完成，返回状态码、头与正文；body 那一档与 http.post 同一条规则。method 认 GET、POST、PUT、DELETE、PATCH、HEAD、OPTIONS 七个词，大小写不敏感，其余抛 10108。headers 一行一个头，写成 \"名字: 值\"：名字为空、没有冒号、含回车或换行都抛 10109，消息里说是第几行；名字两侧与值左侧的空白去掉，一行最长 4096 个字符。body 是发送出去的字节块，也可以是一棵 Json，不发送就写 null。ignore_cert_error 写 true 时忽略全部五种证书错误（名字不符、过期、未知 CA、用途不符、弱签名），只在受控测试环境用，默认 false 仍然校验。max_body_bytes 是应答正文的字节上限：0 表示不限，负数抛 10107，超过上限抛 10106 并且这一次拿不到 Response。给了 Authorization、Cookie、Proxy-Authorization 三者之一时，这一次不自动跟随重定向，30x 原样返回；没给这三个头就照旧跟随到底。压缩应答会解开之后再交给 body：gzip 由系统解开，deflate 由库自己解开（zlib 包裹与不带包裹的 raw 两种都认），解不开抛 10113；max_body_bytes 按解开之后的大小算。",
 		En: "Sends one request and returns its status, headers and body. The method is one of GET, POST, PUT, DELETE, PATCH, HEAD, OPTIONS (case-insensitive); anything else throws 10108. Each header is one \"name: value\" line; an empty name, a missing colon or an embedded CR/LF throws 10109 naming the line. A true ignore_cert_error skips all five certificate checks, for controlled test environments only. max_body_bytes caps the body: 0 means no cap, a negative value throws 10107, exceeding it throws 10106. Supplying Authorization, Cookie or Proxy-Authorization turns off automatic redirects for that one request. Compressed responses are unpacked before body is returned: gzip by the system, deflate by the library itself (both zlib-wrapped and raw); a body that will not unpack throws 10113, and max_body_bytes is measured on the unpacked size.",
 		Eg: `let r: Response = http.request("GET", "https://example.com/", ["Accept: application/json"], null, 5000)`,
 	},
@@ -921,7 +956,7 @@ var groupDocs = map[string]groupDoc{
 	"thread":             {"起一条线程跑一个函数、等它跑完取回结果。", "Starting a thread to run a function, waiting for it and taking the result back."},
 	"time":               {"当前时间、运行了多久、等待、拆成日历与时区差。", "Current time, elapsed time, sleeping, calendar breakdown and the UTC offset."},
 	"regular_expression": {"匹配、查找、替换与切分。", "Matching, finding, replacing and splitting."},
-	"json":               {"解析 JSON、读那棵树、取各类型的值。", "Parsing JSON and reading that tree."},
+	"json":               {"解析 JSON，读与写那一棵树，取各类型的值。", "Parsing JSON, reading and writing that tree, taking out values of each kind."},
 	"net":                {"TCP 客户端与服务器。", "The TCP client and server."},
 	"http":               {"HTTP 客户端，走系统的 winhttp。", "The HTTP client, on the system's winhttp."},
 }

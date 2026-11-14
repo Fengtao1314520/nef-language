@@ -100,7 +100,7 @@ console.print(d.get("无", miss)[0], length(miss))
 let d:dict<string, list<int>> = {}
 let got:list<int> = d.get("无", [9])
 console.print(length(got))
-`, "读出来的那一份是只读借用，不能收到名字里、写进字段或者交给调用方：能摘出来的位置用 remove_at、d.take 或 json.take 摘出来")
+`, "读出来的那一份是只读借用，不能收到名字里、写进字段或者交给调用方：能摘出来的位置用 remove_at、d.take 或 j.take 摘出来")
 	expectErr(t, `
 let d:dict<string, int> = {}
 console.print(d.get("无", null))

@@ -20,7 +20,7 @@
 | `class` | 引用 | — | `null` | `new C()`、`new C(n: 1)` |
 | `Calendar` | 值（内建 `struct`） | 8 字节的句柄；堆上的数据块 56 字节 | 七个字段都是 `0` | 只能由 `time.calendar(seconds)` 得到 |
 | `enum` | 值 | 8 字节 | 见下文 | `D.a` |
-| `Json` | 引用（内建） | 一个句柄；堆上每个节点各占一块 | `null` | 只能由 `json.parse(text)` 得到，解析失败时是 `null`（[解析 JSON](/stdlib/056_json)） |
+| `Json` | 引用（内建） | 一个句柄；堆上每个节点各占一块 | `null` | 只能由 `json.parse(text)` 得到，解析失败时是 `null`（[读写 JSON](/stdlib/056_json)） |
 | `bytes` | 引用（内建） | 一个句柄；堆上的数据块是“字节数 + 正文” | `null` | `bytes.new(4)`；`file.read_bytes(path)`、`s.to_bytes()` 也返回它（[字节块](/stdlib/047_bytes)） |
 | `Socket` | 引用（内建句柄） | 操作系统分配的编号，不是堆上的一块内存 | `null`（未连接或者已关闭） | `net.connect(host, port, timeout_ms)`、`listener.accept()`（[TCP 套接字](/stdlib/057_net)） |
 | `Listener` | 引用（内建句柄） | 同上 | `null`（已关闭） | `net.listen(port)`（[TCP 套接字](/stdlib/057_net)） |
@@ -147,7 +147,7 @@ console.print(1 << 4, -16 >> 2)
 
 拦住的是接手这一步：`let one:T = box[0] as T`、`return box[0] as T`、`box2.add(one as T)` 都报同一句。
 
-编译器原话是 `读出来的那一份是只读借用，不能收到名字里、写进字段或者交给调用方：能摘出来的位置用 remove_at、d.take 或 json.take 摘出来`。
+编译器原话是 `读出来的那一份是只读借用，不能收到名字里、写进字段或者交给调用方：能摘出来的位置用 remove_at、d.take 或 j.take 摘出来`。
 
 要把那一份留下来，就先用 `box.remove_at(0)` 摘出来，再对摘出来的那一个用 `as`。
 

@@ -141,21 +141,13 @@ var stdParamNames = map[string][]string{
 	"regular_expression.replace": {"text", "pattern", "replacement"},
 	"regular_expression.split":   {"text", "pattern"},
 
-	// JSON
-	"json.at":         {"doc", "key"},
-	"json.take":       {"doc", "key"},
-	"json.count":      {"doc"},
-	"json.explain":    {"text"},
-	"json.has":        {"doc", "key"},
-	"json.item":       {"doc", "index"},
-	"json.take_item":  {"doc", "index"},
-	"json.keys":       {"doc"},
-	"json.kind":       {"doc"},
+	// JSON 的组名这一侧：没有接收者的那几条——拆一篇文本、说清楚为什么拆不成、
+	// 起一棵空的树、把程序里的一个值变成一棵树。树上的读写挂在类型身上。
 	"json.parse":      {"text"},
-	"json.to_boolean": {"doc", "fallback"},
-	"json.to_integer": {"doc", "fallback"},
-	"json.to_number":  {"doc", "fallback"},
-	"json.to_text":    {"doc"},
+	"json.explain":    {"text"},
+	"json.new_object": {},
+	"json.new_array":  {},
+	"json.from_value": {"value"},
 
 	// 字节块
 	"bytes.from_base64": {"encoded"},
@@ -227,6 +219,28 @@ var stdParamNames = map[string][]string{
 
 	"bytes.slice":     {"start", "end"},
 	"bytes.to_base64": {},
+
+	// 挂在 JSON 树上的成员。取一个位置不在这儿：那两种写法是 `tree[键]` 与
+	// `tree[位置]`，与 `d[键]`、`xs[位置]` 同一条路。
+	"json.kind":       {},
+	"json.keys":       {},
+	"json.contains":   {"key"},
+	"json.take":       {"key"},
+	"json.take_at":    {"index"},
+	"json.to_text":    {},
+	"json.to_integer": {"fallback"},
+	"json.to_number":  {"fallback"},
+	"json.to_boolean": {"fallback"},
+	"json.to_json":    {},
+
+	// 挂在 JSON 树上的写入成员。值那一个位置写的是 `value`，但它不收类型标注：
+	// 能写成 JSON 的那几类都算（见 check.jsonArg）。
+	"json.set":       {"key", "value"},
+	"json.add":       {"value"},
+	"json.insert_at": {"index", "value"},
+	"json.remove":    {"key"},
+	"json.remove_at": {"index"},
+	"json.clear":     {},
 
 	"socket.send":      {"data"},
 	"socket.recv_into": {"buffer"},

@@ -203,7 +203,7 @@ console.print(length(box))
 
 从容器里读一个位置不拿走值，所以 `(box[i] as Note).body` 这样当场读当场拆就行。要把那个对象留下来自己拿着，先摘出来再拆：`let one:object = box.remove_at(i)`，然后 `one as Note`。
 
-> 注意：拆出来那一份要接手时才拦。`let one:Note = box[i] as Note` 不合法——读一个位置交出的是只读借用，借用不能收进一个名字，报 `读出来的那一份是只读借用，不能收到名字里、写进字段或者交给调用方：能摘出来的位置用 remove_at、d.take 或 json.take 摘出来`；`for (o:object in box)` 交出的 `o` 也是只读借用，写 `let one:Note = o as Note` 报同一句。顺着读不受这条限制，上面那种 `(box[i] as Note).body` 与 `(o as Note).body` 都能通过检查。
+> 注意：拆出来那一份要接手时才拦。`let one:Note = box[i] as Note` 不合法——读一个位置交出的是只读借用，借用不能收进一个名字，报 `读出来的那一份是只读借用，不能收到名字里、写进字段或者交给调用方：能摘出来的位置用 remove_at、d.take 或 j.take 摘出来`；`for (o:object in box)` 交出的 `o` 也是只读借用，写 `let one:Note = o as Note` 报同一句。顺着读不受这条限制，上面那种 `(box[i] as Note).body` 与 `(o as Note).body` 都能通过检查。
 
 `is` 的右侧需要是具名类型（`class`、`struct`、基础类型），不能是 `interface` 的名称。
 

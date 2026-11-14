@@ -12,11 +12,19 @@
 
 | 写法 | 返回 | 抛出的错误码 | 说明 |
 | --- | --- | --- | --- |
-| `http.request(method, url, headers, body, timeout_ms, ignore_cert_error = false, max_body_bytes = 0)` | `Response` | 10100～10109、10113 | 发送一个请求，等待整个响应接收完成，返回状态码、头与正文 |
+| `http.request(method, url, headers, body, timeout_ms, ignore_cert_error = false, max_body_bytes = 0)` | `Response` | 10100～10109、10113 | 发送一个请求，等待整个响应接收完成，返回状态码、头与正文；`body` 那一档与 `http.post` 同一条规则 |
 | `http.get(url, timeout_ms, headers = [])` | `Response` | 10100～10105、10109、10113 | 发送一个 GET 请求，等待整个响应接收完成；`headers` 省掉就是不追加任何头 |
-| `http.post(url, body, timeout_ms, headers = [])` | `Response` | 10100～10105、10109、10113 | 发送一个 POST 请求，传入的字节块就是发送出去的正文；`headers` 省掉就是不追加任何头 |
+| `http.post(url, body, timeout_ms, headers = [])` | `Response` | 10100～10105、10109、10113 | 发送一个 POST 请求，传入的字节块就是发送出去的正文；`body` 也可以是一棵 `Json`，发出去的是渲染好的那一段文本；`headers` 省掉就是不追加任何头 |
 
 `http.get` 与 `http.post` 等于把方法写成 `GET` 或 `POST`、把后两个开关留默认的 `http.request`，写出来的程序与展开之后的产物没有区别。要发认证头，把那一串 `"名字: 值"` 写进最后的 `headers` 就行。
+
+正文是一篇 JSON 时，`body` 那一个位置直接收一棵 `Json`，发出去的是渲染好的那一段文本。
+
+树上那一个位置一个字节都不动，同一个变量发第二遍还是那一段。
+
+自己拼出来的文本要先写成 `.to_bytes()`；二进制（一张图片、一段压缩过的内容）本来就是 `bytes` 那一块。
+
+写法见“程序里的值写成 JSON”那一节，在[读写 JSON](/stdlib/056_json)。
 
 ```nf
 let page:Response = http.get("http://example.com/", 5000)
@@ -237,6 +245,6 @@ try {
 - [TCP 套接字](/stdlib/057_net)：对方使用的不是 HTTP 协议时用它自己定义协议
 - [字节块](/stdlib/047_bytes)：`http.request` 的正文与 `Response.body` 的类型
 - [文本处理](/stdlib/046_text)：`text.from_bytes` 把响应体转换成文本
-- [解析 JSON](/stdlib/056_json)：把应答正文拆成值
+- [读写 JSON](/stdlib/056_json)：把应答正文拆成值，也把要发出去的那一棵写成文本
 - [线程](/stdlib/067_thread)：一边等应答、一边做别的
 - [错误信息索引](/tools/060_errors)：10100 段错误码与对应的报错原文

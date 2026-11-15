@@ -47,7 +47,7 @@ for (word:string in ["天", "地", "东西", "南北"]) {
     if (by_length.contains(n)) {
         by_length[n] = by_length[n] + 1
     } else {
-        by_length.add(n, 1)
+        by_length.set(n, 1)
     }
 }
 
@@ -67,7 +67,7 @@ method bump(d:dict<int, int>, k:int) {
     if (d.contains(k)) {
         d[k] = d[k] + 1
     } else {
-        d.add(k, 1)
+        d.set(k, 1)
     }
 }
 ```

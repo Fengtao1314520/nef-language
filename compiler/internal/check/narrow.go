@@ -37,7 +37,7 @@ type narrowFact struct {
 }
 
 // pushNarrow 保存当前这一层窄化并返回一份副本：调用方在进入一支时调用它，
-// 出这一支时把返回值交回 popNarrow。复制而不是压栈，是因为这一层随时可能新增一条。
+// 出这一支时把返回值返回给 popNarrow。复制而不是压栈，是因为这一层随时可能新增一条。
 //
 // en: pushNarrow saves this layer and returns a copy: the caller takes it on entering a branch
 // and gives it back to popNarrow on leaving. A copy rather than a stack, because this layer may

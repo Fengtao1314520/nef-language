@@ -2318,7 +2318,7 @@ func (c *Checker) checkInstanceField(info *typeInfo, kind string, at ast.Pos, f 
 		}
 		return
 	}
-	// `Json` 不在这一句里：字段那一格的形状是 KindJson，覆盖与析构都走 nef.json.free。
+	// `Json` 不在这一句里：字段那个位置的形状是 KindJson，覆盖与析构都走 nef.json.free。
 	// en: Json is not refused here: the field's shape is KindJson, and both overwriting and
 	// dismantling go through nef.json.free.
 }

@@ -62,7 +62,7 @@ type writeForward struct {
 func (c *Checker) summarizeWrites() {
 	c.writes = map[string][]bool{}
 	type rec struct {
-		key string
+		key  string
 		scan *writeScan
 	}
 	var recs []*rec

@@ -320,7 +320,7 @@ func (c *Checker) checkObject(o *ast.Object) {
 		if o.Kind == "struct" && !fieldHoldsValue(t) {
 			c.fail(f.Where(), "struct 的字段只能放值类型、string 或另一个 struct，这里是 %s", t)
 		}
-		// `Json` 能当 `class` 的字段：字段那一格的形状表条目是 `KindJson`，
+		// `Json` 能当 `class` 的字段：字段那个位置的形状表条目是 `KindJson`，
 		// 覆盖旧值与整个对象析构时都走 nef.json.free（与容器那个位置同一条路）。
 		// en: Json may be a class field: that field's shape row is KindJson, and both
 		// overwriting the old value and dismantling the whole object go through nef.json.free,

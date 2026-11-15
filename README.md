@@ -1,6 +1,6 @@
 # Nef
 
-![Version](https://img.shields.io/badge/version-v0.5.5-blue)
+![Version](https://img.shields.io/badge/version-v0.8.5-blue)
 [![License](https://img.shields.io/badge/license-Apache--2.0%20with%20Nef%20Output%20Exception-green)](LICENSE)
 [![Docs](https://img.shields.io/badge/docs-CC%20BY%204.0-yellow)](nef-licensing/LICENSE-DOCS.md)
 [![Platform](https://img.shields.io/badge/platform-Windows%20x64-lightgrey)](#requirements)

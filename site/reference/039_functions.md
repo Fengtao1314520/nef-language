@@ -28,7 +28,7 @@ console.print(line(3), line(3, 4))
 | 返回类型 | 不写返回类型表示没有返回值，语言里没有 `void` 一类的记号。这样的调用也就不能出现在需要一个值的位置上：`console.print(show())`、`console.print(l.sort())` 都是编译错误。单独写成一句 `l.sort()` 是合法用法，返回值在这条语句结束时释放 |
 | 默认值 | 写在类型后面：`y:int = 0`。调用时省略的参数取默认值，必须从右向左连续省略，不能跳过中间一个参数。上面的示例里 `line(3)` 输出 `3`、`line(3, 4)` 输出 `7`。默认值只允许写**字面量、顶层 `const` 名称，以及这两者的算术组合**（`wide:int = STEP * 4`）；函数调用、`console.read()`、非 `const` 的名称都在**参数声明处**被拒绝，报错原文是 `默认值只准写字面量、const 名字和它们的算术` |
 | 重载 | 不支持。同一个作用域里一个名称只能有一个函数，`class` 中的方法遵循同一条规则 |
-| 实参中的 `null` | 是否接受，取决于接收实参的位置有没有标注类型。自定义函数和标准库绝大多数参数都写着类型，因此 `f(null)` 合法。没写类型的参数只有几处：变长的 `console.print`，以及 `length`、`number.to_string`、`math.absolute_value`、`math.minimum`、`math.maximum`。这些位置上单独的 `null` 无法传入，因为它本身不是一个类型，这样的位置也就无法核对形状。需要在这种位置传入一个空引用时，先给它标注类型（`let none:Bag = null`，再 `console.print(none)`） |
+| 实参中的 `null` | 是否接受，取决于接收实参的位置有没有标注类型。自定义函数和标准库绝大多数参数都写着类型，因此 `f(null)` 合法。没写类型的参数只有几处：变长的 `console.print`，以及 `length`、`number.to_string`、`math.absolute_value`、`math.smaller`、`math.larger`。这些位置上单独的 `null` 无法传入，因为它本身不是一个类型，这样的位置也就无法核对形状。需要在这种位置传入一个空引用时，先给它标注类型（`let none:Bag = null`，再 `console.print(none)`） |
 | 名称 | 方法名在一个 `class` 内唯一，字段与方法共用同一个命名空间 |
 
 ```nf-bad

@@ -75,8 +75,8 @@ var stdParamNames = map[string][]string{
 	"math.exponential":    {"x"},
 	"math.floor":          {"x"},
 	"math.log_base_10":    {"x"},
-	"math.maximum":        {"a", "b"},
-	"math.minimum":        {"a", "b"},
+	"math.larger":        {"a", "b"},
+	"math.smaller":        {"a", "b"},
 	"math.natural_log":    {"x"},
 	"math.pi":             {},
 	"math.power":          {"base", "exponent"},
@@ -292,7 +292,7 @@ func placeholderType(group string, i int) Type {
 // 参数名与类型用冒号隔开，多个参数用逗号，变长参数前面那三个点是 `(...values)`。
 //
 // 名字有两个来源：自己写的函数与方法参数本来就带名字，内建那一条到 params.go
-// 那一张表里问。类型说不清的（`length` 收三种容器、`math.minimum` 跟着实参走）只写名字：
+// 那一张表里问。类型说不清的（`length` 收三种容器、`math.smaller` 跟着实参走）只写名字：
 // 写 `any` 或 `object` 与实际不符，nf 里没有那种参数类型。
 // 返回值是 NoRet 或说不清的，不写后面那一段：`print(...values): ` 留一个空冒号同样与实际不符。
 //
@@ -301,7 +301,7 @@ func placeholderType(group string, i int) Type {
 // commas, and a variadic tail written as `(...values)`. Names come from two places: user
 // functions and methods carry their parameter names already, built-ins ask the table in
 // params.go. Where the type cannot be stated (`length` taking three container kinds,
-// `math.minimum` following its argument) only the name is written - putting an `any` or
+// `math.smaller` following its argument) only the name is written - putting an `any` or
 // `object` there would not match the language, since nf has no such parameter type. A return
 // that is NoRet or unstated drops the trailing part entirely: `print(...values): ` with an
 // empty colon would not match the language either.
@@ -345,11 +345,11 @@ func ParamLabels(key string, params []Param, vararg bool) []string {
 }
 
 // paramLabel 写一个参数在签名里的那一段：`名字: 类型`。名字与类型都可能说不了，
-// 说不了的那一样就少写（`length` 收三种容器、`math.minimum` 的第二个跟着第一个走，
+// 说不了的那一样就少写（`length` 收三种容器、`math.smaller` 的第二个跟着第一个走，
 // 那一个位置没有语言里能写的类型）。参数前面不再有记号。
 //
 // en: paramLabel writes one parameter as it appears in a signature: `name: type`. Either half
-// may be unstatable - `length` takes three container kinds and `math.minimum`'s second parameter
+// may be unstatable - `length` takes three container kinds and `math.smaller`'s second parameter
 // follows the first - and whichever cannot be said is simply left out.
 func paramLabel(key string, i int, p Param) string {
 	name := p.Name

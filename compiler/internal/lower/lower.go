@@ -4889,18 +4889,18 @@ func (c *fc) mathAction(x *ast.Call, ref check.CallRef, t check.Type) (ir.Val, c
 		return call1("@math_ceil", bits(v0)), t, nil
 	case "math.round":
 		return call1("@math_round", bits(v0)), t, nil
-	case "math.minimum", "math.maximum":
+	case "math.smaller", "math.larger":
 		v1, _, err := c.expr(x.Args[1])
 		if err != nil {
 			return nil, t, err
 		}
 		fn := "@i_min"
-		if ref.Std == "math.maximum" {
+		if ref.Std == "math.larger" {
 			fn = "@i_max"
 		}
 		if t0.Kind == check.Float {
 			fn = "@f_min"
-			if ref.Std == "math.maximum" {
+			if ref.Std == "math.larger" {
 				fn = "@f_max"
 			}
 			return back(call2(fn, bits(v0), bits(v1))), t, nil
@@ -5374,7 +5374,7 @@ func (c *fc) textFunc(x *ast.Call, ref check.CallRef, t check.Type) (ir.Val, che
 // than inferred from types inside the loop.
 func (c *fc) stdAction(x *ast.Call, ref check.CallRef, t check.Type) (ir.Val, check.Type, error) {
 	switch ref.Std {
-	case "math.absolute_value", "math.floor", "math.ceiling", "math.round", "math.minimum", "math.maximum", "math.power", "math.square_root", "math.random",
+	case "math.absolute_value", "math.floor", "math.ceiling", "math.round", "math.smaller", "math.larger", "math.power", "math.square_root", "math.random",
 		"math.pi", "math.sine", "math.cosine", "math.natural_log", "math.random_float",
 		"math.tangent", "math.arctangent", "math.log_base_10", "math.exponential", "math.sign", "math.set_seed":
 		return c.mathAction(x, ref, t)

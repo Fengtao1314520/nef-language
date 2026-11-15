@@ -167,15 +167,15 @@ var stdDocs = map[string]StdDoc{
 		En: "Base-10 logarithm. 0.0 returns -Inf, a negative argument returns NaN.",
 		Eg: `let t: float = math.log_base_10(100.0)`,
 	},
-	"math.maximum": {
+	"math.larger": {
 		Zh: "两个值必须是同一类型，不做隐式转换；返回较大的那一个。",
 		En: "Both arguments must have the same type, with no implicit conversion; returns the larger one.",
-		Eg: `let big: int = math.maximum(3, 7)`,
+		Eg: `let big: int = math.larger(3, 7)`,
 	},
-	"math.minimum": {
+	"math.smaller": {
 		Zh: "两个值必须是同一类型，不做隐式转换；返回较小的那一个。",
 		En: "Both arguments must have the same type, with no implicit conversion; returns the smaller one.",
-		Eg: `let small: int = math.minimum(3, 7)`,
+		Eg: `let small: int = math.smaller(3, 7)`,
 	},
 	"math.natural_log": {
 		Zh: "自然对数。0.0 返回 -Inf、负数返回 NaN。结果与最精确的值在末几位上有差距：先调用机器的 log₂，再乘一次 ln(2)，两步各做一次舍入。",

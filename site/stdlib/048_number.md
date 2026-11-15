@@ -82,7 +82,7 @@ console.print(number.to_string(3.0) + " 与 " + number.to_string(true))
 | `math.floor(x)` | `int` | 10013 | 向下取整，返回不超过输入的最大整数 |
 | `math.ceiling(x)` | `int` | 10013 | 向上取整，返回不小于输入的最小整数 |
 | `math.round(x)` | `int` | 10013 | 就近取整，`.5` 向数轴正方向进位 |
-| `math.minimum(a, b)`、`math.maximum(a, b)` | 与传入时同一类型 | 不抛 | 两个值必须是同一类型，不做隐式转换 |
+| `math.smaller(a, b)`、`math.larger(a, b)` | 与传入时同一类型 | 不抛 | 两个值必须是同一类型，不做隐式转换 |
 | `math.power(base, exponent)` | `int` | 10012、10021 | 两个参数都是 `int`。指数为负抛 10012 号（`指数不能是负的`），结果超出 `int` 抛 10021 号 |
 | `math.square_root(x)` | `float` | 不抛 | 平方根。输入为负数时返回 `NaN`，不抛出错误；`0.0` 返回 `0.0` |
 | `math.pi()` | `float` | 不抛 | 圆周率 `3.141592653589793`。这个函数不带参数，写法与 `time.now()` 相同：写在组名下面的成员只有函数这一种形式 |
@@ -104,7 +104,7 @@ console.print(number.to_string(3.0) + " 与 " + number.to_string(true))
 ```nf
 console.print(math.absolute_value(-7), math.absolute_value(-7.5))
 console.print(math.floor(2.9), math.ceiling(2.1), math.round(2.5))
-console.print(math.minimum(3, 7), math.maximum(3.5, 1.25))
+console.print(math.smaller(3, 7), math.larger(3.5, 1.25))
 console.print(math.power(2, 10))
 console.print(math.pi(), math.sine(0.0), math.cosine(0.0), math.natural_log(1.0))
 console.print(math.sine(3.141592653589793 / 2.0) > 0.99, math.natural_log(math.pi()) > 1.14)
@@ -172,7 +172,7 @@ console.print(math.exponential(0.0), math.tangent(0.0))
 
 ## 三个容易出错的地方
 
-`math.minimum(3, 3.5)` 是编译错误：两个参数的类型不一致，而这里不做隐式转换。要么都写成整数，要么都写成小数。
+`math.smaller(3, 3.5)` 是编译错误：两个参数的类型不一致，而这里不做隐式转换。要么都写成整数，要么都写成小数。
 
 `math.power` 只有整数版本，指数为负或者结果超出 `int` 都会抛出错误（分别是 10012 号和 10021 号），不会给出一个近似值。
 

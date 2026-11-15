@@ -1129,7 +1129,7 @@ type methodSig struct {
 	Ret    Type
 	Pos    ast.Pos
 	// Poly 是从标准库那张表带过来的："返回的类型跟着第一个实参走"那一类
-	// （math.absolute_value／math.minimum／math.maximum）。组名式调用走的是 methodSig 这条路，
+	// （math.absolute_value／math.smaller／math.larger）。组名式调用走的是 methodSig 这条路，
 	// 不记录这个字段就会丢失。
 	Poly int
 	// TypeParams 与 Tmpl 只在方法自己带类型参数时非空：那时候这一个签名还算不出参数与返回类型

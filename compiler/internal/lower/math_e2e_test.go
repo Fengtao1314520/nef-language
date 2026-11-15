@@ -18,13 +18,13 @@ console.print(math.floor(2.9), math.ceiling(2.1), math.round(2.5))
 console.print(math.floor(-2.1), math.ceiling(-2.9), math.round(-2.5), math.round(-2.6))
 console.print(math.floor(-3.0), math.ceiling(-3.0), math.round(-0.5), math.round(0.4))
 console.print(math.floor(-0.0), math.ceiling(-0.0), math.floor(0.0))
-console.print(math.minimum(3, 7), math.maximum(3.5, 1.25), math.minimum(-1, -5), math.maximum(0, 0))
+console.print(math.smaller(3, 7), math.larger(3.5, 1.25), math.smaller(-1, -5), math.larger(0, 0))
 console.print(math.power(2, 10), math.power(0, 0), math.power(-2, 3), math.power(5, 1))
 console.print(math.power(2, 62), math.power(3, 20), math.power(10, 18), math.power(1, 1000))
 let b:byte = 200
 console.print(math.absolute_value(b))
 let f:float = 2.0
-console.print(math.minimum(f, 5.0), math.maximum(f, 5.0))
+console.print(math.smaller(f, 5.0), math.larger(f, 5.0))
 `)
 	want := "7 7.5 7\n3.25\n2 3 3\n-3 -2 -2 -3\n-3 -3 0 0\n0 0 0\n" +
 		"3 3.5 -5 0\n1024 1 -8 5\n4611686018427387904 3486784401 1000000000000000000 1\n200\n2.0 5.0\n"
@@ -67,7 +67,7 @@ func TestMathGroupThrows(t *testing.T) {
 // TestMathGroupRefuses 固定三类编译期拒绝：类型不一致、非数字的参数种类、以及此前未实现的那条。
 func TestMathGroupRefuses(t *testing.T) {
 	// minimum／maximum 两侧必须同型：混着写不会自动转换
-	if err := compileErr("console.print(math.minimum(3, 3.5))\n"); err == nil ||
+	if err := compileErr("console.print(math.smaller(3, 3.5))\n"); err == nil ||
 		!strings.Contains(err.Error(), "必须同类型") {
 		t.Fatalf("minimum 两边不同型该拦：err=%v", err)
 	}

@@ -2475,7 +2475,7 @@ type stdSig struct {
 	params []Param
 	ret    Type
 	vararg bool
-	// poly 非 0 表示"返回的类型跟着第一个实参走"：`math.absolute_value` 与 `math.minimum` 那几条是这种。
+	// poly 非 0 表示"返回的类型跟着第一个实参走"：`math.absolute_value` 与 `math.smaller` 那几条是这种。
 	// 这一类以前把 ret 写成 ErrT，而 ErrT 就是 0，stdCall 那句"ret.Kind != 0 才用它"
 	// 一穿过去就成了"没有返回值"——`let x:float = math.absolute_value(-7.5)` 因此报"给的是 无返回值"。
 	// 1 = 只看第一个实参；2 = 两个实参必须同型，返回那一个的类型。
@@ -2537,8 +2537,8 @@ var stdFuncs = map[string]stdSig{
 	"math.floor":          {params: []Param{{Typ: typeFloat}}, ret: typeInt},
 	"math.ceiling":        {params: []Param{{Typ: typeFloat}}, ret: typeInt},
 	"math.round":          {params: []Param{{Typ: typeFloat}}, ret: typeInt},
-	"math.minimum":        {params: []Param{{Typ: Type{Kind: ErrT}}, {Typ: Type{Kind: ErrT}}}, poly: 2},
-	"math.maximum":        {params: []Param{{Typ: Type{Kind: ErrT}}, {Typ: Type{Kind: ErrT}}}, poly: 2},
+	"math.smaller":        {params: []Param{{Typ: Type{Kind: ErrT}}, {Typ: Type{Kind: ErrT}}}, poly: 2},
+	"math.larger":        {params: []Param{{Typ: Type{Kind: ErrT}}, {Typ: Type{Kind: ErrT}}}, poly: 2},
 	"math.power":          {params: []Param{{Typ: typeInt}, {Typ: typeInt}}, ret: typeInt},
 	"math.random":         {params: []Param{{Typ: typeInt}, {Typ: typeInt}}, ret: typeInt},
 	// 四条具名函数：开方一条、休眠一条、目录四条里的三条（is_directory 也在这一组）。
@@ -2837,15 +2837,15 @@ func (c *Checker) checkRadix(call *ast.Call, name string) {
 }
 
 // polyReturn 落那三条"返回的类型跟进来的值走"的组函数：
-// `math.absolute_value` 只看第一个，`math.minimum`／`math.maximum` 要求两个同型。
+// `math.absolute_value` 只看第一个，`math.smaller`／`math.larger` 要求两个同型。
 //
 // 能进来的只有 int、float、byte 三种：布尔、码点、enum 取绝对值或比大小都没有意义，
 // 编译期就拒绝，不等运行期给个没人预期的数。byte 的 absolute_value 返回 int（语言规则点明了这一条），
 // minimum／maximum 保持原类型——两个 byte 里挑一个，不会挑出个更大的数来。
 //
 // en: polyReturn implements the three group functions whose return type follows the value that
-// came in: `math.absolute_value` looks only at the first argument, `math.minimum` and
-// `math.maximum` require both to be the same type. Only int, float and byte get this far:
+// came in: `math.absolute_value` looks only at the first argument, `math.smaller` and
+// `math.larger` require both to be the same type. Only int, float and byte get this far:
 // absolute value or ordering makes no sense for boolean, code point or enum, so they are
 // refused at compile time rather than producing an unexpected number at runtime. absolute_value
 // of a byte returns int (the language rule says so), while minimum/maximum keep the original

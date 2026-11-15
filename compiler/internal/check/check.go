@@ -615,6 +615,15 @@ type Facts struct {
 	// creates no new holder. A text field is not recorded: that one is shared and the position
 	// stays (the sharing tier for text).
 	Taken map[ast.Expr]bool
+	// Writes 是每条函数（规范名，方法与 Sigs 同一种写法）的"哪个形参在函数体里被改写"摘要：
+	// 容器改写（clear／remove／set、下标赋值、字段赋值）会释放位置里原来那一份，
+	// 调用处拿它拦下"借出来的一份与整只容器一起交进去"那种写法（writes.go）。
+	//
+	// en: Writes is each function's (canonical name, methods spelled as in Sigs) summary of
+	// "which parameter its body rewrites": rewriting a container (clear/remove/set, a subscript
+	// assignment, a field assignment) releases what the position held, and call sites use it to
+	// refuse "a borrowed element handed in together with the whole container" (writes.go).
+	Writes map[string][]bool
 	// Narrow 记的是 `if (o is C)` 那一支里、被收窄成 C 的每一个使用点。
 	Narrow map[*ast.Name]Type
 	// ParamBorrow 记的是：这一个参数只是借来看一眼，那一个位置到尽头不归还。
@@ -794,6 +803,7 @@ func newFacts() *Facts {
 		EnumVals:     map[string]int64{},
 		Tests:        map[*ast.Test]Type{},
 		Narrow:       map[*ast.Name]Type{},
+		Writes:       map[string][]bool{},
 		Funcs:        map[string]*ast.Func{},
 		Sigs:         map[string]Signature{},
 		TmplSigs:     map[*ast.Func]Signature{},
@@ -839,6 +849,7 @@ func RunWithFacts(p *Program, wantFacts bool) ([]Error, *Facts) {
 	}
 	c := &Checker{prog: p, types: map[string]*typeInfo{}, typeAlias: map[string]*typeAliasInfo{}, funcs: map[string]funcInfo{},
 		vars: map[string]Type{}, moved: map[string]bool{}, narrow: map[string]narrowFact{},
+		writes: map[string][]bool{},
 		consts: map[string]bool{}, borrowed: map[string]string{},
 		borrowRead: map[ast.Expr]bool{}, shared: map[string]bool{},
 		imported: map[string]ImportedName{}, usedImp: map[string]bool{}, usedGroup: map[string]bool{},
@@ -866,6 +877,10 @@ func RunWithFacts(p *Program, wantFacts bool) ([]Error, *Facts) {
 	// The started function has to be recognised before its body is checked: that parameter
 	// receives a holding handed over, it is not a read-only borrow.
 	c.noteThreadEntries(order)
+	// 形参改写的摘要要在查任何函数体之前算齐：调用处可能在定义之前，边查边算就漏了。
+	// en: the parameter-write summary must be complete before any body is checked: a call site may
+	// come before its definition, and computing it while walking would miss that one.
+	c.summarizeWrites()
 	for _, f := range order {
 		c.file = f
 		c.hoistedDecl = map[*ast.Decl]bool{}
@@ -1282,6 +1297,9 @@ type Checker struct {
 	// en: narrow is the temporary "if (o is C)" conclusion, keyed by name and declaration node;
 	// see narrow.go.
 	narrow map[string]narrowFact
+	// writes 是形参改写摘要（见 writes.go）；Facts.Writes 是同一份结论的对外副本。
+	// en: writes is the parameter-write summary (see writes.go); Facts.Writes is the outward copy.
+	writes map[string][]bool
 	consts    map[string]bool
 	// topVals 是这一趟里每一份文件顶层那些 `const` 与 `export shared`：键与 funcs、types
 	// 同一种写法（包里的带包根）。包外面按点号取一个导出的数读的就是它。

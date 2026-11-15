@@ -146,6 +146,14 @@ func (c *Checker) recordCall(call *ast.Call, ref CallRef) {
 	if c.facts != nil {
 		c.facts.Calls[call] = ref
 	}
+	if ref.Kind == CallUser {
+		// 借出来的一份与整只容器一起交进去，而被调方会改写它：在检查阶段拒掉。
+		// 这一条不依赖 Facts——`nf check` 那一趟也要拦得住。
+		// en: a borrowed element handed in together with the whole container while the callee
+		// rewrites it: refused during checking. This does not depend on Facts - the nf check pass
+		// has to stop it too.
+		c.checkBorrowedArgWrite(call, ref.Func)
+	}
 }
 
 func (c *Checker) inferRaw(e ast.Expr, want Type) Type {

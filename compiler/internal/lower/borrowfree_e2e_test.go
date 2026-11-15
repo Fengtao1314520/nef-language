@@ -20,21 +20,32 @@ import (
 // - by overwriting its container cell, clearing the container, or the like - leaves the borrower
 // reading memory already returned to the heap.
 
+// 容器挂在一个 class 的字段上：`box.xs` 与 `box.xs[0]` 不是同一个名字，
+// 检查阶段那一条"借出来的一份与整只容器一起交进去"认不出来（它只认直接的名字），
+// 所以这一条仍然走到运行期那一道护栏，钉的正是护栏本身。
+//
+// en: the container hangs on a class field: `box.xs` and `box.xs[0]` are not the same name, so the
+// checking rule "a borrowed element handed in with the whole container" (it recognises direct
+// names only) does not fire; this one still reaches the runtime guard and pins the guard itself.
 const borrowFreeProbe = `class Node {
     tag:string
+}
+
+class Box {
+    xs:list<Node>
 }
 
 method make_tag(t:string):string { return t.slice(0, 4) }
 
 method build(t:string):Node { return new Node(tag: make_tag(t)) }
 
-method probe(nodes:list<Node>, n:Node) {
-    nodes[0] = build("BBBB")
+method probe(b:Box, n:Node) {
+    b.xs[0] = build("BBBB")
     console.print("n.tag:", n.tag)
 }
 
-let box:list<Node> = [build("AAAA")]
-probe(box, box[0])
+let box:Box = new Box(xs: [build("AAAA")])
+probe(box, box.xs[0])
 `
 
 // TestBorrowedBlockNotReleasedThrows 借出去的那一块被覆盖位置释放，当场抛 10097。
@@ -81,13 +92,17 @@ func TestBorrowedBlockClearedThrows(t *testing.T) {
     s:string
 }
 
-method drain(xs:list<Tag>, one:Tag) {
-    xs.clear()
+class Bag {
+    xs:list<Tag>
+}
+
+method drain(b:Bag, one:Tag) {
+    b.xs.clear()
     console.print(one.s)
 }
 
-let bag:list<Tag> = [new Tag(s: "甲"), new Tag(s: "乙")]
-drain(bag, bag[0])
+let bag:Bag = new Bag(xs: [new Tag(s: "甲"), new Tag(s: "乙")])
+drain(bag, bag.xs[0])
 `)
 	if code != 1 || !strings.Contains(got, "出错了（10097）：要收回的这一块正被借用") {
 		t.Fatalf("clear 收回了借出的那一块：\n got %q 码 %d\nwant 退出码 1，话里有 10097 那一句\n", got, code)
@@ -100,13 +115,17 @@ drain(bag, bag[0])
 // en: text passed into a callee and then cleared by the container: that block carries the shared
 // mark, returning it is a no-op, and the callee's name still reads the original value.
 func TestSharedTextSurvivesClear(t *testing.T) {
-	got, code := run(t, `method drain(xs:list<string>, one:string) {
-    xs.clear()
+	got, code := run(t, `class BagS {
+    xs:list<string>
+}
+
+method drain(b:BagS, one:string) {
+    b.xs.clear()
     console.print(one)
 }
 
-let bag:list<string> = ["甲" + "", "乙" + ""]
-drain(bag, bag[0])
+let bag:BagS = new BagS(xs: ["甲" + "", "乙" + ""])
+drain(bag, bag.xs[0])
 `)
 	if got != "甲\n" || code != 0 {
 		t.Fatalf("共用的文本被 clear 收回之后读坏了：\n got %q 码 %d\nwant %q\n", got, code, "甲\n")

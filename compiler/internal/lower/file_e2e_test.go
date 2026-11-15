@@ -62,13 +62,13 @@ func TestFileReadFails(t *testing.T) {
 }
 
 // TestConsoleReadLines 验证按行读取：行尾的 `\n` 不进结果，它前面的 `\r` 也一并去掉；
-// 后面没有可读内容时返回空文本。
+// 后面没有可读内容时返回 null（空行返回长度为 0 的文本，两者分得开）。
 func TestConsoleReadLines(t *testing.T) {
 	got, code := runStdin(t, `
 let a:string = console.read()
 let b:string = console.read()
 let c:string = console.read()
-console.print(a == "hello", b == "带中文的一行", c == "")
+console.print(a == "hello", b == "带中文的一行", c == null)
 `, "hello\r\n带中文的一行\n")
 	want := "true true true\n"
 	if got != want || code != 0 {
@@ -139,9 +139,10 @@ for (i:int in 0 until length(args)) {
 	}
 }
 
-// TestConsoleReadEmpty 没有输入时：第一次读取就应得到空文本，不抛出也不阻塞。
+// TestConsoleReadEmpty 没有输入时：第一次读取就应得到 null（不是空文本），不抛出也不阻塞。
+// 空行那一路由 TestConsoleReadLines 钉住。
 func TestConsoleReadEmpty(t *testing.T) {
-	got, code := runStdin(t, "console.print(console.read() == \"\")\n", "")
+	got, code := runStdin(t, "console.print(console.read() == null)\n", "")
 	if got != "true\n" || code != 0 {
 		t.Fatalf("得到 %q 码 %d", got, code)
 	}

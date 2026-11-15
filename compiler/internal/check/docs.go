@@ -67,8 +67,8 @@ var stdDocs = map[string]StdDoc{
 		Eg: `console.print_error("这一行只是给人看")`,
 	},
 	"console.read": {
-		Zh: "等待一行输入，返回的内容不含末尾的换行符；没有可读内容时，返回 \"\"。一行最多读取 65536 字节，达到上限就停止，多出来的部分留在输入里，下一次调用继续读取。",
-		En: "Waits for one line of input without the trailing newline; returns an empty text when nothing is left to read.",
+		Zh: "等待一行输入，返回的内容不含末尾的换行符；空行返回长度为 0 的文本，没有可读内容时返回 null。判结束写 a == null。一行最多读取 65536 字节，达到上限就停止，多出来的部分留在输入里，下一次调用继续读取。",
+		En: "Waits for one line of input without the trailing newline. An empty line returns a zero-length text; when nothing is left to read it returns null, so `a == null` ends the loop.",
 		Eg: "let name: string = console.read()\nconsole.print(\"你好，\", name)",
 	},
 

@@ -535,14 +535,14 @@ func fileReadBytes(b *rt) {
 //
 // 一个字节一个字节地要：ReadFile 在控制台上本来就是一行一行进来的，
 // 事先不知道有多长，只有这样才能在遇到换行那一刻停止。
-// 后面再没有可读的了、且一个字节都没接到，就返回空文本。
+// 后面再没有可读的了、且一个字节都没接到，就返回 null；空行返回的是长度为 0 的文本，两者不同。
 // 行超过 lineCap 就在此停止——多出来的留在输入里，下一次接着读。
 //
 // en: @read_line(): waits for one line and returns rax = a text object (without the line
 // ending). Bytes are requested one at a time: ReadFile on a console already delivers line by
 // line, the length is unknown beforehand, and only this way can it stop at the moment a newline
 // arrives. When there is nothing further to read and not one byte was received, it returns
-// empty text. A line longer than lineCap stops there - the remainder stays in the input
+// null; an empty line returns a zero-length text instead, so the two are distinct. A line longer than lineCap stops there - the remainder stays in the input
 // and the next call continues reading it.
 func readLine(b *rt) {
 	const (
@@ -620,12 +620,21 @@ func readLine(b *rt) {
 	a.Jmp(done)
 
 	a.Mark(out)
-	a.Jmp(done)
+	// 走到这里有两种缘由：行太长（xN 已经等于 lineCap）与"一个字节都没接到"。
+	// 后者是后面再没有可读的了，按 null 返回；空行不会走到这儿——它接到了那一个换行，
+	// 从 nl 那一路过来，长度是 0 但对象在。两者因此分得开：`== null` 判结束，`== ""` 判空行。
+	b.get(x64.RAX, xN)
+	a.Test(x64.RAX, x64.RAX)
+	a.Jcc(x64.NE, done)
+	a.Xor(x64.RAX, x64.RAX)
+	ret := b.label()
+	a.Jmp(ret)
 	a.Mark(done)
 	b.leaCell(x64.RCX, "rdBuf")
 	a.Xor(x64.RDX, x64.RDX)
 	b.get(x64.R8, xN)
 	b.call("@str_sub")
+	a.Mark(ret)
 	b.epilogue()
 }
 

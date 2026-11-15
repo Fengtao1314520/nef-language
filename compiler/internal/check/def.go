@@ -99,7 +99,7 @@ func (c *Checker) hoistTopDecls(f *ast.File) {
 		}
 		t := c.resolveType(dc.Typ, dc.Where())
 		c.checkTypeUsable(t, dc.Where())
-		if dc.IsConst && !t.ByValue() {
+		if dc.IsConst && !t.ByValue() && t.Kind != Str {
 			c.fail(dc.Where(), "const 只能配值类型，这里是 %s", t)
 		}
 		by := BindGlobalLet

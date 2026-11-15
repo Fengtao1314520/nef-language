@@ -20,8 +20,8 @@ func TestGenericInstanceArguments(t *testing.T) {
 	head := "class Box<Content> {\n    v:Content\n}\n\n"
 	expectErr(t, head+"let a:Box<Json> = new Box<Json>(v: null)\n",
 		"Json 进不了 Box：先把它拆成自己要的值，或者存那段文本")
-	expectErr(t, head+"let a:Box<fn(int):int> = new Box<fn(int):int>(v: null)\n",
-		"fn(int):int 进不了 Box：函数值只待在名字、实参、返回值与字段里")
+	// 函数值能进容器的实例（2026-11-15）：它就是 8 字节的入口地址，字段装得下。
+	expectOK(t, "method twice(v:int):int {\n    return v * 2\n}\n"+head+"let a:Box<fn(int):int> = new Box<fn(int):int>(v: twice)\nlet f:fn(int):int = a.v\nconsole.print(f(3))\n")
 	expectErr(t, head+"let a:Box<int> = new Box<string>(v: \"甲\")\n",
 		"这里要的是 Box<int>，给的是 Box<string>；类型之间不自动转换")
 	expectOK(t, head+"let a:Box<int> = new Box<int>(v: 3)\nlet b:Box<string> = new Box<string>(v: \"甲\")\nconsole.print(a.v, b.v)\n")

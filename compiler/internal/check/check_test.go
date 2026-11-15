@@ -109,6 +109,8 @@ func TestFieldTakeFromBorrowed(t *testing.T) {
 func TestConstOnlyValueType(t *testing.T) {
 	expectErr(t, "const items:list<int> = []\n", "const 只能配值类型，这里是 list<int>")
 	expectOK(t, "const limit:int = 100\n")
+	// 文本不可变，也没有第二个持有者能改它，所以能当常量：脚本里的常量九成是字符串。
+	expectOK(t, "const name:string = \"nef\"\nconsole.print(name)\n")
 }
 
 func TestStructLiteralMustBeComplete(t *testing.T) {
@@ -244,9 +246,9 @@ func TestDictIndexStoreTransfers(t *testing.T) {
 	expectErr(t, "class Bag {\n    n:int\n}\nlet xs:list<Bag> = [new Bag(n: 1)]\nlet b:Bag = new Bag(n: 2)\nxs[0] = b\nconsole.print(b)\n", "b 已经交出去了，这个名字不能再写")
 }
 
-// TestFnValueRules 钉住函数当值这一档的四条拒绝：方法不能按值交出去、
+// TestFnValueRules 钉住函数当值这一档的拒绝：方法不能按值交出去、
 // 签名对不上就是类型不符、不参与归还的那一类参数与返回值才算数、
-// 函数值进不了容器也装不进盒子、也打印不出来。
+// 函数值装不进盒子、也打印不出来（容器里能存，见下面那一条）。
 //
 // en: TestFnValueRules pins the four refusals around functions used as values: a method is not
 // handed over, a signature that does not match is a type mismatch, only parameters and return
@@ -270,8 +272,10 @@ func TestFnValueRules(t *testing.T) {
 	// 给编译器自己看的词（实测过：`twice 当值交出去不行：它返回 错误`）。借的是线程那一头同一句现成的话。
 	expectErr(t, "method twice<Element>(v:Element):Element {\n    return v\n}\nlet f:fn(int):int = twice\n", "twice 是泛型，先填尖括号里的类型再交出去")
 	expectErr(t, "method twice<Element>(v:Element):Element {\n    return v\n}\nmethod use(job:fn(int):int):int {\n    return job(3)\n}\nconsole.print(use(twice))\n", "twice 是泛型，先填尖括号里的类型再交出去")
-	// 容器、盒子、打印这三处
-	expectErr(t, two+"let box:list<fn(int):int> = []\n", "fn(int):int 进不了 list：函数值只待在名字、实参、返回值与字段里")
+	// 容器、盒子、打印这三处。容器那一条 2026-11-15 放开：函数值是 8 字节的入口地址，
+	// 容器存得下，也没有需要归还的东西；打印那一侧仍然拒绝（容器里装着函数值也打印不出来）。
+	expectOK(t, two+"let box:list<fn(int):int> = [twice]\nlet f:fn(int):int = box[0]\nconsole.print(f(3))\n")
+	expectErr(t, two+"let box:list<fn(int):int> = [twice]\nconsole.print(box)\n", "list<fn(int):int> 里装着函数值，打印不出来：函数值只是一个入口地址，不是一个可展示的数")
 	expectErr(t, two+"let f:fn(int):int = twice\nlet o:object = f as object\n", "fn(int):int 装不进盒子：盒子里那一个位置要靠类型字认回来，函数值没有")
 	expectErr(t, two+"let f:fn(int):int = twice\nconsole.print(f)\n", "函数值打印不出来：它是机器代码里的一个入口，不是一个可展示的数")
 	// fn 是关键字，不能拿去做名字

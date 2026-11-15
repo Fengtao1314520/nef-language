@@ -157,11 +157,9 @@ func (c *Checker) checkTypeArguments(args []Type, containerName string, where as
 		if IsSystemHandle(a.Kind) {
 			c.fail(where, "%s 进不了 %s：它是操作系统给的句柄，只待在名字、实参与返回值里", a, containerName)
 		}
-		// 函数值那个位置装的是机器代码的入口地址：它没有运行期的类型字，也打印不出来，
-		// 所以与 Json 走的是同一档处理——先拒在检查这一层，不留到发码那一步。
-		if a.Kind == FuncVal {
-			c.fail(where, "%s 进不了 %s：函数值只待在名字、实参、返回值与字段里", a, containerName)
-		}
+		// 函数值现在能进容器：它就是一个 8 字节的入口地址，容器存得下，也没有需要归还的东西
+		// （按白名单那条判据，它的"归还点"就是什么都不做）。先前拒在这一层是因为打印不出——
+		// 打印那一侧现在把它印成 `fn`，不再印地址。
 	}
 }
 

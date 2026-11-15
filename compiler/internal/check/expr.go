@@ -1645,6 +1645,9 @@ func (c *Checker) memberCall(call *ast.Call, m *ast.Member) Type {
 				if t.Kind == FuncVal {
 					c.fail(a.Where(), "函数值打印不出来：它是机器代码里的一个入口，不是一个可展示的数")
 				}
+				if t.Kind != FuncVal && t.HasFuncInside() {
+					c.fail(a.Where(), "%s 里装着函数值，打印不出来：函数值只是一个入口地址，不是一个可展示的数", t)
+				}
 				c.refuseNoValue(a, t)
 				continue
 			}

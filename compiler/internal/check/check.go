@@ -354,6 +354,26 @@ func (t Type) ByValue() bool {
 	return false
 }
 
+// HasFuncInside 说这个类型本身或它的元素里有没有函数值。
+// 打印与 `number.to_string` 用它：函数值是一个入口地址，没有可展示的形状，
+// 装进容器之后照样打印不出来——先前只拦了裸的那一种，`console.print(fs)` 会印出 `[[]]`。
+//
+// en: HasFuncInside reports whether this type is, or contains as an element, a function value.
+// Printing and `number.to_string` use it: a function value is an entry address with no
+// displayable shape, and putting it in a container does not change that - only the bare case
+// used to be rejected, so `console.print(fs)` printed `[[]]`.
+func (t Type) HasFuncInside() bool {
+	if t.Kind == FuncVal {
+		return true
+	}
+	for _, a := range t.Args {
+		if a.HasFuncInside() {
+			return true
+		}
+	}
+	return false
+}
+
 // Nullable 判这个类型能不能装 `null`（只有引用类型可取 null）。
 // Json 也在列内：json.parse 整段文本解析失败时返回 null。
 // bytes 也在列内：它是引用类型，块在堆上，名字没有指向任何对象时就是 null。

@@ -183,7 +183,7 @@ func (c *Checker) declStmt(d *ast.Decl) {
 	c.checkName(d.NameText, d.Where())
 	t := c.resolveType(d.Typ, d.Where())
 	c.checkTypeUsable(t, d.Where())
-	if d.IsConst && !t.ByValue() {
+	if d.IsConst && !t.ByValue() && t.Kind != Str {
 		c.fail(d.Where(), "const 只能配值类型，这里是 %s", t)
 	}
 	if d.Value != nil {

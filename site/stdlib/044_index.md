@@ -48,7 +48,7 @@
 | 转换成另一种类型 | `text.to_int(s)`、`number.to_string(42)` |
 | 查询整个容器的长度 | `length(items)` |
 | 与外部世界交互 | `file.read(p)`、`path.join(a, b)`、`environment.get("PATH")`、`time.now()`、`console.print(...)` |
-| 计算并返回一个值 | `math.absolute_value(n)`、`math.power(2, 10)`、`regular_expression.match(text, pattern)`、`json.parse(text)` |
+| 计算并返回一个值 | `math.absolute_value(n)`、`math.power(2, 10)`、`regular_expression.matches(text, pattern)`、`json.parse(text)` |
 
 ## 归属分两种情况
 

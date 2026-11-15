@@ -162,7 +162,7 @@
 "break 只能写在循环里"
 "byte 只能装 0～255，这里是 %d"
 "byte 是 0～255 无符号，取负得先 as int"
-"bytes.new 要的字节数不能是负数"
+"bytes.allocate 要的字节数不能是负数"
 "const 只能配值类型，这里是 %s"
 "continue 不在循环里，检查器本该拦住"
 "continue 只能写在循环里"

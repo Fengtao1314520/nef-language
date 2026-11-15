@@ -12,7 +12,7 @@
 | `environment.set(name, value)` | 没有 | 不抛 | 设置一个环境变量，只对本程序有效 |
 | `environment.unset(name)` | 没有 | 10060 | 删除一个环境变量，也只对本程序有效。变量本来就不存在时不做任何事、不抛出错误；只有名字非法、系统调用不接受时（比如带 `=`）才抛 10060 号 |
 | `environment.current_directory()` | `string` | 不抛 | 返回当前在哪个目录下运行。返回的是本机习惯的写法（Windows 上是反斜杠） |
-| `environment.set_current_directory(path)` | `boolean` | 10051 | 切换到指定目录。真=切换成功，假=没有切换成功（路径不存在，或者这个路径不是目录），不抛出错误：这个函数常用于试探性地切换，要判断结果就查看返回的 `boolean`。`C:/Temp/a` 与 `C:\\Temp\\a` 是同一个目录，两种分隔符都接受 |
+| `environment.change_directory(path)` | `boolean` | 10051 | 切换到指定目录。真=切换成功，假=没有切换成功（路径不存在，或者这个路径不是目录），不抛出错误：这个函数常用于试探性地切换，要判断结果就查看返回的 `boolean`。`C:/Temp/a` 与 `C:\\Temp\\a` 是同一个目录，两种分隔符都接受 |
 
 ## 没有设置过与设置成空值是两件事
 
@@ -55,7 +55,7 @@ console.print(or_default("一定没有的变量名", "用默认值"))   // 用�
 
 `environment.current_directory()` 返回程序此刻在哪个目录下运行，返回的文本按本机习惯书写：Windows 上是反斜杠。
 
-`environment.set_current_directory(path)` 用返回值报告结果：真表示切换成功，假表示没有切换成功（路径不存在，或者这个路径不是目录）。
+`environment.change_directory(path)` 用返回值报告结果：真表示切换成功，假表示没有切换成功（路径不存在，或者这个路径不是目录）。
 
 `set_current_directory` 不抛出错误，切换成功与切换失败只能靠这个 `boolean` 区分：这个函数常用于先试一次切换，再根据返回值决定下一步做什么。`C:/Temp/a` 与 `C:\\Temp\\a` 指向同一个目录，两种分隔符系统调用都接受。
 

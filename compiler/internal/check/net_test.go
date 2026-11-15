@@ -14,7 +14,7 @@ func TestNetFuncSignatures(t *testing.T) {
 let l:Listener = net.listen(8080)
 let a:Socket = l.accept()
 let m:bytes = "hi".to_bytes()
-console.print(s.send(m), s.recv_into(bytes.new(8)))
+console.print(s.send(m), s.recv_into(bytes.allocate(8)))
 a.close()
 s.close()
 l.close()
@@ -32,7 +32,7 @@ l.close()
 		"这里要的是 Listener，给的是 Socket；类型之间不自动转换")
 	// accept 与 send／recv_into／close 只挂在各自那一类句柄上
 	expectErr(t, `let l:Listener = net.listen(8080)
-console.print(l.recv_into(bytes.new(4)))`,
+console.print(l.recv_into(bytes.allocate(4)))`,
 		"Listener 上没有 recv_into")
 }
 

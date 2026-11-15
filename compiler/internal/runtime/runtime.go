@@ -64,7 +64,7 @@ import (
 const (
 	codeOverflow   = 10021 // 整数运算溢出
 	codeEmptyRange = 10020 // math.random 的范围是空的
-	codeCell       = 10030 // 容器与字符串那一段的默认错误码：眼下只有 bytes.new 收的那一个数用着它
+	codeCell       = 10030 // 容器与字符串那一段的默认错误码：眼下只有 bytes.allocate 收的那一个数用着它
 	codeIndex      = 10031 // 下标越界：容器与文本同一条
 	codeNoKey      = 10032 // dict 没有这个键
 	codeNoRoom     = 10091 // 向操作系统要不到内存
@@ -1006,8 +1006,8 @@ func dataBytes() ([]byte, map[string]int) {
 	// @list_at 自己就要抛 10031 号，所以这句也得是字符串对象——写运行期例程的人不必
 	// 先学会降级那一层怎么备消息。
 	put("sIndex", strObject("下标越界"))
-	// bytes.new 收的那一个数是负的（10030 号，容器那一段的默认错误码）
-	put("sBytesSize", strObject("bytes.new 要的字节数不能是负数"))
+	// bytes.allocate 收的那一个数是负的（10030 号，容器那一段的默认错误码）
+	put("sBytesSize", strObject("bytes.allocate 要的字节数不能是负数"))
 	put("sNoKey", strObject("没有这个键"))
 	put("sNotNum", strObject("文本读不成数字"))
 	put("sRange", strObject("超出了 int 的值域"))

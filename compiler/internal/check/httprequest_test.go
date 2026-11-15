@@ -40,7 +40,7 @@ let r:Response = http.request("GET", "http://x/", d, null, 5000)`,
 		"这里要的是 int，给的是 string；类型之间不自动转换")
 	// 头与正文都只是被读一遍：调用之后原来的名字照旧能用
 	expectOK(t, `let hs:list<string> = ["X: 1"]
-let b:bytes = bytes.new(4)
+let b:bytes = bytes.allocate(4)
 let r:Response = http.request("POST", "http://x/", hs, b, 5000)
 console.print(length(hs), length(b), r.status)
 `)

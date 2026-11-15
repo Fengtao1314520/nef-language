@@ -111,7 +111,7 @@ var stdDocs = map[string]StdDoc{
 	"text.from_bytes": {
 		Zh: "to_bytes 的反向操作。传入的字节不是合法的 UTF-8 时抛 10044 号（文件不是合法的 UTF-8），与 file.read 遇到非法字节时是同一条错误。",
 		En: "The inverse of to_bytes. Bytes that are not valid UTF-8 throw 10044.",
-		Eg: "let b: bytes = bytes.new(3)\nlet s: string = text.from_bytes(b)",
+		Eg: "let b: bytes = bytes.allocate(3)\nlet s: string = text.from_bytes(b)",
 	},
 
 	// —— number 与 length：数值输出与长度
@@ -369,7 +369,7 @@ var stdDocs = map[string]StdDoc{
 	"file.write_bytes": {
 		Zh: "把整块 bytes 按字节写出，原有内容被覆盖、文件不存在时新建。",
 		En: "Writes a whole bytes block, replacing existing content and creating the file when it is missing.",
-		Eg: `file.write_bytes("a.bin", bytes.new(4))`,
+		Eg: `file.write_bytes("a.bin", bytes.allocate(4))`,
 	},
 
 	// —— path：路径
@@ -420,10 +420,10 @@ var stdDocs = map[string]StdDoc{
 		En: "Sets an environment variable, for this program only.",
 		Eg: `environment.set("NEF_DEMO", "甲")`,
 	},
-	"environment.set_current_directory": {
+	"environment.change_directory": {
 		Zh: "切换到指定目录。真=切换成功，假=没有切换成功（路径不存在，或者它不是一个目录），不抛出错误：这个函数常用于试探性地切换，要判断结果就查看返回的 boolean。C:/Temp/a 与 C:\\\\Temp\\\\a 是同一个目录，两种分隔符都接受。",
 		En: "Changes the current directory. True when it changed, false when it did not; it never throws.",
-		Eg: `let moved: boolean = environment.set_current_directory("F:/")`,
+		Eg: `let moved: boolean = environment.change_directory("F:/")`,
 	},
 	"environment.unset": {
 		Zh: "删除一个环境变量，也只对本程序有效。变量本来就不存在时不做任何事、不抛出错误；名字非法到系统调用不接受（比如带 =）才抛 10060 号。",
@@ -437,10 +437,10 @@ var stdDocs = map[string]StdDoc{
 		En: "Every match, in the order they appear.",
 		Eg: `let hits: list<string> = regular_expression.find("甲1乙2", "[0-9]")`,
 	},
-	"regular_expression.match": {
+	"regular_expression.matches": {
 		Zh: "pattern 能否在 text 里匹配成功。",
 		En: "Whether the pattern matches anywhere in the text.",
-		Eg: `let ok: boolean = regular_expression.match("甲1乙", "[0-9]")`,
+		Eg: `let ok: boolean = regular_expression.matches("甲1乙", "[0-9]")`,
 	},
 	"regular_expression.replace": {
 		Zh: "把 text 里每一处非空的匹配都换成 replacement，返回新的文本。",
@@ -514,15 +514,15 @@ var stdDocs = map[string]StdDoc{
 		En: "Renders this node and everything under it as one JSON text, byte for byte what console.print shows for a Json; a position that was read out comes back as null.",
 		Eg: `let tree: Json = json.parse("{\"a\": 1}")` + "\n" + `let printed: string = tree.to_json()`,
 	},
-	"json.new_object": {
+	"json.empty_object": {
 		Zh: "造一棵空的树，形状是对象：还没有成员，`set(key, value)` 与 `tree[key] = value` 往里放。",
 		En: "Makes an empty tree shaped like an object: no members yet, and set(key, value) or tree[key] = value puts them in.",
-		Eg: `let body: Json = json.new_object()`,
+		Eg: `let body: Json = json.empty_object()`,
 	},
-	"json.new_array": {
+	"json.empty_array": {
 		Zh: "造一棵空的树，形状是数组：`add(value)` 往尾巴上放，`insert_at(index, value)` 往中间放。",
 		En: "Makes an empty tree shaped like an array: add(value) appends, insert_at(index, value) puts one in the middle.",
-		Eg: `let row: Json = json.new_array()`,
+		Eg: `let row: Json = json.empty_array()`,
 	},
 	"json.from_value": {
 		Zh: "把程序里的一个值变成一棵树：int、float、boolean、string、byte、unicode、enum 各成一个节点，list 成数组，dict 与 struct、class 成对象，一层套一层照形状表走。这一条只读那个值，不动它的归属，返回的是一棵新树。字节块、句柄与 hashset 写不成 JSON，在检查阶段就说出是哪一层写不成。",
@@ -532,17 +532,17 @@ var stdDocs = map[string]StdDoc{
 	"json.set": {
 		Zh: "往对象里收下这一对：已有这把键就覆盖那一个位置、把换下来的那棵子树拆掉，没有就添一条。键与值各拷一份或交一份进来，所以调用方手里的那两个名字不受影响；交进来的是另一棵树时，那个名字当场作废。",
 		En: "Stores this pair in an object: an existing key overwrites that position and the subtree it swaps out is dismantled, a new one appends. Key and value are each copied or handed over, so the caller's two names are unaffected - except another tree, whose name is void on the spot.",
-		Eg: `let body: Json = json.new_object()` + "\n" + `body.set("name", "nef")`,
+		Eg: `let body: Json = json.empty_object()` + "\n" + `body.set("name", "nef")`,
 	},
 	"json.add": {
 		Zh: "往数组的尾巴上放一个值。打成对象的那一棵当场抛 10114 号。",
 		En: "Appends one value to an array. Doing it to an object throws code 10114 on the spot.",
-		Eg: `let row: Json = json.new_array()` + "\n" + `row.add(3)`,
+		Eg: `let row: Json = json.empty_array()` + "\n" + `row.add(3)`,
 	},
 	"json.insert_at": {
 		Zh: "在数组的那个位置前面放进去一个值，位置等于长度就是往尾巴上放。位置越界当场抛 10031 号，与 `xs.insert_at` 同一条边界。",
 		En: "Puts one value into an array before that position; a position equal to the length appends. A position outside the range throws code 10031, the same boundary as xs.insert_at.",
-		Eg: `let row: Json = json.new_array()` + "\n" + `row.insert_at(0, 3)`,
+		Eg: `let row: Json = json.empty_array()` + "\n" + `row.insert_at(0, 3)`,
 	},
 	"json.remove": {
 		Zh: "把那把键连同它的值一起拿走，键在返回真、不在返回假。拿走的值当场拆掉。",
@@ -569,22 +569,22 @@ var stdDocs = map[string]StdDoc{
 	"bytes.join": {
 		Zh: "把列表里的多块字节按顺序拼接成一块新的，中间不插入任何内容。长度确定之后不再增减，而网络上一段一段接收的数据需要连续存放，这个函数就是“两块合并成一块”的入口。列表中任一元素为空句柄时抛 10092 号，与 text.join 是同一句错误；空列表返回空的字节块。要插入分隔符，就把分隔符自己也做成一块放进列表。",
 		En: "Concatenates the blocks in a list into one new block, inserting nothing between them. The length is settled once, and data received off the network piece by piece has to be kept contiguous: this is how two blocks become one. An element that is a null handle throws 10092, the same sentence text.join uses, and an empty list gives an empty block. To insert a separator, make the separator a block of its own and put it in the list.",
-		Eg: `let whole: bytes = bytes.join([bytes.new(2), bytes.new(2)])`,
+		Eg: `let whole: bytes = bytes.join([bytes.allocate(2), bytes.allocate(2)])`,
 	},
-	"bytes.new": {
-		Zh: "创建一块指定长度的字节块，内容先全部置零。请求负数长度时抛 10030 号（bytes.new 要的字节数不能是负数）。",
+	"bytes.allocate": {
+		Zh: "创建一块指定长度的字节块，内容先全部置零。请求负数长度时抛 10030 号（bytes.allocate 要的字节数不能是负数）。",
 		En: "Creates a block of the given length, zero-filled. A negative length throws 10030.",
-		Eg: `let buf: bytes = bytes.new(64)`,
+		Eg: `let buf: bytes = bytes.allocate(64)`,
 	},
 	"bytes.slice": {
 		Zh: "截取一段并另外创建一块字节块，含起点、不含终点。边界与 list.slice、string.slice 用同一套判断：起点为负、end 超出长度、start > end 都抛 10031 号；start == end 返回空的字节块。",
 		En: "Takes [start, end) into a new block, with the same boundary rules as list.slice and string.slice.",
-		Eg: `let head: bytes = bytes.new(8).slice(0, 4)`,
+		Eg: `let head: bytes = bytes.allocate(8).slice(0, 4)`,
 	},
 	"bytes.to_base64": {
 		Zh: "把这一块字节按 RFC 4648 的标准表写成 Base64 编码文本。",
 		En: "Writes the block as Base64 text using RFC 4648's standard alphabet.",
-		Eg: `let code: string = bytes.new(3).to_base64()`,
+		Eg: `let code: string = bytes.allocate(3).to_base64()`,
 	},
 
 	// —— net 与 http：网络
@@ -606,7 +606,7 @@ var stdDocs = map[string]StdDoc{
 	"http.post": {
 		Zh: "发送一个 POST 请求，传入的字节块就是发送出去的正文；body 也可以是一棵 Json，发出去的是渲染好的那一段文本；headers 省掉就是不追加任何头。它是 http.request 的封装：方法写成 POST；要带自定义头把那一串 \"名字: 值\" 写进最后的 headers。",
 		En: "Sends a POST request with the given bytes as the body, unchanged; a Json works in the same slot and goes out as the text it renders to. Omitting headers appends none. A wrapper over http.request with the method fixed to POST; pass your list of \"name: value\" lines as headers to send custom headers.",
-		Eg: `let page: Response = http.post("https://example.com/", bytes.new(2), 5000, ["Content-Type: application/octet-stream"])`,
+		Eg: `let page: Response = http.post("https://example.com/", bytes.allocate(2), 5000, ["Content-Type: application/octet-stream"])`,
 	},
 	"http.request": {
 		Zh: "发送一个请求，等待整个响应接收完成，返回状态码、头与正文；body 那一档与 http.post 同一条规则。method 认 GET、POST、PUT、DELETE、PATCH、HEAD、OPTIONS 七个词，大小写不敏感，其余抛 10108。headers 一行一个头，写成 \"名字: 值\"：名字为空、没有冒号、含回车或换行都抛 10109，消息里说是第几行；名字两侧与值左侧的空白去掉，一行最长 4096 个字符。body 是发送出去的字节块，也可以是一棵 Json，不发送就写 null。ignore_cert_error 写 true 时忽略全部五种证书错误（名字不符、过期、未知 CA、用途不符、弱签名），只在受控测试环境用，默认 false 仍然校验。max_body_bytes 是应答正文的字节上限：0 表示不限，负数抛 10107，超过上限抛 10106 并且这一次拿不到 Response。给了 Authorization、Cookie、Proxy-Authorization 三者之一时，这一次不自动跟随重定向，30x 原样返回；没给这三个头就照旧跟随到底。压缩应答会解开之后再交给 body：gzip 由系统解开，deflate 由库自己解开（zlib 包裹与不带包裹的 raw 两种都认），解不开抛 10113；max_body_bytes 按解开之后的大小算。",
@@ -642,10 +642,10 @@ var stdDocs = map[string]StdDoc{
 		En: "Waits for the thread to finish and returns the value its function produced. When the thread ended on an uncaught throw, this raises code 10094 - that thread's own error line and call chain were printed first. After one wait the name is an empty handle, and waiting again gives 10092. Nothing needs writing when the name reaches the end of its scope: the language waits once and releases that thread's runtime state, and that automatic wait does not raise 10094.",
 		Eg: "method worker(n:int):int {\n    return n * 2\n}\nlet t: Thread<int> = thread.start(worker, 21)\nlet half: int = t.wait()",
 	},
-	"thread.id": {
+	"thread.number": {
 		Zh: "返回那张线程表上的位置。它只是给人看的编号（排查、打印时用），不能拿来等那条线程——等它只走 `wait()`。",
 		En: "Returns this thread's position in the thread table. It is a number for people to read (debugging, printing), not something to wait with - waiting goes through wait().",
-		Eg: "method worker(n:int):int {\n    return n\n}\nlet t: Thread<int> = thread.start(worker, 1)\nconsole.print(t.id())",
+		Eg: "method worker(n:int):int {\n    return n\n}\nlet t: Thread<int> = thread.start(worker, 1)\nconsole.print(t.number())",
 	},
 
 	// —— list：列表
@@ -880,12 +880,12 @@ var stdDocs = map[string]StdDoc{
 	"socket.send": {
 		Zh: "把字节块发送出去，返回已发送的字节数。",
 		En: "Sends the block and returns how many bytes went out.",
-		Eg: `let sock: Socket = net.connect("127.0.0.1", 8080, 1000)` + "\n" + `let sent: int = sock.send(bytes.new(4))`,
+		Eg: `let sock: Socket = net.connect("127.0.0.1", 8080, 1000)` + "\n" + `let sent: int = sock.send(bytes.allocate(4))`,
 	},
 	"socket.recv_into": {
 		Zh: "把接收到的字节填入传入的字节块，返回填入的字节数；返回 0 表示对方已关闭连接。等待超时是 10102。",
 		En: "Fills the given block with what arrives and returns the byte count; 0 once the peer has closed.",
-		Eg: `let sock: Socket = net.connect("127.0.0.1", 8080, 1000)` + "\n" + `let buf: bytes = bytes.new(16)` + "\n" + `let got: int = sock.recv_into(buf)`,
+		Eg: `let sock: Socket = net.connect("127.0.0.1", 8080, 1000)` + "\n" + `let buf: bytes = bytes.allocate(16)` + "\n" + `let got: int = sock.recv_into(buf)`,
 	},
 	"socket.close": {
 		Zh: "提前关闭。不主动调用，名字执行到尽头时也会关。",

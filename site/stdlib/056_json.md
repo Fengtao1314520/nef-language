@@ -4,7 +4,7 @@
 
 挂在组名 `json` 上的只有五条：`json.parse` 把一段文本解析成一棵树，`json.explain` 说明解析失败出现在哪一行哪一列。
 
-另外三条起新树：`json.new_object` 与 `json.new_array` 各起一棵空的，`json.from_value` 把程序里的一个值变成一棵树。
+另外三条起新树：`json.empty_object` 与 `json.empty_array` 各起一棵空的，`json.from_value` 把程序里的一个值变成一棵树。
 
 其余读写都写在 `Json` 这个类型身上，与 `list`、`dict` 的成员同一性质：取一个位置写成 `tree["键"]` 与 `tree[位置]`，数元素写成 `length(tree)`。
 
@@ -27,8 +27,8 @@
 | `j.to_number(fallback)` | `float` | 10092 | 两种形态的数都能取到值，`3` 也算作 `3.0`，其他情况返回默认值 |
 | `j.to_boolean(fallback)` | `boolean` | 10092 | 只有 `true` 与 `false` 能取到值，其他情况返回默认值 |
 | `j.to_json()` | `string` | 10092 | 把这棵树连同下面的整一支渲染成一段 JSON 文本，与 `console.print` 打印一个 `Json` 给出的那一字不差。被读走的位置写成 `null` |
-| `json.new_object()` | `Json` | 不抛 | 造一棵空的树，形状是对象：还没有成员，`set(key, value)` 与 `tree[key] = value` 往里放 |
-| `json.new_array()` | `Json` | 不抛 | 造一棵空的树，形状是数组：`add(value)` 往尾巴上放，`insert_at(index, value)` 往中间放 |
+| `json.empty_object()` | `Json` | 不抛 | 造一棵空的树，形状是对象：还没有成员，`set(key, value)` 与 `tree[key] = value` 往里放 |
+| `json.empty_array()` | `Json` | 不抛 | 造一棵空的树，形状是数组：`add(value)` 往尾巴上放，`insert_at(index, value)` 往中间放 |
 | `json.from_value(value)` | `Json` | 不抛 | 把程序里的一个值变成一棵树：int、float、boolean、string、byte、unicode、enum 各成一个节点，list 成数组，dict 与 struct、class 成对象，一层套一层照形状表走。这一条只读那个值，不动它的归属，返回的是一棵新树。字节块、句柄与 hashset 写不成 JSON，在检查阶段就说出是哪一层写不成 |
 | `j.set(key, value)` | 不返回值 | 10092、10114 | 往对象里收下这一对：已有这把键就覆盖那一个位置、把换下来的那棵子树拆掉，没有就添一条。键与值各拷一份或交一份进来，所以调用方手里的那两个名字不受影响；交进来的是另一棵树时，那个名字当场作废 |
 | `j.add(value)` | 不返回值 | 10092、10114 | 往数组的尾巴上放一个值。打成对象的那一棵当场抛 10114 号 |
@@ -156,14 +156,14 @@ console.print(one)
 
 ## 往树里写
 
-`json.new_object()` 与 `json.new_array()` 各起一棵空的树。
+`json.empty_object()` 与 `json.empty_array()` 各起一棵空的树。
 
 放东西用 `set(key, value)`、`add(value)`、`insert_at(index, value)`。
 
 要那一段文本的时候用 `to_json()`。
 
 ```nf
-let body:Json = json.new_object()
+let body:Json = json.empty_object()
 body.set("name", "nef")
 body.set("tags", ["语言", "编译器"])
 body.set("count", 2)
@@ -181,7 +181,7 @@ console.print(body.to_json())
 键与文本各拷一份进来，所以调用方手里的那两个名字照旧能用。
 
 ```nf
-let body:Json = json.new_object()
+let body:Json = json.empty_object()
 body.set("name", "nef")
 let tags:Json = json.from_value(["语言", "编译器"])
 body.set("tags", tags)
@@ -199,7 +199,7 @@ console.print(body.to_json())
 `clear()` 拆干净下面的全部成员，对象与数组自己留着。
 
 ```nf
-let row:Json = json.new_array()
+let row:Json = json.empty_array()
 row.add(1)
 row.add(3)
 row.insert_at(1, 2)
@@ -249,7 +249,7 @@ console.print(json.from_value(rows).to_json())
 `http.post` 与 `http.request` 的正文那一个位置除了 `bytes` 那一块，还收一棵 `Json`，发出去的是渲染好的那一段文本。
 
 ```nf
-let body:Json = json.new_object()
+let body:Json = json.empty_object()
 body.set("name", "nef")
 body.set("tags", ["语言", "编译器"])
 let r:Response = http.post("http://127.0.0.1:8080/api", body, 3000)

@@ -719,8 +719,8 @@ var jsonMemberFn = map[string]string{
 	"json.to_boolean": fnJSONToBool,
 	"json.to_json":    fnJSONRender,
 	// 构造与写入那一族
-	"json.new_object": fnJSONNewObject,
-	"json.new_array":  fnJSONNewArray,
+	"json.empty_object": fnJSONNewObject,
+	"json.empty_array":  fnJSONNewArray,
 	"json.from_value": fnJSONOf,
 	"json.set":        fnJSONSet,
 	"json.add":        fnJSONPush,

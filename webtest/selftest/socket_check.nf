@@ -14,7 +14,7 @@ class Peer {
     kept:bytes
 
     method pull() {
-        let block:bytes = bytes.new(8192)
+        let block:bytes = bytes.allocate(8192)
         let n:int = this.sock.recv_into(block)
         if (n <= 0) {
             throw (202, "对面先关了这条连接")
@@ -71,7 +71,7 @@ method open_door():Door {
 }
 
 method from_numbers(xs:list<int>):bytes {
-    let out:bytes = bytes.new(length(xs))
+    let out:bytes = bytes.allocate(length(xs))
     for (i:int in 0 until length(xs)) {
         out[i] = xs[i] as byte
     }
@@ -102,7 +102,7 @@ math.set_seed(20261021)
 let door:Door = open_door()
 let client:Socket = net.connect("127.0.0.1", door.port, 5000)
 let peer_sock:Socket = door.listener.accept()
-let peer:Peer = new Peer(sock: peer_sock, kept: bytes.new(0))
+let peer:Peer = new Peer(sock: peer_sock, kept: bytes.allocate(0))
 let b:wt.Browser = wt.wrap_socket(client)
 console.print("自己连自己，端口", door.port)
 

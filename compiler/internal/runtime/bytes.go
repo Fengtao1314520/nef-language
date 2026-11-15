@@ -31,7 +31,7 @@
 //
 //	-8 │ 类型字 tagBytes │ -4 │ 尺寸 │ +0 │ 字节数 │ +8 │ 正文（一个位置一字节）│
 //
-// 只有"字节数"这一个位置：`bytes.new(容量)` 定下长度之后不再增减，所以没有"能装几样"那个位置，
+// 只有"字节数"这一个位置：`bytes.allocate(容量)` 定下长度之后不再增减，所以没有"能装几样"那个位置，
 // 也没有容器那一个"改过几次"（10033 号管的是遍历途中改容器，`bytes` 没有付费的遍历写法）。
 //
 // en: bytes.go is the runtime parts of the built-in `bytes` tier. Why the tier exists: binary
@@ -42,7 +42,7 @@
 // the heap holds. The block's shape follows text exactly (the handle points at its own first
 // position, with the 8-byte header before it): -8 type word tagBytes, -4 size, +0 byte count,
 // +8 body (one byte per position). There is only the byte-count field:
-// `bytes.new(capacity)` fixes the length and nothing grows or shrinks afterwards, so there is
+// `bytes.allocate(capacity)` fixes the length and nothing grows or shrinks afterwards, so there is
 // no "how many fit" slot and no container mutation counter (code 10033 guards modifying a
 // container mid-iteration, and `bytes` has no paid iterating form).
 package runtime
@@ -214,7 +214,7 @@ func bytesSlice(b *rt) {
 // 中间不插任何东西——要把分隔插进去，就把分隔自己也做成一块 `bytes` 摆进清单，
 // 同一例程的另一种结果，不必这一条例程自己管插什么。
 //
-// 这一例程存在的理由：`bytes` 的长度在 `bytes.new` 那一步定下之后不再增减，
+// 这一例程存在的理由：`bytes` 的长度在 `bytes.allocate` 那一步定下之后不再增减，
 // 而 TCP 上一段一段收来的数据要连着摆——base64 解出来的一块、拼好的一条 WebSocket 帧、
 // 收来的半条消息，都得有一处"两块并成一块"的地方。没有这一条，那一侧就只能自己再开一块大的、
 // 一段一段用下标搬，而搬这一件事在语言里看不见（`bytes` 没有 `write_at`）。
@@ -227,7 +227,7 @@ func bytesSlice(b *rt) {
 // one big enough and copies each run in list order. Nothing is inserted between them - to
 // insert a separator, make the separator a `bytes` block of its own and put it in the list;
 // that is the same routine producing a different result, so this routine needs no separator
-// logic. Why this routine exists: a `bytes` length is fixed by `bytes.new` and never grows,
+// logic. Why this routine exists: a `bytes` length is fixed by `bytes.allocate` and never grows,
 // yet pieces received over TCP must be appended - a decoded base64 block, an
 // assembled WebSocket frame, half a message all need one place where "two blocks become one".
 // Without it that side would have to allocate a big block itself and copy by index, and copying

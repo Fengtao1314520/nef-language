@@ -143,7 +143,7 @@ console.print(file.size(p))                       // 30
 ```nf
 let p:string = "字节.bin"
 
-let buf:bytes = bytes.new(4)
+let buf:bytes = bytes.allocate(4)
 
 for (i:int in 0 until 4) {
     buf[i] = i as byte
@@ -153,7 +153,7 @@ let back:bytes = file.read_bytes(p)
 console.print(length(back), back[0], back[3])      // 4 0 3
 ```
 
-这一块字节属于 `bytes` 类型，用 `bytes.new(size)` 创建，成员表与越界规则的说明写在[字节块](/stdlib/047_bytes)一页。向某个位置写入 `i as byte` 要显式转换：`i` 是一个整数，类型之间不自动转换。
+这一块字节属于 `bytes` 类型，用 `bytes.allocate(size)` 创建，成员表与越界规则的说明写在[字节块](/stdlib/047_bytes)一页。向某个位置写入 `i as byte` 要显式转换：`i` 是一个整数，类型之间不自动转换。
 
 `file.write_bytes` 与 `file.write` 的处理方式相同：文件已存在就清空重写，不存在就新建，未能写满时抛 10042 号。
 

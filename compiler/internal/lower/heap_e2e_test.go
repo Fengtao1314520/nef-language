@@ -755,7 +755,7 @@ console.print(total)
 		{"每一轮造一块 bytes，名字到尽头就散", true, `
 let total:int = 0
 for (i:int in 0 until @N@) {
-    let b:bytes = bytes.new(24)
+    let b:bytes = bytes.allocate(24)
     total = total + length(b)
 }
 console.print(total)
@@ -763,7 +763,7 @@ console.print(total)
 		{"每一轮把一块 bytes 放进容器那个位置", true, `
 let total:int = 0
 for (i:int in 0 until @N@) {
-    let xs:list<bytes> = [bytes.new(24)]
+    let xs:list<bytes> = [bytes.allocate(24)]
     total = total + length(xs)
 }
 console.print(total)
@@ -774,14 +774,14 @@ class Holder {
 }
 let total:int = 0
 for (i:int in 0 until @N@) {
-    let h:Holder = new Holder(data: bytes.new(16))
-    h.data = bytes.new(8)
+    let h:Holder = new Holder(data: bytes.allocate(16))
+    h.data = bytes.allocate(8)
     total = total + length(h.data)
 }
 console.print(total)
 `},
 		{"每一轮从一块 bytes 里 slice 出那一片（顶层那一块留着，slice 的每一片散）", true, `
-let head:bytes = bytes.new(64)
+let head:bytes = bytes.allocate(64)
 let total:int = 0
 for (i:int in 0 until @N@) {
     let cut:bytes = head.slice(0, 8)
@@ -822,7 +822,7 @@ for (i:int in 0 until @N@) {
     let s:Socket = net.connect("127.0.0.1", @P@, 3000)
     let msg:bytes = "ping".to_bytes()
     s.send(msg)
-    let back:bytes = bytes.new(8)
+    let back:bytes = bytes.allocate(8)
     total = total + s.recv_into(back)
 }
 console.print(total)

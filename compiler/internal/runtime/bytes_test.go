@@ -107,7 +107,7 @@ func TestBytesNewZeroAndNegative(t *testing.T) {
 	d2 := newDrv(t)
 	d2.bytesNew(-1, 0)
 	got, code = run(t, d2.finish(t, 0))
-	if got != "出错了（10030）：bytes.new 要的字节数不能是负数\n" || code != 1 {
+	if got != "出错了（10030）：bytes.allocate 要的字节数不能是负数\n" || code != 1 {
 		t.Fatalf("负的那一头：got %q 码 %d", got, code)
 	}
 }

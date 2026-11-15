@@ -44,14 +44,14 @@ import (
 func TestJSONWriteRoundTrip(t *testing.T) {
 	cases := []struct{ name, src, want string }{
 		{"对象按写的顺序出，覆盖那一个位置不变", `
-let body:Json = json.new_object()
+let body:Json = json.empty_object()
 body.set("name", "nef")
 body.set("count", 2)
 body.set("name", "NEF")
 console.print(body.to_json())
 `, "{\"name\":\"NEF\",\"count\":2}\n"},
 		{"数组的三条：尾巴上放、中间插、按下标盖", `
-let row:Json = json.new_array()
+let row:Json = json.empty_array()
 row.add(2)
 row.add(3)
 row.insert_at(0, 1)
@@ -59,7 +59,7 @@ row[1] = 9
 console.print(row.to_json())
 `, "[1,9,3]\n"},
 		{"下标赋值两条都认：文本走对象，整数走数组", `
-let body:Json = json.new_object()
+let body:Json = json.empty_object()
 body["a"] = [1, 2]
 console.print(body.to_json())
 `, "{\"a\":[1,2]}\n"},
@@ -76,8 +76,8 @@ body.clear()
 console.print(body.to_json(), length(body))
 `, "{} 0\n"},
 		{"嵌套着写：对象里放数组，数组里放对象", `
-let row:Json = json.new_array()
-let one:Json = json.new_object()
+let row:Json = json.empty_array()
+let one:Json = json.empty_object()
 one.set("k", true)
 row.add(one)
 console.print(row.to_json())
@@ -158,9 +158,9 @@ console.print(back["a"].kind(), length(back["a"]), back["b"].kind())
 // 两万圈一块内存不留。
 func TestJSONWriteOwnership(t *testing.T) {
 	if err := compileErr(`
-let inner:Json = json.new_array()
+let inner:Json = json.empty_array()
 inner.add(1)
-let outer:Json = json.new_object()
+let outer:Json = json.empty_object()
 outer.set("list", inner)
 console.print(inner.to_json())
 `); err == nil || !strings.Contains(err.Error(), "inner 已经交出去了") {
@@ -174,7 +174,7 @@ console.print(inner.to_json())
 		{"写进树里再渲染", `
 let total:int = 0
 for (i:int in 0 until @N@) {
-    let body:Json = json.new_object()
+    let body:Json = json.empty_object()
     body.set("list", [1, 2, 3])
     body.set("name", "甲")
     body.set("name", "乙")
@@ -185,7 +185,7 @@ for (i:int in 0 until @N@) {
 		{"拿掉与清空", `
 let total:int = 0
 for (i:int in 0 until @N@) {
-    let body:Json = json.new_object()
+    let body:Json = json.empty_object()
     body.set("a", [1, 2, 3])
     body.set("b", {"c": "丁"})
     let one:Json = body.take("a")
@@ -215,13 +215,13 @@ func TestJSONShapeMismatch(t *testing.T) {
 	cases := []struct {
 		src, want string
 	}{
-		{`let row:Json = json.new_array()
+		{`let row:Json = json.empty_array()
 row.set("k", 1)`, "10114）：这一棵 Json 不是那一种形状"},
-		{`let body:Json = json.new_object()
+		{`let body:Json = json.empty_object()
 body.add(1)`, "10114）：这一棵 Json 不是那一种形状"},
-		{`let body:Json = json.new_object()
+		{`let body:Json = json.empty_object()
 body.remove_at(0)`, "10114）：这一棵 Json 不是那一种形状"},
-		{`let row:Json = json.new_array()
+		{`let row:Json = json.empty_array()
 row.insert_at(5, 1)`, "10031）：下标越界"},
 	}
 	for _, c := range cases {
@@ -246,7 +246,7 @@ func TestHttpPostJsonBody(t *testing.T) {
 	}))
 	defer srv.Close()
 	got, code := run(t, `
-let row:Json = json.new_object()
+let row:Json = json.empty_object()
 row.set("name", "nef")
 row.set("tags", ["语言", "编译器"])
 let r:Response = http.post("`+urlOf(srv)+`/echo", row, 5000)
@@ -275,7 +275,7 @@ func TestHttpJsonBodySlope(t *testing.T) {
 	}))
 	defer srv.Close()
 	tmpl := `
-let row:Json = json.new_object()
+let row:Json = json.empty_object()
 row.set("name", "nef")
 let total:int = 0
 for (i:int in 0 until @N@) {
@@ -292,16 +292,16 @@ console.print(total)
 // TestJSONWriteRefused 钉检查阶段就拒绝的几种写法：不是到了运行期才交一个 null。
 func TestJSONWriteRefused(t *testing.T) {
 	cases := []struct{ src, want string }{
-		{`let b:bytes = bytes.new(2)
+		{`let b:bytes = bytes.allocate(2)
 console.print(json.from_value(b).to_json())`, "bytes 写不成 JSON"},
 		{`let s:hashset<int> = {1, 2}
 console.print(json.from_value(s).to_json())`, "hashset<int> 写不成 JSON"},
 		{`let j:Json = json.parse("[1]")
 console.print(json.from_value(j).to_json())`, "Json 本来就是一棵树"},
-		{`let row:list<bytes> = [bytes.new(2)]
+		{`let row:list<bytes> = [bytes.allocate(2)]
 console.print(json.from_value(row).to_json())`, "写不成 JSON"},
-		{`let row:Json = json.new_array()
-row.add(bytes.new(2))`, "bytes 写不成 JSON"},
+		{`let row:Json = json.empty_array()
+row.add(bytes.allocate(2))`, "bytes 写不成 JSON"},
 	}
 	for _, c := range cases {
 		err := compileErr(c.src)

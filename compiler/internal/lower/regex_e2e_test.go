@@ -40,7 +40,7 @@ func nfLit(s string) string {
 // 能匹配空串的式子不逐码点拆开占位。
 func TestRegexRun(t *testing.T) {
 	got, code := run(t, `let s:string = "let total:int = 42"
-console.print(regular_expression.match(s, "\\d+"), "|", regular_expression.match(s, "^[a-z]+"), "|", regular_expression.match(s, "\\w+:\\w+"))
+console.print(regular_expression.matches(s, "\\d+"), "|", regular_expression.matches(s, "^[a-z]+"), "|", regular_expression.matches(s, "\\w+:\\w+"))
 console.print(regular_expression.replace(s, "\\s+", "_"))
 for (x:string in regular_expression.find(s, "[a-z]+")) {
     console.print(x)
@@ -48,7 +48,7 @@ for (x:string in regular_expression.find(s, "[a-z]+")) {
 for (x:string in regular_expression.split(s, ":")) {
     console.print(x)
 }
-console.print(regular_expression.match("甲乙", "^.乙$"), "|", regular_expression.match("甲乙丙", "^.乙$"), "|", regular_expression.replace("aaa", "a?", "-"))
+console.print(regular_expression.matches("甲乙", "^.乙$"), "|", regular_expression.matches("甲乙丙", "^.乙$"), "|", regular_expression.replace("aaa", "a?", "-"))
 `)
 	want := "true | true | true\n" +
 		"let_total:int_=_42\n" +
@@ -83,7 +83,7 @@ func TestRegexMatchesReference(t *testing.T) {
 			if err != nil {
 				t.Fatalf("%q 该是能编的：%v", pat, err)
 			}
-			src.WriteString("console.print(regular_expression.match(" + nfLit(text) + ", " + nfLit(pat) + "))\n")
+			src.WriteString("console.print(regular_expression.matches(" + nfLit(text) + ", " + nfLit(pat) + "))\n")
 			for _, frag := range re.FindAll(text) {
 				src.WriteString("console.print(" + nfLit(frag) + ")\n")
 			}
@@ -158,7 +158,7 @@ func TestRegexNamesBadPatterns(t *testing.T) {
 		{`*a`, "量词前面"},
 		{``, "是空的"},
 	} {
-		got, code := run(t, "console.print(regular_expression.match(\"甲1\", "+nfLit(one.pat)+"))\n")
+		got, code := run(t, "console.print(regular_expression.matches(\"甲1\", "+nfLit(one.pat)+"))\n")
 		if code != 1 || !strings.Contains(got, "出错了（10071）") {
 			t.Errorf("%q 该报 10071 号：got %q 码 %d", one.pat, got, code)
 			continue
@@ -174,7 +174,7 @@ func TestRegexNamesBadPatterns(t *testing.T) {
 func TestRegexCatchSees71(t *testing.T) {
 	got, code := run(t, `let pat:string = "a{2}"
 try {
-    console.print(regular_expression.match("aa", pat))
+    console.print(regular_expression.matches("aa", pat))
 } catch (code, msg, at) {
     console.print(code, "|", length(msg) > 0)
 }
@@ -189,8 +189,8 @@ try {
 // 汉字不会被拆成三个字节各算一次；`\w` 只匹配 ASCII，汉字不在其内。
 func TestRegexAnchorsAndCodepoints(t *testing.T) {
 	got, code := run(t, `console.print(regular_expression.replace("甲乙", "[^甲]", "#"))
-console.print(regular_expression.match("甲", "."), "|", regular_expression.match("甲乙", "^..$"), "|", regular_expression.match("甲", "^...$"))
-console.print(regular_expression.match("中文", "\\w+"), "|", length(regular_expression.find("中文 a", "\\w+")))
+console.print(regular_expression.matches("甲", "."), "|", regular_expression.matches("甲乙", "^..$"), "|", regular_expression.matches("甲", "^...$"))
+console.print(regular_expression.matches("中文", "\\w+"), "|", length(regular_expression.find("中文 a", "\\w+")))
 `)
 	want := "甲#\ntrue | true | false\nfalse | 1\n"
 	if got != want || code != 0 {

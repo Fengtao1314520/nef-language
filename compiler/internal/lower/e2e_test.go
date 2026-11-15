@@ -169,7 +169,7 @@ console.print(a / b)
 // （见 print_e2e_test.go）都已实现；剩的是它的完整语法——这一版只做子集，所以样本换成它。
 // 式子是运行期的值，编译期拒绝不了，接住它的是 10071 号那句点名的报错。
 func TestUnsupportedSaysSo(t *testing.T) {
-	got, code := run(t, "console.print(regular_expression.match(\"a\", "+nfLit("(?=a)")+"))\n")
+	got, code := run(t, "console.print(regular_expression.matches(\"a\", "+nfLit("(?=a)")+"))\n")
 	if code != 1 || !strings.Contains(got, "出错了（10071）") || !strings.Contains(got, "先行断言") {
 		t.Fatalf("没做的那一条该点名，实际 got %q 码 %d", got, code)
 	}
@@ -178,7 +178,7 @@ func TestUnsupportedSaysSo(t *testing.T) {
 	if got != "[\"甲\"] [\"甲\"]\n" || code != 0 {
 		t.Fatalf("整只容器的印法没跑对：got %q 码 %d", got, code)
 	}
-	got, code = run(t, "console.print(regular_expression.match(\"abc\", \"\\\\d\"), \"|\", regular_expression.match(\"a1\", \"\\\\d\"))\n")
+	got, code = run(t, "console.print(regular_expression.matches(\"abc\", \"\\\\d\"), \"|\", regular_expression.matches(\"a1\", \"\\\\d\"))\n")
 	if got != "false | true\n" || code != 0 {
 		t.Fatalf("regular_expression 没跑对：got %q 码 %d", got, code)
 	}

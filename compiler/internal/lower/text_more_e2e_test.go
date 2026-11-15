@@ -121,7 +121,7 @@ console.print(length(s))
 func TestTextFromBytesRefused(t *testing.T) {
 	// 单个字节 0xFF 不是合法的 UTF-8：报 10044 号那句，与 file.read 一致
 	got, code := run(t, `
-let bs:bytes = bytes.new(1)
+let bs:bytes = bytes.allocate(1)
 bs[0] = 255
 let s:string = text.from_bytes(bs)
 console.print(s)
@@ -249,14 +249,14 @@ func TestEnvironmentAndOffset(t *testing.T) {
 	nf := strings.ReplaceAll(slash, "/", `\\`) // nf 的文本里 \\ 才是一个反斜杠
 	got, code := run(t, `
 let here:string = environment.current_directory()
-console.print(environment.set_current_directory("`+slash+`"))
+console.print(environment.change_directory("`+slash+`"))
 let now:string = environment.current_directory()
 console.print(now == "`+nf+`")
-console.print(environment.set_current_directory(now))
+console.print(environment.change_directory(now))
 console.print(environment.current_directory() == here)
-console.print(environment.set_current_directory(here))
+console.print(environment.change_directory(here))
 console.print(environment.current_directory() == here)
-console.print(environment.set_current_directory("`+slash+`/没有这一层"))
+console.print(environment.change_directory("`+slash+`/没有这一层"))
 console.print(time.utc_offset() > -1440, time.utc_offset() < 1440)
 `)
 	want := "true\ntrue\ntrue\nfalse\ntrue\ntrue\nfalse\ntrue true\n"

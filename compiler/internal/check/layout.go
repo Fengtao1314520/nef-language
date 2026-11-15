@@ -46,7 +46,7 @@ type FieldInfo struct {
 // Sizeof 返回一个类型占几个字节。容器、文本、盒子这些句柄一律 8 字节——
 // 指向堆上的对象，对象本身多大由运行期决定。
 //
-// `bytes` 也是句柄：块里是"字节数 + 正文"，多大取决于 `bytes.new` 那一步申请了多少格。
+// `bytes` 也是句柄：块里是"字节数 + 正文"，多大取决于 `bytes.allocate` 那一步申请了多少格。
 //
 // `struct` 也走这一条：它是值类型，但存放形状用的是同一套句柄模型——槽位里、
 // 字段里、容器里存放的都是那 8 个字节，指向堆上的一整块。值语义靠"交出时整份拷贝"
@@ -56,7 +56,7 @@ type FieldInfo struct {
 // en: Sizeof returns how many bytes a type occupies. The handles of containers, text and boxes
 // are always 8 bytes: they point at an object on the heap whose size is decided at runtime.
 // `bytes` is a handle too: the block holds "byte count + body", and its size depends on how many
-// slots bytes.new asked for. A `struct` also goes through here: it is a value type, but its
+// slots bytes.allocate asked for. A `struct` also goes through here: it is a value type, but its
 // storage shape uses the same handle model - what a slot, a field or a container stores is those
 // 8 bytes pointing at a whole block on the heap. Value semantics are guaranteed by "copy the
 // whole thing on handover" (`@copy_block`), not by putting the block into the position:

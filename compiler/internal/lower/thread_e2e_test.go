@@ -410,12 +410,12 @@ console.print(leave())
 
 // TestThreadIdsAreTableSlots 钉句柄身上那一个数就是线程表的表项：两条同时挂着的是 1 与 2，
 // 等过之后那两个位置抹干净，第三条扫到的是同一格，于是又是 1。
-// `thread.id` 不发任何例程、也不改动那个位置，所以这一处钉的是"交出的就是那一个数"，
+// `thread.number` 不发任何例程、也不改动那个位置，所以这一处钉的是"交出的就是那一个数"，
 // 换成人看的另一种编号（序号、系统号码），这一条就失败。
 //
 // en: TestThreadIdsAreTableSlots pins that the number inside a thread handle is the slot in the
 // thread table: two live threads are 1 and 2, both waitings wipe their entries, and the third start
-// scans the same first free slot, so it reads 1 again. thread.id emits no routine and leaves the
+// scans the same first free slot, so it reads 1 again. thread.number emits no routine and leaves the
 // entry alone, which is why this pins "the number handed back is that slot" - swap it for any other
 // human-facing id (an ordinal, the system's number) and this turns red.
 func TestThreadIdsAreTableSlots(t *testing.T) {
@@ -425,10 +425,10 @@ method work(n:int):int {
 }
 let a:Thread<int> = thread.start(work, 1)
 let b:Thread<int> = thread.start(work, 2)
-console.print(a.id(), b.id())
+console.print(a.number(), b.number())
 console.print(a.wait(), b.wait())
 let c:Thread<int> = thread.start(work, 3)
-console.print(c.id())
+console.print(c.number())
 console.print(c.wait())
 `)
 	want := "1 2\n1 2\n1\n3\n"

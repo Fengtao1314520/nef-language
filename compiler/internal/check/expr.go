@@ -38,7 +38,7 @@ var (
 	typeNull    = Type{Kind: Null, Name: "null"}
 	typeAuto    = Type{Kind: ErrT, Name: "任意"}
 	// typeBytes 是内建引用类型 `bytes`。尖括号里不需要参数：
-	// 它装的一定是字节，容量在 `bytes.new(容量)` 那一步定下来。
+	// 它装的一定是字节，容量在 `bytes.allocate(容量)` 那一步定下来。
 	typeBytes = Type{Kind: Bytes, Name: "bytes"}
 	// typeSocket 与 typeListener 是那两类操作系统给的句柄。
 	// 它们没有成员表可查的形状：手上只有一个句柄，形状在系统那一侧。
@@ -1168,7 +1168,7 @@ func stdMember(base Type, name string) member {
 				ret = base.Args[0]
 			}
 			return member{kind: memberStd, typ: Type{Kind: FuncT, Name: group}, sig: methodSig{Ret: ret}}
-		case "id":
+		case "number":
 			return member{kind: memberStd, typ: Type{Kind: FuncT, Name: group}, sig: methodSig{Ret: typeInt}}
 		}
 	}
@@ -2551,7 +2551,7 @@ var stdFuncs = map[string]stdSig{
 	// 以及把缺的那几层一次建齐（单层那一条只管最后一层）。
 	"file.copy":                  {params: []Param{{Typ: typeStr}, {Typ: typeStr}}},
 	"file.create_directories":    {params: []Param{{Typ: typeStr}}, ret: typeBool},
-	"regular_expression.match":   {params: []Param{{Typ: typeStr}, {Typ: typeStr}}, ret: typeBool},
+	"regular_expression.matches":   {params: []Param{{Typ: typeStr}, {Typ: typeStr}}, ret: typeBool},
 	"regular_expression.find":    {params: []Param{{Typ: typeStr}, {Typ: typeStr}}, ret: Type{Kind: List, Name: "list", Args: []Type{typeStr}}},
 	"regular_expression.replace": {params: []Param{{Typ: typeStr}, {Typ: typeStr}, {Typ: typeStr}}, ret: typeStr},
 	"regular_expression.split":   {params: []Param{{Typ: typeStr}, {Typ: typeStr}}, ret: Type{Kind: List, Name: "list", Args: []Type{typeStr}}},
@@ -2578,7 +2578,7 @@ var stdFuncs = map[string]stdSig{
 	"file.walk_paths":  {params: []Param{{Typ: typeStr}}, ret: Type{Kind: List, Name: "list", Args: []Type{typeStr}}},
 	"file.remove_tree": {params: []Param{{Typ: typeStr}}},
 	// 换当前目录（返回真／假，与 `file.create_directories` 同一答复风格）与本地比 UTC 快几分钟。
-	"environment.set_current_directory": {params: []Param{{Typ: typeStr}}, ret: typeBool},
+	"environment.change_directory": {params: []Param{{Typ: typeStr}}, ret: typeBool},
 	"time.utc_offset":                   {ret: typeInt},
 	// json 那一组：组名上只留没有接收者的两条：把文本拆成树、说清楚为什么拆不成。
 	// 树上的读取、写入与渲染全挂在 `Json` 这个类型上（见 stdMember 的 Json 那一段与
@@ -2589,14 +2589,14 @@ var stdFuncs = map[string]stdSig{
 	"json.parse":   {params: []Param{{Typ: typeStr}}, ret: typeJson},
 	"json.explain": {params: []Param{{Typ: typeStr}}, ret: typeStr},
 	// 起一棵空的树那两条与"把程序里的一个值变成一棵树"那一条都没有接收者，所以挂在组名上
-	// （与 `bytes.new`、`net.connect` 同一档）。从值变成树靠的是形状表：那一个位置不收标注，
+	// （与 `bytes.allocate`、`net.connect` 同一档）。从值变成树靠的是形状表：那一个位置不收标注，
 	// 跟着实参走，能写成 JSON 的那几类才算（见 canBeJson）。
-	"json.new_object": {ret: typeJson},
-	"json.new_array":  {ret: typeJson},
+	"json.empty_object": {ret: typeJson},
+	"json.empty_array":  {ret: typeJson},
 	"json.from_value": {params: []Param{{Typ: errType}}, ret: typeJson},
 	// bytes 那一组。造出来、读回 base64、并起几块这三条挂在组名上，
 	// 取与放走下标与 `length`，`slice` 与 `to_base64` 挂在值身上。
-	"bytes.new":         {params: []Param{{Typ: typeInt}}, ret: typeBytes},
+	"bytes.allocate":         {params: []Param{{Typ: typeInt}}, ret: typeBytes},
 	"bytes.from_base64": {params: []Param{{Typ: typeStr}}, ret: typeBytes},
 	"bytes.join": {params: []Param{{Typ: Type{Kind: List, Name: "list",
 		Args: []Type{typeBytes}}}}, ret: typeBytes},

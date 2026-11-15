@@ -12,7 +12,7 @@
 import wt from "libs/web_test"
 
 method from_numbers(xs:list<int>):bytes {
-    let out:bytes = bytes.new(length(xs))
+    let out:bytes = bytes.allocate(length(xs))
     for (i:int in 0 until length(xs)) {
         out[i] = xs[i] as byte
     }

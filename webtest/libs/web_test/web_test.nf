@@ -128,7 +128,7 @@ method send_text_line(body:string) {
 }
 
 method random_key():bytes {
-    let k:bytes = bytes.new(4)
+    let k:bytes = bytes.allocate(4)
     for (i:int in 0 until 4) {
         k[i] = math.random(0, 256) as byte
     }
@@ -136,7 +136,7 @@ method random_key():bytes {
 }
 
 method pull_into() {
-    let block:bytes = bytes.new(recv_size)
+    let block:bytes = bytes.allocate(recv_size)
     let got:int = link.sock.recv_into(block)
     if (got <= 0) {
         throw (code_socket_closed, "浏览器那边关了这条连接")
@@ -152,7 +152,7 @@ method reply_pong(body:bytes) {
 // 读出一条消息的正文：一帧不够就再收一片，一条消息被切成几段就按 FIN 位接起来，
 // 收到 ping 就照原样回一条 pong。
 method read_message():string {
-    link.held = bytes.new(0)
+    link.held = bytes.allocate(0)
     while (true) {
         let buf:bytes = link.pending
         let one:Frame = take_wire(buf)
@@ -523,7 +523,7 @@ export class Browser {
     // 一块一块送，直到送完。
     // en: Sends the whole block, piece by piece until it is all out.
     // 例：
-    // browser.send_all_bytes(bytes.new(64))
+    // browser.send_all_bytes(bytes.allocate(64))
     method send_all_bytes(body:bytes) {
         send_all(body)
     }
@@ -1203,8 +1203,8 @@ export method start(exe:string, profile:string, port_wait:int = port_ms, io_wait
     let line:string = "\"" + exe + "\" --headless=new --no-first-run --no-default-browser-check"
     line = line + " --remote-debugging-port=0 --user-data-dir=\"" + profile + "\" about:blank"
     link.proc = process.start(line)
-    link.pending = bytes.new(0)
-    link.held = bytes.new(0)
+    link.pending = bytes.allocate(0)
+    link.held = bytes.allocate(0)
     link.sessions = []
     link.events = {}
     // 这一段任何一处不成都要收掉那个进程再往外报：包内状态不会自动收尾
@@ -1253,8 +1253,8 @@ export method page_at(index:int):Page {
 // let mine: wt.Browser = wt.wrap_socket(net.connect("127.0.0.1", 9222, 1000))
 export method wrap_socket(sock:Socket):Browser {
     link.sock = sock
-    link.pending = bytes.new(0)
-    link.held = bytes.new(0)
+    link.pending = bytes.allocate(0)
+    link.held = bytes.allocate(0)
     link.sessions = []
     link.events = {}
     return new Browser()

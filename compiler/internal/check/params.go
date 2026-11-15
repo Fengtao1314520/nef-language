@@ -84,7 +84,7 @@ var stdParamNames = map[string][]string{
 	"math.random_float":   {},
 	"math.round":          {"x"},
 	"math.set_seed":       {"seed"},
-	"math.sign":           {"number"},
+	"math.sign":           {"x"},
 	"math.sine":           {"x"},
 	"math.square_root":    {"x"},
 	"math.tangent":        {"x"},
@@ -132,12 +132,12 @@ var stdParamNames = map[string][]string{
 	"environment.current_directory":     {},
 	"environment.get":                   {"name"},
 	"environment.set":                   {"name", "value"},
-	"environment.set_current_directory": {"path"},
+	"environment.change_directory": {"path"},
 	"environment.unset":                 {"name"},
 
 	// 正则
 	"regular_expression.find":    {"text", "pattern"},
-	"regular_expression.match":   {"text", "pattern"},
+	"regular_expression.matches":   {"text", "pattern"},
 	"regular_expression.replace": {"text", "pattern", "replacement"},
 	"regular_expression.split":   {"text", "pattern"},
 
@@ -145,14 +145,14 @@ var stdParamNames = map[string][]string{
 	// 起一棵空的树、把程序里的一个值变成一棵树。树上的读写挂在类型身上。
 	"json.parse":      {"text"},
 	"json.explain":    {"text"},
-	"json.new_object": {},
-	"json.new_array":  {},
+	"json.empty_object": {},
+	"json.empty_array":  {},
 	"json.from_value": {"value"},
 
 	// 字节块
 	"bytes.from_base64": {"encoded"},
 	"bytes.join":        {"parts"},
-	"bytes.new":         {"size"},
+	"bytes.allocate":         {"size"},
 
 	// 网络
 	"net.connect": {"host", "port", "timeout_ms"},
@@ -253,7 +253,7 @@ var stdParamNames = map[string][]string{
 	"process.close": {},
 
 	"thread.wait": {},
-	"thread.id":   {},
+	"thread.number":   {},
 }
 
 // stdParamName 返回一条动作第 i 个参数的展示名；这张表没有登记的返回空串，

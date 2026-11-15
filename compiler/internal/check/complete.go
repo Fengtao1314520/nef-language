@@ -73,7 +73,7 @@ var stdMemberNames = []string{
 	"pad_end", "pad_start", "recv_into", "remove", "remove_at", "repeat", "replace", "reverse",
 	"send", "set", "slice", "sort", "split", "starts_with", "take", "take_at", "to_base64", "to_boolean",
 	"to_bytes", "to_integer", "to_json", "to_list", "to_number", "to_set", "to_text", "to_upper",
-	"to_lower", "trim", "trim_end", "trim_start", "union", "values", "id", "wait",
+	"to_lower", "trim", "trim_end", "trim_start", "union", "values", "number", "wait",
 }
 
 // GroupNames 返回标准库的组名，编辑器在行首打 `con` 也能补出 `console`。

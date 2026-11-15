@@ -2601,7 +2601,7 @@ func baseType(name string) (Type, bool) {
 		// 文件里写不出（`Json` 在 lexer 的保留名表里），只能经 json 那一组读。
 		{Kind: Json, Name: "Json"},
 		// bytes 也是内建的引用类型：名字同样在 lexer 的保留名表里，
-		// 与 Json 的区别是它可以创建——`bytes.new(容量)`，也能写进容器与字段。
+		// 与 Json 的区别是它可以创建——`bytes.allocate(容量)`，也能写进容器与字段。
 		{Kind: Bytes, Name: "bytes"},
 		// 操作系统那两类句柄：创建它们的是 `net.connect`／`net.listen`，
 		// 文件里写不出这两只类型名（都在保留名表里）。

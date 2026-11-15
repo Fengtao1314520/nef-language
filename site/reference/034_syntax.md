@@ -184,7 +184,7 @@ console.print(
 | 标准库组名 | `console` `text` `number` `math` `time` `file` `path` `environment` `regular_expression` `json` `bytes` `net` `http` `process` `thread` |
 | 入口预置 | `args` |
 
-`bytes` 同时是类型名与组名：`let b:bytes = bytes.new(4)` 中前一个是类型、后一个是组，名单上只登记一次。`process` 与 `Process`、`thread` 与 `Thread` 是两对不同的名称，前者是组名、后者是类型名（[进程](/stdlib/053_process)）。
+`bytes` 同时是类型名与组名：`let b:bytes = bytes.allocate(4)` 中前一个是类型、后一个是组，名单上只登记一次。`process` 与 `Process`、`thread` 与 `Thread` 是两对不同的名称，前者是组名、后者是类型名（[进程](/stdlib/053_process)）。
 
 `add`、`remove`、`contains` 不在上面的保留名字表里：它们只是容器的方法，自定义的 `class` 中可以照常使用这三个名称。
 

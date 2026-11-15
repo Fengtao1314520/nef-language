@@ -43,8 +43,8 @@ const (
 	fnJSONOfBool    = "nef.json.of_bool"    // (0／1) → boolean 节点
 	fnJSONOfText    = "nef.json.of_text"    // (文本) → 文本节点，正文自己拷一份
 	fnJSONKeyText   = "nef.json.key_text"   // (键值, 形状描述) → 对象那把键的文本
-	fnJSONNewObject = "nef.json.new_object" // () → 空对象
-	fnJSONNewArray  = "nef.json.new_array"  // () → 空数组
+	fnJSONNewObject = "nef.json.empty_object" // () → 空对象
+	fnJSONNewArray  = "nef.json.empty_array"  // () → 空数组
 	fnJSONSet       = "nef.json.set"        // (对象, 键, 节点) → 没东西
 	fnJSONPush      = "nef.json.push"       // (数组, 节点) → 没东西
 	fnJSONInsertAt  = "nef.json.insert_at"  // (数组, 位置, 节点) → 没东西
@@ -258,9 +258,9 @@ func jsonBuildKeyText(l *L) {
 	j.ret(j.call("@str_sub", v, j.zero(), j.ld(v, runtime.StrBytes)))
 }
 
-// nef.json.new_object()：一个空对象（两张表都是空的）。
+// nef.json.empty_object()：一个空对象（两张表都是空的）。
 //
-// en: nef.json.new_object() makes an empty object (both tables empty).
+// en: nef.json.empty_object() makes an empty object (both tables empty).
 func jsonBuildNewObject(l *L) {
 	j, ok := openJSON(l, fnJSONNewObject, 0)
 	if !ok {
@@ -272,9 +272,9 @@ func jsonBuildNewObject(l *L) {
 	j.ret(node)
 }
 
-// nef.json.new_array()：一个空数组。值表的摆法与解析那一路相同。
+// nef.json.empty_array()：一个空数组。值表的摆法与解析那一路相同。
 //
-// en: nef.json.new_array() makes an empty array, the value table arranged as the parse path
+// en: nef.json.empty_array() makes an empty array, the value table arranged as the parse path
 // arranges it.
 func jsonBuildNewArray(l *L) {
 	j, ok := openJSON(l, fnJSONNewArray, 0)

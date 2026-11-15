@@ -1225,7 +1225,7 @@ func containerAction(name string) bool {
 		"bytes.slice", "bytes.to_base64",
 		"socket.send", "socket.recv_into", "socket.close", "listener.accept", "listener.close",
 		"process.wait", "process.close",
-		"thread.wait", "thread.id":
+		"thread.wait", "thread.number":
 		return true
 	}
 	return false
@@ -1590,7 +1590,7 @@ func (c *fc) stdContainer(x *ast.Call, ref check.CallRef, t check.Type) (ir.Val,
 		c.f.Emit(&ir.Call{Fn: closerOf(rt), Args: []ir.Val{recv}, FT: []ir.T{ir.TInt}})
 		c.f.Emit(&ir.Mov{D: recv, S: ir.K(0), T: ir.TInt})
 		return nil, t, nil
-	case "thread.id":
+	case "thread.number":
 		// 句柄身上那一个数就是表项，直接交出它：不叫任何例程，也不改动那个位置。
 		return recv, t, nil
 	case "thread.wait":
@@ -5000,10 +5000,10 @@ func (c *fc) osAction(x *ast.Call, ref check.CallRef, t check.Type) (ir.Val, che
 		"file.remove_tree":                  "@file_remove_tree",
 		"path.directory_name":               "@path_dir",
 		"path.is_absolute":                  "@path_abs",
-		"environment.set_current_directory": "@env_chdir",
+		"environment.change_directory": "@env_chdir",
 		"time.utc_offset":                   "@tz_offset",
 		"time.sleep":                        "@sleep",
-		"regular_expression.match":          "@regex_match",
+		"regular_expression.matches":          "@regex_match",
 		"regular_expression.find":           "@regex_find",
 		"regular_expression.replace":        "@regex_replace",
 		"regular_expression.split":          "@regex_split",
@@ -5421,8 +5421,8 @@ func (c *fc) stdAction(x *ast.Call, ref check.CallRef, t check.Type) (ir.Val, ch
 	case "http.get", "http.post", "http.request":
 		// 三条组函数：底层 `http.request` 与它的两个封装。一次请求由运行期那五步排成一条直路，返回的是内建那只 `Response`。
 		return c.httpAction(x, ref, t)
-	case "bytes.new":
-		// `bytes.new(容量)` 那一档：造一块连着摆的字节，长度定下之后不再增减。
+	case "bytes.allocate":
+		// `bytes.allocate(容量)` 那一档：造一块连着摆的字节，长度定下之后不再增减。
 		// 负的字节数由 @bytes_new 当场抛 10030 号（容器那一段的默认错误码检查）——那一个数
 		// 常来自变量与 `file.size`，检查这一侧看不到，无法在编译期拒绝。
 		n, _, err := c.expr(x.Args[0])
@@ -5443,9 +5443,9 @@ func (c *fc) stdAction(x *ast.Call, ref check.CallRef, t check.Type) (ir.Val, ch
 		"file.copy", "file.create_directories",
 		"file.walk_paths", "file.remove_tree",
 		"path.directory_name", "path.is_absolute",
-		"environment.set_current_directory", "time.utc_offset",
+		"environment.change_directory", "time.utc_offset",
 		"time.sleep",
-		"regular_expression.match", "regular_expression.find", "regular_expression.replace", "regular_expression.split":
+		"regular_expression.matches", "regular_expression.find", "regular_expression.replace", "regular_expression.split":
 		return c.osAction(x, ref, t)
 	}
 	fn, extra := "", []ir.Val(nil)

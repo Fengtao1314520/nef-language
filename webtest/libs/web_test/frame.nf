@@ -46,7 +46,7 @@ export method encode_frame(opcode:int, payload:bytes, key:bytes):bytes {
             head = 10
         }
     }
-    let out:bytes = bytes.new(head + 4 + n)
+    let out:bytes = bytes.allocate(head + 4 + n)
     out[0] = (0x80 | opcode) as byte
     if (head == 2) {
         out[1] = (0x80 + n) as byte
@@ -80,7 +80,7 @@ export method encode_frame(opcode:int, payload:bytes, key:bytes):bytes {
 export method take_wire(buf:bytes):Wire {
     let out:Wire = new Wire()
     out.ready = false
-    out.payload = bytes.new(0)
+    out.payload = bytes.allocate(0)
     let n:int = length(buf)
     out.rest = buf.slice(0, n)
     if (n >= 2) {
@@ -113,7 +113,7 @@ export method take_wire(buf:bytes):Wire {
             at = at + 4
         }
         if (enough && n >= at + len) {
-            let body:bytes = bytes.new(len)
+            let body:bytes = bytes.allocate(len)
             for (i:int in 0 until len) {
                 let v:int = buf[at + i] as int
                 if (masked) {

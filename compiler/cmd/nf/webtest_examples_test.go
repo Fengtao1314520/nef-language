@@ -32,8 +32,8 @@ let browser: Browser = wt.current_browser()
 let page: Page = wt.page_at(0)
 let element: Element = page.find_element_by_css("h1")
 let run: tr.Run = tr.begin_run("示例这一组", "https://example.com/", "out")
-let key: bytes = bytes.new(4)
-let block: bytes = bytes.new(8)
+let key: bytes = bytes.allocate(4)
+let block: bytes = bytes.allocate(8)
 let answer: string = "{}"
 
 method probe() {

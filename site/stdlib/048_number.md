@@ -92,7 +92,7 @@ console.print(number.to_string(3.0) + " 与 " + number.to_string(true))
 | `math.arctangent(x)` | `float` | 不抛 | 反正切，返回的是弧度，取值在 `-π/2` 到 `π/2` 之间。正负无穷返回正负 π/2 |
 | `math.log_base_10(x)` | `float` | 不抛 | 以 10 为底的对数。`0.0` 返回 `-Inf`、负数返回 `NaN`。结果与最精确的值在末几位上有差距：换底要多走一步，那一步同样要做一次舍入，`natural_log` 的差距也是这么来的 |
 | `math.exponential(x)` | `float` | 不抛 | 求 e 的指定次方。大于 `709.782712893384` 返回正无穷、小于 `-745.1332191019411` 返回 `0.0`、`NaN` 返回 `NaN`，都不抛出错误：超出 `float` 能容纳的最大值与低于最小值这两种情况，IEEE 本来就规定了这样的结果 |
-| `math.sign(number)` | `int` | 不抛 | 判断正、负还是零，返回 `1`、`-1`、`0`。`int` 与 `float` 都接受，返回的一律是 `int`；`-0.0` 按零处理。`NaN` 也返回 `0`，因为它既不是正也不是负。要判断 `NaN` 就写 `x != x` |
+| `math.sign(x)` | `int` | 不抛 | 判断正、负还是零，返回 `1`、`-1`、`0`。`int` 与 `float` 都接受，返回的一律是 `int`；`-0.0` 按零处理。`NaN` 也返回 `0`，因为它既不是正也不是负。要判断 `NaN` 就写 `x != x` |
 | `math.set_seed(seed)` | 没有 | 不抛 | 设置随机数种子（见下文“随机数”一节） |
 | `math.random_float()` | `float` | 不抛 | `0` 到 `1` 之间的小数，包含 `0`、不包含 `1`。与 `math.random` 共用同一个随机数种子 |
 | `math.random(low, high)` | `int` | 10020 | 包含起点、不包含终点，规则与 `until` 相同。没有调用 `math.set_seed` 时，种子取自系统里的高精度计数器，每次运行的结果都不同；调用过之后，同一个程序两次运行会得到同一串结果。范围为空（`起 ≥ 止`，两者相等也算空）时抛 10020 号，可以 `catch` |
@@ -193,5 +193,5 @@ console.print(math.exponential(0.0), math.tangent(0.0))
 ## 参见
 
 - [文本处理](/stdlib/046_text)：`text.to_int`、`text.to_float` 与 `text.to_int_in_base`，反方向的解析
-- [字节块](/stdlib/047_bytes)：`bytes.new(size)`，一段连续内存
+- [字节块](/stdlib/047_bytes)：`bytes.allocate(size)`，一段连续内存
 - [错误信息索引](/tools/060_errors)：10012、10021 两句报错的原文

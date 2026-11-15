@@ -8,7 +8,7 @@
 
 | 写法 | 返回 | 抛出的错误码 | 说明 |
 | --- | --- | --- | --- |
-| `regular_expression.match(text, pattern)` | `boolean` | 10071 | `pattern` 能否在 `text` 里匹配成功 |
+| `regular_expression.matches(text, pattern)` | `boolean` | 10071 | `pattern` 能否在 `text` 里匹配成功 |
 | `regular_expression.find(text, pattern)` | `list<string>` | 10071 | 匹配到的全部片段，按出现的先后顺序排列 |
 | `regular_expression.replace(text, pattern, replacement)` | `string` | 10071 | 把 `text` 里每一处非空的匹配都换成 `replacement`，返回新的文本 |
 | `regular_expression.split(text, pattern)` | `list<string>` | 10071 | 按表达式切分 |
@@ -20,7 +20,7 @@
 ```nf
 let code:string = "let total:int = 0"
 
-console.print(regular_expression.match(code, "let\\s+\\w+"))
+console.print(regular_expression.matches(code, "let\\s+\\w+"))
 console.print(regular_expression.replace(code, "total", "count"))
 console.print(regular_expression.split(code, " ")[0])
 ```
@@ -73,7 +73,7 @@ console.print(length(found), found[0], found[3])
 ```nf
 console.print(regular_expression.replace("abc", "x?", "-"))
 console.print(length(regular_expression.find("abc", "x?")))
-console.print(regular_expression.match("abc", "x?"))
+console.print(regular_expression.matches("abc", "x?"))
 for (seg:string in regular_expression.split("abc", "b|c")) {
     console.print("[" + seg + "]")
 }
@@ -88,7 +88,7 @@ true
 []
 ```
 
-`regular_expression.match` 不受这条规则限制：空结果也算匹配成功，所以第三行输出 `true`。
+`regular_expression.matches` 不受这条规则限制：空结果也算匹配成功，所以第三行输出 `true`。
 
 最后三行是 `"b|c"` 把 `"abc"` 切出的三段：第一段是 `a`，`b` 与 `c` 之间的一段是空文本，`c` 之后的一段也是空文本。`regular_expression.split` 会丢弃分隔符本身，切出的三段全部保留。
 
@@ -98,7 +98,7 @@ true
 
 没有 `string.match(...)` 这种点号写法。
 
-看两个例子：`regular_expression.match("123", "^\\d+$")` 返回 `true`；把 `"123"` 换成 `"123abc"`，返回 `false`，因为 `$` 要求匹配一直延续到文本末尾才算成功。
+看两个例子：`regular_expression.matches("123", "^\\d+$")` 返回 `true`；把 `"123"` 换成 `"123abc"`，返回 `false`，因为 `$` 要求匹配一直延续到文本末尾才算成功。
 
 ## 参见
 

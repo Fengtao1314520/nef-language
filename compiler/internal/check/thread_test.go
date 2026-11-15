@@ -75,7 +75,7 @@ let t:Thread<`+one.ret+`> = thread.start(w, `+one.arg+`)
 let t:Thread<int> = thread.start(w, [1, 2])`,
 		"list<int> 不能交给另一条线程：这一类的归还点还没按线程各一份定下来")
 	expectErr(t, `method w(b:bytes):int { return length(b) }
-let t:Thread<int> = thread.start(w, bytes.new(4))`,
+let t:Thread<int> = thread.start(w, bytes.allocate(4))`,
 		"bytes 不能交给另一条线程：这一类的归还点还没按线程各一份定下来")
 	expectErr(t, `method w(o:object):int { return 1 }
 let t:Thread<int> = thread.start(w, 7 as object)`,

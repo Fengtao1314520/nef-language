@@ -1264,7 +1264,7 @@ func httpHeaders(b *rt) {
 	b.get(x64.RCX, hRaw) // 宽字符缓冲用完即释放：文本已另建一块
 	b.call("@free")
 
-	// 4) 列表先创建出来，再定段数。元素类型字与 file.list_dir、regular_expression.split 同一条规则。
+	// 4) 列表先创建出来，再定段数。元素类型字与 file.list_names_dir、regular_expression.split 同一条规则。
 	a.Mark(mkList)
 	a.Xor(x64.RCX, x64.RCX)
 	a.MovImm(x64.RDX, tagString)

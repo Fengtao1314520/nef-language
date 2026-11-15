@@ -70,6 +70,6 @@ console.print(or_default("一定没有的变量名", "用默认值"))   // 用�
 ## 参见
 
 - [路径](/stdlib/051_path)：`path.join` 拼出的分隔符与 `environment.current_directory()` 的返回值都是本机写法
-- [读写文件](/stdlib/050_file)：`file.list(environment.current_directory())` 列出当前目录里的名字
+- [读写文件](/stdlib/050_file)：`file.list_names(environment.current_directory())` 列出当前目录里的名字
 - [进程](/stdlib/053_process)：`process.start` 启动的子进程跟随调用时的环境变量块
 - [错误信息索引](/tools/060_errors)：10060 与 10061 两句报错的原文

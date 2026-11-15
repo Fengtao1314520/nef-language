@@ -1193,7 +1193,7 @@ export class Element {
 // 例：
 // let launched: wt.Browser = wt.start("msedge.exe", "profile")
 export method start(exe:string, profile:string, port_wait:int = port_ms, io_wait:int = io_ms):Browser {
-    file.create_directories(profile)
+    file.ensure_directories(profile)
     let mark:string = profile + "/DevToolsActivePort"
     // 上一趟留下的端口文件要先删掉：等的是"这一趟浏览器写下哪个端口"，
     // 拿旧的端口去连，等到的是系统错误号 10061（连不上），报的还不是端口这一件事。

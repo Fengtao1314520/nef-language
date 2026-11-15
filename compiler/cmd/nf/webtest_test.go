@@ -276,7 +276,7 @@ func TestWebTestRunCheck(t *testing.T) {
 
 // TestWebTestRunAllCheck 钉的是再上面那一层：webtest/run_all.nf 扫 cases 目录、一份起一个
 // nf.exe 跑完、把每份 report.jsonl 读回来拼成 all.jsonl 与 all.txt。这一层本身也是这门语言写的
-// （file.list、process.start／wait、file.read ＋ json.parse、exit），所以它同时是"用这门语言
+// （file.list_names、process.start／wait、file.read ＋ json.parse、exit），所以它同时是"用这门语言
 // 跑一批用例"给人看的那一份。
 //
 // 第一趟全跑：两份九条，退出码 1（login.nf 里那一条是故意等不到的），总的报告十行（九条加一行总结），

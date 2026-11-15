@@ -11,7 +11,7 @@ import (
 
 // dirs_more_e2e_test.go 覆盖两条目录与复制相关的成员：
 // file.copy 整份复制（目标存在则覆盖，与 file.write 处理一致），
-// file.create_directories 把缺失的几层一次建齐（只用 kernel32 的 CreateDirectoryW 一层一层建）。
+// file.ensure_directories 把缺失的几层一次建齐（只用 kernel32 的 CreateDirectoryW 一层一层建）。
 // 两条都在临时目录里真实创建和删除。
 
 // TestFileCopyOverwrites 复制一份、再复制一份覆盖；错误码分两头：源不存在是 10041，目标是目录是 10042。
@@ -79,14 +79,14 @@ func TestFileCreateDirectories(t *testing.T) {
 	deep := d + "/甲/乙/丙"
 	got, code := run(t, `
 let deep:string = "`+deep+`"
-console.print(file.create_directories(deep))
+console.print(file.ensure_directories(deep))
 console.print(file.is_directory(deep))
-console.print(file.create_directories(deep))
+console.print(file.ensure_directories(deep))
 let p:string = path.join(deep, "写这里.txt")
 file.write(p, "内容")
 console.print(file.read(p))
-console.print(file.create_directories(p + "/下面"))
-console.print(file.create_directories("`+d+`/丁"))
+console.print(file.ensure_directories(p + "/下面"))
+console.print(file.ensure_directories("`+d+`/丁"))
 `)
 	want := "true\ntrue\ntrue\n内容\nfalse\ntrue\n"
 	if got != want || code != 0 {
@@ -100,7 +100,7 @@ console.print(file.create_directories("`+d+`/丁"))
 	one := filepath.ToSlash(filepath.Join(dir, "单独一层"))
 	got, code = run(t, `
 let one:string = "`+one+`"
-console.print(file.create_directories(one), file.create_directories(one))
+console.print(file.ensure_directories(one), file.ensure_directories(one))
 console.print(file.is_directory(one))
 `)
 	if got != "true true\ntrue\n" || code != 0 {
@@ -109,7 +109,7 @@ console.print(file.is_directory(one))
 
 	// 路径长到无法转换成宽字符，抛 10051 那一句，与其余路径转换问题同一个号（不是"建不出来"）
 	long := strings.Repeat("很长", 4000)
-	got, code = run(t, `console.print(file.create_directories("`+long+`"))`)
+	got, code = run(t, `console.print(file.ensure_directories("`+long+`"))`)
 	if code != 1 || !strings.Contains(got, "10051）：") {
 		t.Fatalf("长得离谱的路径得到 %q 码 %d，要 10051 那一句", got, code)
 	}

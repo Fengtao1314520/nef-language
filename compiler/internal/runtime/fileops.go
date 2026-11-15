@@ -943,7 +943,7 @@ func fileCopy(b *rt) {
 //
 // 只在 kernel32 里做：shell32 那个一次建齐的例程要连进别的组件，而产物只向 kernel32
 // 要东西。做法是把宽字符路径按分隔符一段一段截出来建，遇到"已经有了"就当过去，
-// 遇到别的错（上一截是个文件、权限不够）就返回 0，不抛——这一条与 `file.create_directory`
+// 遇到别的错（上一截是个文件、权限不够）就返回 0，不抛——这一条与 `file.make_directory`
 // 同一形状：返回真／假，让写文件那一步去报它自己的号。
 //
 // 连续的分隔符与开头那一个都跳过：`a//b` 里那一段空的、`/tmp` 最前面那一截，都不是要建的一层。
@@ -957,7 +957,7 @@ func fileCopy(b *rt) {
 // only. The method is to cut the wide-character path at separators one segment at a
 // time and create each, treating "already exists" as passed and returning 0 - not throwing - on
 // any other error (a segment that is a file, insufficient permission): this member has the same
-// shape as file.create_directory, returning true/false and letting the write step report its
+// shape as file.make_directory, returning true/false and letting the write step report its
 // own code. Runs of separators and a leading one are skipped: the empty segment in `a//b` and
 // the one before `/tmp` are not levels to create.
 func fileMkdirs(b *rt) {
@@ -1093,7 +1093,7 @@ func fileMkdirs(b *rt) {
 // 一层一层往下钻，钻到的每一条都记进那个 list，目录本身也记——调用方要的是"这条路下面有什么"，
 // 把目录挑出去反而得自己再问一遍是不是目录。list 里每一个位置都是一份新拷的文本，list 是它唯一的持有者。
 //
-// 答复与 file.list_paths 同两条：这一个目录打不开是 10043 号那一句，路长到摆不进宽字符是 10051 号那一句。
+// 答复与 file.list_names_paths 同两条：这一个目录打不开是 10043 号那一句，路长到摆不进宽字符是 10051 号那一句。
 // 往下钻到第 64 层就停：链接点与挂载点能造出一条永远钻不完的环，这一条把深度卡死，
 // 少交几层也不让程序一直阻塞。
 //
@@ -1105,7 +1105,7 @@ func fileMkdirs(b *rt) {
 // directories included - the caller wants "what is under this path", and excluding directories
 // would force it to ask all over again which entries are directories. Every element in the list
 // is a fresh copy of the text, and the list is its only owner. The answers match
-// file.list_paths' two: a directory that will not open is the 10043 sentence, a path too long
+// file.list_names_paths' two: a directory that will not open is the 10043 sentence, a path too long
 // for the wide buffer is the 10051 sentence. Descent stops at level 64: symbolic links and
 // mount points can build a tree that never ends, so capping the depth trades a few missing
 // levels for not blocking the program. The stack is a linked list held by the wTop slot on
@@ -1395,7 +1395,7 @@ func itemAt(b *rt, listSlot, iSlot, outSlot int) {
 // 所以在两遍走完之后单独删它——那一条答复与 file.remove_directory 同一条。
 // 删不成用的是现成那两条句子：文件删不掉是"删不掉这个文件"、目录删不掉是"删不掉这个目录"，
 // 都是 10041 号，与 file.remove、file.remove_directory 同两条，不开新号。
-// 根不在是 @file_walk 那一侧报的 10043 号那一句，与 file.list_paths 同一条答复。
+// 根不在是 @file_walk 那一侧报的 10043 号那一句，与 file.list_names_paths 同一条答复。
 //
 // en: @file_remove_tree (rcx = root): delete this directory together with everything inside.
 // The order is files first, then directories in the reverse of discovery:
@@ -1406,7 +1406,7 @@ func itemAt(b *rt, listSlot, iSlot, outSlot int) {
 // "cannot delete this file", an undeletable directory is "cannot delete this directory", both
 // code 10041, the same two as file.remove and file.remove_directory, with no new code. A
 // missing root is the 10043 sentence reported by the @file_walk side, the same answer as
-// file.list_paths.
+// file.list_names_paths.
 func fileRemoveTree(b *rt) {
 	const (
 		rRoot = 0

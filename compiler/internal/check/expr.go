@@ -2507,10 +2507,10 @@ var stdFuncs = map[string]stdSig{
 	// 位置按字节数计，而字节数没有上限记号，就用 int。
 	"file.size":       {params: []Param{{Typ: typeStr}}, ret: typeInt},
 	"file.modified":   {params: []Param{{Typ: typeStr}}, ret: typeInt},
-	"file.readonly":   {params: []Param{{Typ: typeStr}}, ret: typeBool},
-	"file.list":       {params: []Param{{Typ: typeStr}}, ret: Type{Kind: List, Name: "list", Args: []Type{typeStr}}},
-	"file.list_paths": {params: []Param{{Typ: typeStr}}, ret: Type{Kind: List, Name: "list", Args: []Type{typeStr}}},
-	"file.read_from":  {params: []Param{{Typ: typeStr}, {Typ: typeInt}, {Typ: typeInt}}, ret: typeStr},
+	"file.is_readonly":   {params: []Param{{Typ: typeStr}}, ret: typeBool},
+	"file.list_names":       {params: []Param{{Typ: typeStr}}, ret: Type{Kind: List, Name: "list", Args: []Type{typeStr}}},
+	"file.list_names_paths": {params: []Param{{Typ: typeStr}}, ret: Type{Kind: List, Name: "list", Args: []Type{typeStr}}},
+	"file.read_bytes_from":  {params: []Param{{Typ: typeStr}, {Typ: typeInt}, {Typ: typeInt}}, ret: typeStr},
 	"file.write_at":   {params: []Param{{Typ: typeStr}, {Typ: typeInt}, {Typ: typeStr}}},
 	// 字节那一双：整个文件按字节进、按字节出，中间不过 UTF-8。
 	// 那一条 `list<byte>` 换成 `bytes`：容器每个槽位 8 字节，读一个 5.6 MB 的文件要 98,205,840 字节，
@@ -2551,14 +2551,14 @@ var stdFuncs = map[string]stdSig{
 	"math.natural_log":      {params: []Param{{Typ: typeFloat}}, ret: typeFloat},
 	"math.random_float":     {ret: typeFloat},
 	"time.sleep":            {params: []Param{{Typ: typeInt}}},
-	"file.create_directory": {params: []Param{{Typ: typeStr}}, ret: typeBool},
+	"file.make_directory": {params: []Param{{Typ: typeStr}}, ret: typeBool},
 	"file.is_directory":     {params: []Param{{Typ: typeStr}}, ret: typeBool},
 	"file.rename":           {params: []Param{{Typ: typeStr}, {Typ: typeStr}}},
 	"file.remove_directory": {params: []Param{{Typ: typeStr}}},
 	// 两条：复制一条路径（目标在就覆盖，与 `file.write` 同一条处置），
 	// 以及把缺的那几层一次建齐（单层那一条只管最后一层）。
 	"file.copy":                  {params: []Param{{Typ: typeStr}, {Typ: typeStr}}},
-	"file.create_directories":    {params: []Param{{Typ: typeStr}}, ret: typeBool},
+	"file.ensure_directories":    {params: []Param{{Typ: typeStr}}, ret: typeBool},
 	"regular_expression.matches":   {params: []Param{{Typ: typeStr}, {Typ: typeStr}}, ret: typeBool},
 	"regular_expression.find":    {params: []Param{{Typ: typeStr}, {Typ: typeStr}}, ret: Type{Kind: List, Name: "list", Args: []Type{typeStr}}},
 	"regular_expression.replace": {params: []Param{{Typ: typeStr}, {Typ: typeStr}, {Typ: typeStr}}, ret: typeStr},
@@ -2583,9 +2583,9 @@ var stdFuncs = map[string]stdSig{
 	"path.directory_name": {params: []Param{{Typ: typeStr}}, ret: typeStr},
 	"path.is_absolute":    {params: []Param{{Typ: typeStr}}, ret: typeBool},
 	// 目录那一侧补的两条：一层一层钻下去、连里面的东西一起删。
-	"file.walk_paths":  {params: []Param{{Typ: typeStr}}, ret: Type{Kind: List, Name: "list", Args: []Type{typeStr}}},
+	"file.list_names_tree":  {params: []Param{{Typ: typeStr}}, ret: Type{Kind: List, Name: "list", Args: []Type{typeStr}}},
 	"file.remove_tree": {params: []Param{{Typ: typeStr}}},
-	// 换当前目录（返回真／假，与 `file.create_directories` 同一答复风格）与本地比 UTC 快几分钟。
+	// 换当前目录（返回真／假，与 `file.ensure_directories` 同一答复风格）与本地比 UTC 快几分钟。
 	"environment.change_directory": {params: []Param{{Typ: typeStr}}, ret: typeBool},
 	"time.utc_offset":                   {ret: typeInt},
 	// json 那一组：组名上只留没有接收者的两条：把文本拆成树、说清楚为什么拆不成。

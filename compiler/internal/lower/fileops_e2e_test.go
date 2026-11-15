@@ -26,7 +26,7 @@ func TestFileAttrs(t *testing.T) {
 let p:string = "`+pp+`"
 console.print(file.size(p))
 console.print(file.modified(p) <= time.now())
-console.print(file.readonly(p))
+console.print(file.is_readonly(p))
 `)
 	if got != "9\ntrue\nfalse\n" || code != 0 {
 		t.Fatalf("三条属性不对：\n got %q 码 %d\nwant %q", got, code, "9\ntrue\nfalse\n")
@@ -34,7 +34,7 @@ console.print(file.readonly(p))
 	if err := os.Chmod(p, 0o444); err != nil {
 		t.Fatalf("改只读失败：%v", err)
 	}
-	got, code = run(t, `console.print(file.readonly("`+pp+`"))`)
+	got, code = run(t, `console.print(file.is_readonly("`+pp+`"))`)
 	if got != "true\n" || code != 0 {
 		t.Fatalf("只读标志没认出来：got %q 码 %d", got, code)
 	}
@@ -52,7 +52,7 @@ func TestFileAttrCodes(t *testing.T) {
 	cases := []struct{ src, want string }{
 		{`console.print(file.size("` + gone + `"))`, "10045）：拿不到这个文件的属性"},
 		{`console.print(file.size("` + asDir + `"))`, "10043）：那是一个目录，不是一个文件"},
-		{`console.print(file.list("` + gone + `"))`, "10043）：打不开这个目录"},
+		{`console.print(file.list_names("` + gone + `"))`, "10043）：打不开这个目录"},
 	}
 	for _, c := range cases {
 		got, code := run(t, c.src+"\n")
@@ -72,8 +72,8 @@ func TestFileListNamesAndPaths(t *testing.T) {
 	d := filepath.ToSlash(dir)
 	got, code := run(t, `
 let d:string = "`+d+`"
-let names:list<string> = file.list(d)
-let paths:list<string> = file.list_paths(d)
+let names:list<string> = file.list_names(d)
+let paths:list<string> = file.list_names_paths(d)
 console.print(length(names), names[0])
 console.print(length(paths))
 console.print(paths[0] == path.join(d, "a.txt"))
@@ -95,12 +95,12 @@ func TestFileReadFromChunks(t *testing.T) {
 	pp := filepath.ToSlash(p)
 	got, code := run(t, `
 let p:string = "`+pp+`"
-console.print(file.read_from(p, 0, 3) == "甲")
-console.print(length(file.read_from(p, 1, 2)))
-console.print(file.read_from(p, 3, 3) == "乙")
-console.print(length(file.read_from(p, 0, 4)))
-console.print(length(file.read_from(p, 999, 10)))
-console.print(length(file.read_from(p, 0, 0)))
+console.print(file.read_bytes_from(p, 0, 3) == "甲")
+console.print(length(file.read_bytes_from(p, 1, 2)))
+console.print(file.read_bytes_from(p, 3, 3) == "乙")
+console.print(length(file.read_bytes_from(p, 0, 4)))
+console.print(length(file.read_bytes_from(p, 999, 10)))
+console.print(length(file.read_bytes_from(p, 0, 0)))
 `)
 	want := "true\n0\ntrue\n1\n0\n0\n"
 	if got != want || code != 0 {

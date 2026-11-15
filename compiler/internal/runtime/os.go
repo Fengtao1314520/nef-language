@@ -1106,13 +1106,13 @@ func pathAbs(b *rt) {
 
 // @env_chdir(rcx=路径)：换当前目录，返回 rax=1 换成了、0 没换成。
 //
-// 答复风格与 file.create_directories 同一条：问的是"这一件事办成了没有"，路不存在、
+// 答复风格与 file.ensure_directories 同一条：问的是"这一件事办成了没有"，路不存在、
 // 那是一个文件都不是目录，都算 0，不抛——操作系统那一条错误码在这里没有意义，
 // 因为调用方下一句自己会去问那条路在不在（file.exists）。
 // SetCurrentDirectoryW 返回的是 BOOL（DWORD），不洗高位就没法判成败，与 env_set 同一条。
 //
 // en: @env_chdir (rcx = path): change the current directory, returning rax = 1 changed / 0 not
-// changed. The answer style matches file.create_directories: the question is
+// changed. The answer style matches file.ensure_directories: the question is
 // "did this get done", and a nonexistent path or a file rather than a directory both answer 0
 // without throwing - the OS error code would be meaningless here because the caller's next
 // sentence asks whether the path exists (file.exists). SetCurrentDirectoryW returns a BOOL

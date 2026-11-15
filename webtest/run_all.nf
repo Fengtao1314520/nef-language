@@ -1,5 +1,5 @@
 // webtest/run_all.nf —— 一批用例跑完，汇总一份总报告。这一层本身也是用这门语言写的：
-// 扫目录用 file.list，起进程用 process.start／wait，读每份报告用 file.read ＋ json.parse，
+// 扫目录用 file.list_names，起进程用 process.start／wait，读每份报告用 file.read ＋ json.parse，
 // 没有为这一层新添的语言能力。
 //
 // 跑法（在仓库根；cases 目录要给绝对路径，那份 fixtures 网址要用到它）：
@@ -119,9 +119,9 @@ if (!file.exists(cases_dir)) {
 if (!path.is_absolute(cases_dir)) {
     exit (2, "cases 目录要给绝对路径（浏览器那头的 file:/// 网址要用到它）：" + cases_dir)
 }
-file.create_directories(out_root)
+file.ensure_directories(out_root)
 
-let names:list<string> = file.list(cases_dir)
+let names:list<string> = file.list_names(cases_dir)
 for (i:int in 0 until length(names)) {
     let name:string = names[i]
     if (!name.ends_with(".nf")) {

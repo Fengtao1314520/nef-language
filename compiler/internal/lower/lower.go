@@ -4983,20 +4983,20 @@ func (c *fc) osAction(x *ast.Call, ref check.CallRef, t check.Type) (ir.Val, che
 		"file.remove":                       "@file_remove",
 		"file.size":                         "@file_size",
 		"file.modified":                     "@file_modified",
-		"file.readonly":                     "@file_readonly",
-		"file.list":                         "@file_list",
-		"file.list_paths":                   "@file_list",
-		"file.read_from":                    "@file_read_from",
+		"file.is_readonly":                     "@file_readonly",
+		"file.list_names":                         "@file_list",
+		"file.list_names_paths":                   "@file_list",
+		"file.read_bytes_from":                    "@file_read_from",
 		"file.write_at":                     "@file_write_at",
 		"file.read_bytes":                   "@file_read_bytes",
 		"file.write_bytes":                  "@file_write_bytes",
-		"file.create_directory":             "@file_mkdir",
+		"file.make_directory":             "@file_mkdir",
 		"file.is_directory":                 "@file_is_dir",
 		"file.rename":                       "@file_rename",
 		"file.remove_directory":             "@file_rmdir",
 		"file.copy":                         "@file_copy",
-		"file.create_directories":           "@file_mkdirs",
-		"file.walk_paths":                   "@file_walk",
+		"file.ensure_directories":           "@file_mkdirs",
+		"file.list_names_tree":                   "@file_walk",
 		"file.remove_tree":                  "@file_remove_tree",
 		"path.directory_name":               "@path_dir",
 		"path.is_absolute":                  "@path_abs",
@@ -5016,9 +5016,9 @@ func (c *fc) osAction(x *ast.Call, ref check.CallRef, t check.Type) (ir.Val, che
 	// 换成 `bytes` 之后形状只有一种，那个位置不必再递。
 	var mark ir.Val
 	switch ref.Std {
-	case "file.list":
+	case "file.list_names":
 		mark = ir.K(0)
-	case "file.list_paths":
+	case "file.list_names_paths":
 		mark = ir.K(1)
 	}
 	var args []ir.Val
@@ -5030,7 +5030,7 @@ func (c *fc) osAction(x *ast.Call, ref check.CallRef, t check.Type) (ir.Val, che
 		if v == nil {
 			return nil, t, fmt.Errorf("这里需要一个值，但 %s 不返回任何东西", describe(e))
 		}
-		// 挡空只挡引用位置上的值：`file.read_from(p, 0, 4096)` 里那个 0 是位置不是空句柄。
+		// 挡空只挡引用位置上的值：`file.read_bytes_from(p, 0, 4096)` 里那个 0 是位置不是空句柄。
 		if et, ok := c.l.f.Types[e]; ok && !et.ByValue() {
 			c.guardNotNull(v)
 		}
@@ -5436,12 +5436,12 @@ func (c *fc) stdAction(x *ast.Call, ref check.CallRef, t check.Type) (ir.Val, ch
 	case "path.join", "path.file_name", "path.extension", "path.exists",
 		"environment.get", "environment.set", "environment.unset", "environment.current_directory",
 		"file.write", "file.append", "file.exists", "file.remove",
-		"file.size", "file.modified", "file.readonly", "file.list", "file.list_paths",
-		"file.read_from", "file.write_at",
+		"file.size", "file.modified", "file.is_readonly", "file.list_names", "file.list_names_paths",
+		"file.read_bytes_from", "file.write_at",
 		"file.read_bytes", "file.write_bytes",
-		"file.create_directory", "file.is_directory", "file.rename", "file.remove_directory",
-		"file.copy", "file.create_directories",
-		"file.walk_paths", "file.remove_tree",
+		"file.make_directory", "file.is_directory", "file.rename", "file.remove_directory",
+		"file.copy", "file.ensure_directories",
+		"file.list_names_tree", "file.remove_tree",
 		"path.directory_name", "path.is_absolute",
 		"environment.change_directory", "time.utc_offset",
 		"time.sleep",

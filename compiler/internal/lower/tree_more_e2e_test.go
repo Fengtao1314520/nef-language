@@ -10,7 +10,7 @@ import (
 )
 
 // tree_more_e2e_test.go 覆盖遍历目录树的两个成员：
-// file.walk_paths 返回整棵树的所有全路径（目录本身也计入一条），
+// file.list_names_tree 返回整棵树的所有全路径（目录本身也计入一条），
 // file.remove_tree 递归删除目录及其内容。两个成员都在临时目录里真实创建和删除。
 // 同时固定枚举使用的模式串：`*` 后面必须紧跟一个 0，
 // 否则上一轮残留的名字尾巴会延续，第二次枚举会变成"按那个尾巴筛选"。
@@ -43,7 +43,7 @@ func TestFileWalkPathsTree(t *testing.T) {
 	// 根路径末尾带分隔符传入：返回的分隔符跟随它，期望串里不混用两种斜杠
 	got, code := run(t, `
 let root:string = "`+d+`/"
-let xs:list<string> = file.walk_paths(root)
+let xs:list<string> = file.list_names_tree(root)
 xs.sort()
 console.print(length(xs))
 for (i:int in 0 until length(xs)) {
@@ -51,7 +51,7 @@ for (i:int in 0 until length(xs)) {
 }
 `)
 	// 根路径末尾带分隔符时，第一层就使用该分隔符；更深层的名字本身不再带分隔符，
-	// 补的是本机的 `\`——这两点遵循 file.list_paths 早已定下的写法。
+	// 补的是本机的 `\`——这两点遵循 file.list_names_paths 早已定下的写法。
 	want := "5\n" +
 		d + "/乙\n" +
 		d + "/乙\\丁\n" +
@@ -62,16 +62,16 @@ for (i:int in 0 until length(xs)) {
 		t.Fatalf("整棵树的全路径不对：\n got %q 码 %d\nwant %q", got, code, want)
 	}
 
-	// 根不存在与根是文件：两条都报 10043，与 file.list_paths 的答复一致
+	// 根不存在与根是文件：两条都报 10043，与 file.list_names_paths 的答复一致
 	for _, probe := range []string{d + "/没有这一层", d + "/甲.txt"} {
-		got, code = run(t, `console.print(length(file.walk_paths("`+probe+`")))`)
+		got, code = run(t, `console.print(length(file.list_names_tree("`+probe+`")))`)
 		if code != 1 || !strings.Contains(got, "10043）：打不开这个目录") {
 			t.Fatalf("%q 得到 %q 码 %d，要 10043 那一句", probe, got, code)
 		}
 	}
 	// 空目录：只含 . 与 ..，返回的是空列表
 	empty := filepath.ToSlash(t.TempDir())
-	got, code = run(t, `console.print(length(file.walk_paths("`+empty+`")))`)
+	got, code = run(t, `console.print(length(file.list_names_tree("`+empty+`")))`)
 	if got != "0\n" || code != 0 {
 		t.Fatalf("空目录得到 %q 码 %d，要 0", got, code)
 	}
@@ -91,7 +91,7 @@ func TestFileWalkDepthCap(t *testing.T) {
 	d := filepath.ToSlash(root)
 	got, code := run(t, `
 let root:string = "`+d+`/"
-let xs:list<string> = file.walk_paths(root)
+let xs:list<string> = file.list_names_tree(root)
 console.print(length(xs))
 console.print(file.is_directory("`+d+`/a/a"))
 `)
@@ -107,7 +107,7 @@ func TestFileRemoveTree(t *testing.T) {
 let root:string = "`+d+`/"
 file.remove_tree(root + "乙")
 console.print(file.exists(root + "乙"), file.exists(root + "甲.txt"))
-let left:list<string> = file.walk_paths(root)
+let left:list<string> = file.list_names_tree(root)
 left.sort()
 console.print(length(left), left[0])
 file.remove_tree(root)
@@ -121,7 +121,7 @@ console.print(file.exists(root))
 		t.Fatalf("程序说根删掉了，磁盘上还在：%v", err)
 	}
 
-	// 根不存在：10043，与 file.walk_paths 一致（它内部调用的就是同一条例程）
+	// 根不存在：10043，与 file.list_names_tree 一致（它内部调用的就是同一条例程）
 	got, code = run(t, `file.remove_tree("`+d+`/没有这一层")`)
 	if code != 1 || !strings.Contains(got, "10043）：打不开这个目录") {
 		t.Fatalf("根不在得到 %q 码 %d，要 10043 那一句", got, code)
@@ -145,14 +145,14 @@ func TestEnumerationPatternNotSticky(t *testing.T) {
 	got, code := run(t, `
 let root:string = "`+d+`"
 for (round:int in 0 until 3) {
-    let p:list<string> = file.list_paths(root)
+    let p:list<string> = file.list_names_paths(root)
     p.sort()
     console.print(round, length(p))
 }
-let names:list<string> = file.list(root)
+let names:list<string> = file.list_names(root)
 names.sort()
 console.print(length(names))
-let again:list<string> = file.list_paths(root + "/乙")
+let again:list<string> = file.list_names_paths(root + "/乙")
 again.sort()
 console.print(length(again))
 `)
@@ -168,10 +168,10 @@ console.print(length(again))
 	}
 	got, code = run(t, `
 let deep:string = "`+d+`/"
-let xs:list<string> = file.walk_paths(deep)
+let xs:list<string> = file.list_names_tree(deep)
 console.print(length(xs))
-console.print(length(file.list_paths("`+other+`")))
-console.print(length(file.walk_paths("`+other+`")))
+console.print(length(file.list_names_paths("`+other+`")))
+console.print(length(file.list_names_tree("`+other+`")))
 `)
 	if got != "5\n1\n1\n" || code != 0 {
 		t.Fatalf("钻完再问得到 %q 码 %d，要 5／1／1", got, code)
@@ -184,7 +184,7 @@ func TestWalkHeap(t *testing.T) {
 	if used := heapAt(t, `
 let root:string = "`+d+`/"
 for (i:int in 0 until 20000) {
-    let xs:list<string> = file.walk_paths(root)
+    let xs:list<string> = file.list_names_tree(root)
 }
 `); used > 4000 {
 		t.Fatalf("两万圈各钻一次，峰值 %d 字节：那只 list、里面的文本或栈上的节点大概没拆", used)

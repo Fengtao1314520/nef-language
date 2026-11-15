@@ -271,15 +271,15 @@ var stdDocs = map[string]StdDoc{
 		En: "Copies the whole file, overwriting an existing target. An unreadable source is 10041, a failed write is 10042.",
 		Eg: `file.copy("a.txt", "b.txt")`,
 	},
-	"file.create_directories": {
+	"file.ensure_directories": {
 		Zh: "把缺失的各级目录一次创建完整。真=这条路径上的目录现在齐全了（本来就齐全的也算真），假=创建不出来（中间有一级同名的是文件、或者不允许写入）。不抛出错误。",
 		En: "Creates every missing level at once. True means the path's directories now exist, false means they could not be created; it never throws.",
-		Eg: `let made: boolean = file.create_directories("out/report/2026")`,
+		Eg: `let made: boolean = file.ensure_directories("out/report/2026")`,
 	},
-	"file.create_directory": {
+	"file.make_directory": {
 		Zh: "创建指定的目录。真=这一次新建出来了，假=已经存在（同名的路径即使指向一个文件，也算存在）。上一级目录不存在时抛 10046 号，不会连续向上级创建。",
 		En: "Creates one directory. True when it was created now, false when it already existed. A missing parent throws 10046.",
-		Eg: `let one: boolean = file.create_directory("out")`,
+		Eg: `let one: boolean = file.make_directory("out")`,
 	},
 	"file.exists": {
 		Zh: "只询问不抛出错误；路径本身无法提交给系统（空串、本机放不下的长度）时仍然抛 51，报的是“写得不对”，不是“不存在”。",
@@ -291,15 +291,15 @@ var stdDocs = map[string]StdDoc{
 		En: "Tells whether the path is a directory; a path that does not exist returns false, and it never throws.",
 		Eg: `let isDir: boolean = file.is_directory("out")`,
 	},
-	"file.list": {
+	"file.list_names": {
 		Zh: "列出该目录里的名字，不含 . 与 ..，顺序不保证。",
 		En: "Lists the names inside a directory, without . and .., in no guaranteed order.",
-		Eg: `let names: list<string> = file.list(".")`,
+		Eg: `let names: list<string> = file.list_names(".")`,
 	},
-	"file.list_paths": {
+	"file.list_names_paths": {
 		Zh: "同样是列出目录里的名字，只是每个名字前面带上目录，取到之后可以直接打开。",
 		En: "Same listing, but each name carries the directory in front, so a result can be opened directly.",
-		Eg: `let paths: list<string> = file.list_paths(".")`,
+		Eg: `let paths: list<string> = file.list_names_paths(".")`,
 	},
 	"file.modified": {
 		Zh: "最后一次写入的时间，按从 1970-01-01 起算的秒计，与 time.now() 用同一个基准。",
@@ -316,15 +316,15 @@ var stdDocs = map[string]StdDoc{
 		En: "Reads a whole file as bytes, with no encoding check and no BOM stripped; a directory is 10041 too.",
 		Eg: `let raw: bytes = file.read_bytes("a.bin")`,
 	},
-	"file.read_from": {
+	"file.read_bytes_from": {
 		Zh: "从第 at 个字节开始读取，最多读取 count 个字节；位置越过末尾时返回空文本。",
 		En: "Reads from byte at, at most count bytes; a position past the end returns an empty text.",
-		Eg: `let head: string = file.read_from("a.txt", 0, 16)`,
+		Eg: `let head: string = file.read_bytes_from("a.txt", 0, 16)`,
 	},
-	"file.readonly": {
+	"file.is_readonly": {
 		Zh: "系统里的那个只读标记，询问的就是标记本身。",
 		En: "The operating system's read-only flag, asked for as the flag itself.",
-		Eg: `let ro: boolean = file.readonly("a.txt")`,
+		Eg: `let ro: boolean = file.is_readonly("a.txt")`,
 	},
 	"file.remove": {
 		Zh: "删除文件；删除失败抛 10041 号。",
@@ -351,10 +351,10 @@ var stdDocs = map[string]StdDoc{
 		En: "How many bytes the file holds. A missing path is 10045, a directory is 10043.",
 		Eg: `let bytes_of_a: int = file.size("a.txt")`,
 	},
-	"file.walk_paths": {
+	"file.list_names_tree": {
 		Zh: "列出这个目录之下的每一项，目录自身也算一条，每一条都是取到之后可以直接打开的路径。. 与 .. 不在内，根目录自身也不在（它已经在参数里了），先后顺序按系统返回的次序。向下遍历到第 64 层就停止：链接点与挂载点可以构造出一条遍历不完的循环，宁可限制深度，也不让程序一直遍历下去。",
 		En: "Lists every entry under a directory, the directory itself counted once, each one a path that can be opened as returned. . and .. are left out, and so is the root a second time (it is already the argument); the order follows what the system hands back. The walk stops 64 levels down: link points and mount points can describe a walk that never ends, and a depth limit is preferred over a program that walks forever.",
-		Eg: `let every: list<string> = file.walk_paths(".")`,
+		Eg: `let every: list<string> = file.list_names_tree(".")`,
 	},
 	"file.write": {
 		Zh: "写出整个文件，原有的内容被覆盖；写入失败抛 10042 号。",

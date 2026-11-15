@@ -93,7 +93,7 @@ func TestSignatureShape(t *testing.T) {
 		{"console.read", "console.read(): string"},
 		{"length", "length(value): int"},
 		{"text.to_int", "text.to_int(text: string): int"},
-		{"file.read_from", "file.read_from(path: string, at: int, count: int): string"},
+		{"file.read_bytes_from", "file.read_bytes_from(path: string, at: int, count: int): string"},
 		{"http.post", "http.post(url: string, body: bytes, timeout_ms: int, headers: list<string> = []): Response"},
 		{"math.minimum", "math.minimum(a, b)"},
 		{"list.add", "list.add(value: T)"},

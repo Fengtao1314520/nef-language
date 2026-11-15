@@ -21,20 +21,20 @@
 | `file.remove(path)` | 没有 | 10041、10051 | 删除文件；删除失败抛 10041 号 |
 | `file.size(path)` | `int` | 10043、10045、10051 | 有多少个字节。路径不存在时是 10045，传入目录时是 10043 |
 | `file.modified(path)` | `int` | 10043、10045、10051 | 最后一次写入的时间，按从 1970-01-01 起算的秒计，与 `time.now()` 用同一个基准 |
-| `file.readonly(path)` | `boolean` | 10043、10045、10051 | 系统里的那个只读标记，询问的就是标记本身 |
-| `file.list(dir)` | `list<string>` | 10043、10051 | 列出该目录里的名字，不含 `.` 与 `..`，顺序不保证 |
-| `file.list_paths(dir)` | `list<string>` | 10043、10051 | 同样是列出目录里的名字，只是每个名字前面带上目录，取到之后可以直接打开 |
-| `file.read_from(path, at, count)` | `string` | 10041、10051 | 从第 `at` 个字节开始读取，最多读取 `count` 个字节；位置越过末尾时返回空文本 |
+| `file.is_readonly(path)` | `boolean` | 10043、10045、10051 | 系统里的那个只读标记，询问的就是标记本身 |
+| `file.list_names(dir)` | `list<string>` | 10043、10051 | 列出该目录里的名字，不含 `.` 与 `..`，顺序不保证 |
+| `file.list_names_paths(dir)` | `list<string>` | 10043、10051 | 同样是列出目录里的名字，只是每个名字前面带上目录，取到之后可以直接打开 |
+| `file.read_bytes_from(path, at, count)` | `string` | 10041、10051 | 从第 `at` 个字节开始读取，最多读取 `count` 个字节；位置越过末尾时返回空文本 |
 | `file.write_at(path, at, text)` | 没有 | 10042、10051 | 从第 `at` 个字节开始覆盖写入，后面的内容不变；文件不存在时不创建 |
 | `file.read_bytes(path)` | `bytes` | 10041、10051 | 按字节读取整个文件，不校验编码、不丢弃 BOM；传入目录时也是 10041 |
 | `file.write_bytes(path, data)` | 没有 | 10042、10051 | 把整块 `bytes` 按字节写出，原有内容被覆盖、文件不存在时新建 |
-| `file.create_directory(path)` | `boolean` | 10046、10051 | 创建指定的目录。真=这一次新建出来了，假=已经存在（同名的路径即使指向一个文件，也算存在）。上一级目录不存在时抛 10046 号，不会连续向上级创建 |
-| `file.create_directories(path)` | `boolean` | 10051 | 把缺失的各级目录一次创建完整。真=这条路径上的目录现在齐全了（本来就齐全的也算真），假=创建不出来（中间有一级同名的是文件、或者不允许写入）。不抛出错误 |
+| `file.make_directory(path)` | `boolean` | 10046、10051 | 创建指定的目录。真=这一次新建出来了，假=已经存在（同名的路径即使指向一个文件，也算存在）。上一级目录不存在时抛 10046 号，不会连续向上级创建 |
+| `file.ensure_directories(path)` | `boolean` | 10051 | 把缺失的各级目录一次创建完整。真=这条路径上的目录现在齐全了（本来就齐全的也算真），假=创建不出来（中间有一级同名的是文件、或者不允许写入）。不抛出错误 |
 | `file.is_directory(path)` | `boolean` | 10051 | 判断是否为目录；路径根本不存在时也返回假，只询问不抛出错误 |
 | `file.rename(source, target)` | 没有 | 10047、10051 | 重命名，或者在同一个卷里移动位置；新名字已被占用、旧名字不存在都是 10047 号 |
 | `file.remove_directory(path)` | 没有 | 10041、10051 | 删除一个空目录；里面有内容就抛 10041 号，报的是 `删不掉这个目录` |
 | `file.copy(source, target)` | 没有 | 10041、10042、10051 | 整个复制一遍，目标已存在就被覆盖。源文件无法打开是 10041，目标写入失败（包括目标本身是一个目录）是 10042 |
-| `file.walk_paths(root)` | `list<string>` | 10043、10051 | 列出这个目录之下的每一项，目录自身也算一条，每一条都是取到之后可以直接打开的路径。`.` 与 `..` 不在内，根目录自身也不在（它已经在参数里了），先后顺序按系统返回的次序。向下遍历到第 64 层就停止：链接点与挂载点可以构造出一条遍历不完的循环，宁可限制深度，也不让程序一直遍历下去 |
+| `file.list_names_tree(root)` | `list<string>` | 10043、10051 | 列出这个目录之下的每一项，目录自身也算一条，每一条都是取到之后可以直接打开的路径。`.` 与 `..` 不在内，根目录自身也不在（它已经在参数里了），先后顺序按系统返回的次序。向下遍历到第 64 层就停止：链接点与挂载点可以构造出一条遍历不完的循环，宁可限制深度，也不让程序一直遍历下去 |
 | `file.remove_tree(root)` | 没有 | 10041、10043、10051 | 把里面的内容一并删除。先删除文件，再逆着发现顺序删除目录，处理到上级目录时它里面已经空了，最后删除根目录自身。里面的内容删除失败就抛出错误：文件与目录都抛 10041 号，与 `file.remove`、`file.remove_directory` 的报错相同；根不存在、或者根不是一个目录时抛 10043 号 |
 
 一共二十二个函数。
@@ -47,11 +47,11 @@
 
 写入之前不创建目录：上一级目录不存在，`file.write` 就抛 10042 号。
 
-要先把缺失的各级目录创建出来，调用 `file.create_directories`，它一次创建到底；`file.create_directory` 只创建最后一级。
+要先把缺失的各级目录创建出来，调用 `file.ensure_directories`，它一次创建到底；`file.make_directory` 只创建最后一级。
 
 ```nf
 let dir:string = "报告/一月"
-console.print(file.create_directories(dir))
+console.print(file.ensure_directories(dir))
 
 let deep:string = dir + "/汇总.txt"
 file.write(deep, "一月汇总")
@@ -103,30 +103,30 @@ let p:string = "分块.txt"
 
 file.write(p, "一二三四五六七八九十")
 console.print(file.size(p))                       // 30
-console.print(file.readonly(p))                   // false
+console.print(file.is_readonly(p))                   // false
 console.print(file.modified(p) <= time.now())     // true
 ```
 
 `file.modified` 与 `time.now()` 用的是同一个基准上的秒数，所以两个数值可以直接比较。要按天计算就自己相除：一天 86400 秒。
 
-列出目录的两个函数是同一次查找的两种结果：`file.list` 返回名字，`file.list_paths` 返回带上目录的完整路径。只查看这个目录本身，不进入子目录；`.` 与 `..` 不在返回列表里，顺序也不保证。
+列出目录的两个函数是同一次查找的两种结果：`file.list_names` 返回名字，`file.list_names_paths` 返回带上目录的完整路径。只查看这个目录本身，不进入子目录；`.` 与 `..` 不在返回列表里，顺序也不保证。
 
 ```nf
-for (n:string in file.list(environment.current_directory())) {
+for (n:string in file.list_names(environment.current_directory())) {
     console.print(n)
 }
 ```
 
-分块读写的位置按**字节**计数，不按码点：`file.read_from(p, 0, 9)` 读取的是前九个字节。末尾凑不满一个码点的几个字节不计入返回值，所以返回的永远是完整的码点序列，长度可能比请求的少一两个字节。
+分块读写的位置按**字节**计数，不按码点：`file.read_bytes_from(p, 0, 9)` 读取的是前九个字节。末尾凑不满一个码点的几个字节不计入返回值，所以返回的永远是完整的码点序列，长度可能比请求的少一两个字节。
 
 ```nf
 let p:string = "分块.txt"
 
 file.write(p, "一二三四五六七八九十")
-let head:string = file.read_from(p, 0, 9)
+let head:string = file.read_bytes_from(p, 0, 9)
 console.print(head, length(head))                 // 一二三 3
 file.write_at(p, 0, "甲")
-console.print(file.read_from(p, 0, 6))            // 甲二
+console.print(file.read_bytes_from(p, 0, 6))            // 甲二
 console.print(file.size(p))                       // 30
 ```
 
@@ -157,7 +157,7 @@ console.print(length(back), back[0], back[3])      // 4 0 3
 
 `file.write_bytes` 与 `file.write` 的处理方式相同：文件已存在就清空重写，不存在就新建，未能写满时抛 10042 号。
 
-要处理的字节较多时，先算一下开销：每个位置一个字节，读取多大的文件就占用多大的内存，不像容器那样每个位置占 8 字节。要逐段处理大文件，`file.read_from` 更省内存。
+要处理的字节较多时，先算一下开销：每个位置一个字节，读取多大的文件就占用多大的内存，不像容器那样每个位置占 8 字节。要逐段处理大文件，`file.read_bytes_from` 更省内存。
 
 ## 编码与换行
 
@@ -186,11 +186,11 @@ console.print(length(lines_of("甲\u000D\n乙")))   // 2
 
 ## 未提供的写法
 
-`file.list` 与 `file.list_paths` 只查看指定的目录本身。
+`file.list_names` 与 `file.list_names_paths` 只查看指定的目录本身。
 
-目录内各级的路径列表由 `file.walk_paths` 一次性返回，删除整棵树用 `file.remove_tree`：这两个函数遍历到第 64 层就停止，再深的内容不返回，也不报错。
+目录内各级的路径列表由 `file.list_names_tree` 一次性返回，删除整棵树用 `file.remove_tree`：这两个函数遍历到第 64 层就停止，再深的内容不返回，也不报错。
 
-没有权限位：这门语言不处理文件权限，也没有八进制模式的规定。`file.readonly` 询问的是 Windows 的只读标记。
+没有权限位：这门语言不处理文件权限，也没有八进制模式的规定。`file.is_readonly` 询问的是 Windows 的只读标记。
 
 ## 练习
 

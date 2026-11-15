@@ -352,7 +352,7 @@ export method begin_run(exe:string, profile:string, dir:string):Run {
     if (file.exists(place)) {
         file.remove_tree(place)
     }
-    file.create_directories(place)
+    file.ensure_directories(place)
     let made:Run = new Run()
     made.dir = place
     // 起浏览器。返回来的那一只不存：`Browser` 里一个字段也没有，连接与进程握在 web_test

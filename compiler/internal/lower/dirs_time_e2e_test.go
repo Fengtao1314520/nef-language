@@ -11,7 +11,7 @@ import (
 )
 
 // dirs_time_e2e_test.go 覆盖剩余四条目录动作与 time.sleep：
-// file.create_directory、file.is_directory、file.rename、file.remove_directory、time.sleep。
+// file.make_directory、file.is_directory、file.rename、file.remove_directory、time.sleep。
 // 错误码规则：建不出与改不了各新增一号（10046、10047），删空目录复用 10041 号、只更换句子。
 
 // TestFileCreateDirectory 建一层目录：新建返回 true，再调用一次返回 false（已存在，不算错误）；
@@ -23,8 +23,8 @@ func TestFileCreateDirectory(t *testing.T) {
 	clash := filepath.ToSlash(filepath.Join(dir, "文件.txt"))
 	got, code := run(t, `
 let d:string = "`+newDir+`"
-console.print(file.create_directory(d), file.is_directory(d))
-console.print(file.create_directory(d))
+console.print(file.make_directory(d), file.is_directory(d))
+console.print(file.make_directory(d))
 `)
 	want := "true true\nfalse\n"
 	if got != want || code != 0 {
@@ -34,11 +34,11 @@ console.print(file.create_directory(d))
 	if err := os.WriteFile(filepath.Join(dir, "文件.txt"), []byte("甲"), 0o644); err != nil {
 		t.Fatalf("备料失败：%v", err)
 	}
-	got, code = run(t, `console.print(file.create_directory("`+clash+`"), file.is_directory("`+clash+`"))`)
+	got, code = run(t, `console.print(file.make_directory("`+clash+`"), file.is_directory("`+clash+`"))`)
 	if got != "false false\n" || code != 0 {
 		t.Fatalf("撞上同名文件该交回 false：%q 码 %d", got, code)
 	}
-	got, code = run(t, `console.print(file.create_directory("`+gone+`"))`)
+	got, code = run(t, `console.print(file.make_directory("`+gone+`"))`)
 	if code != 1 || !strings.Contains(got, "10046）：建不出这一层目录") {
 		t.Fatalf("上头没有这一层该抛 10046：%q 码 %d", got, code)
 	}
@@ -105,7 +105,7 @@ func TestFileRemoveDirectory(t *testing.T) {
 	empty := filepath.ToSlash(filepath.Join(dir, "空的一层"))
 	got, code := run(t, `
 let d:string = "`+empty+`"
-console.print(file.create_directory(d), file.is_directory(d))
+console.print(file.make_directory(d), file.is_directory(d))
 file.remove_directory(d)
 console.print(file.is_directory(d))
 `)

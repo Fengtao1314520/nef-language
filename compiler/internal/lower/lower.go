@@ -1681,18 +1681,32 @@ func (c *fc) stdContainer(x *ast.Call, ref check.CallRef, t check.Type) (ir.Val,
 		if len(rt.Args) > 0 && rt.Args[0].Kind == check.Str {
 			mode = 1
 		}
+		elem := check.Type{}
+		if len(rt.Args) > 0 {
+			elem = rt.Args[0]
+		}
+		if !reclaimable(elem) {
+			// 值类型没有要析构的东西，被删掉的那一个本身可能就是 0，与"没删成"分不开：
+			// 走那一条直接答 1／0 的例程，把 boolean 原样交出去。
+			d := c.f.Temp()
+			c.f.Emit(&ir.Call{D: d, HasD: true, Fn: "@list_remove_flag",
+				Args: []ir.Val{recv, c.bitsOf(v, vt), ir.K(mode)},
+				FT:   []ir.T{ir.TInt, ir.TInt, ir.TInt}, RT: ir.TInt})
+			return d, t, nil
+		}
 		gone := c.f.Temp()
 		c.f.Emit(&ir.Call{D: gone, HasD: true, Fn: "@list_remove",
 			Args: []ir.Val{recv, c.bitsOf(v, vt), ir.K(mode)},
 			FT:   []ir.T{ir.TInt, ir.TInt, ir.TInt}, RT: ir.TInt})
 		// 例程把被删掉的那个句柄返回来：那个位置已被后面的位置覆盖，语言里再没有名字指着它，
 		// 按元素的形状当场析构（与覆盖一个位置、`add` 命中已有键同一本账）。没删成返回 0，不做处理。
-		if len(rt.Args) > 0 {
-			if err := c.releaseIfAny(gone, rt.Args[0]); err != nil {
-				return nil, t, err
-			}
+		if err := c.releaseIfAny(gone, elem); err != nil {
+			return nil, t, err
 		}
-		return nil, t, nil
+		// 句柄类型的那一块永远不是 0，所以"返回来不是 0"就是"删成了"。
+		d := c.f.Temp()
+		c.f.Emit(&ir.Cmp{Op: "!=", D: d, A: gone, B: ir.K(0), T: ir.TInt})
+		return d, t, nil
 	}
 	_ = rt
 	return nil, t, fmt.Errorf("标准库的 %s 还没接到后端", ref.Std)
@@ -1792,16 +1806,18 @@ func (c *fc) mapAction(x *ast.Call, ref check.CallRef, t check.Type) (ir.Val, ch
 		return nil, t, nil
 	case "dict.remove", "hashset.remove":
 		// 删成的那一条：值槽位里那一块从此没有其他持有者，@map_remove 把它返回来，按值的形状析构。
-		// 集合没有值槽位（`s.add(x)` 往那个位置写的是 0），值类型的槽位没有下属——两种都不必发这一趟。
+		// 集合没有值槽位（`s.add(x)` 往那个位置写的是 0），值类型的槽位没有下属——两种都不必发这一趟，
+		// 而且它们要的那一位"删成没删成"只能用专门那条例程问（值可能就是 0）。
 		val := check.Type{}
 		if bt, ok := c.l.f.Types[m.What]; ok && len(bt.Args) > 1 {
 			val = bt.Args[1]
 		}
 		if !reclaimable(val) {
-			c.f.Emit(&ir.Call{Fn: "@map_remove", Args: []ir.Val{recv, key},
-				FT: []ir.T{ir.TInt, ir.TInt}})
+			d := c.f.Temp()
+			c.f.Emit(&ir.Call{D: d, HasD: true, Fn: "@map_remove_flag", Args: []ir.Val{recv, key},
+				FT: []ir.T{ir.TInt, ir.TInt}, RT: ir.TInt})
 			c.closeWindow(mapOuter, mapFrom) // 键只是拿来定位桶：例程走完它就不再被使用
-			return nil, t, nil
+			return d, t, nil
 		}
 		got := c.f.Temp()
 		c.f.Emit(&ir.Call{D: got, HasD: true, Fn: "@map_remove", Args: []ir.Val{recv, key},
@@ -1810,7 +1826,10 @@ func (c *fc) mapAction(x *ast.Call, ref check.CallRef, t check.Type) (ir.Val, ch
 		if err := c.releaseIfAny(got, val); err != nil {
 			return nil, t, err
 		}
-		return nil, t, nil
+		// 值类型的那一块（引用类型、文本、容器、Json）永远不是 0，"返回来不是 0"就是"删成了"。
+		d := c.f.Temp()
+		c.f.Emit(&ir.Cmp{Op: "!=", D: d, A: got, B: ir.K(0), T: ir.TInt})
+		return d, t, nil
 	case "dict.contains", "hashset.contains":
 		d := c.f.Temp()
 		c.f.Emit(&ir.Call{D: d, HasD: true, Fn: "@map_contains", Args: []ir.Val{recv, key},

@@ -968,7 +968,12 @@ func stdMember(base Type, name string) member {
 			}
 			return member{takes: true, kind: memberStd, typ: Type{Kind: FuncT, Name: group}, sig: methodSig{Params: []Param{{Typ: elem}}}}
 		case "remove":
-			return member{kind: memberStd, typ: Type{Kind: FuncT, Name: group}, sig: methodSig{Params: []Param{{Typ: key}}}}
+			// 删成没删成要答得出：三种容器的 `remove` 都返回那个 boolean。
+			// 删掉的元素照样当场析构，返回的那一位只是"先前在不在"。
+			// en: Whether it was removed has to be answerable: remove on all three containers
+			// returns that boolean. The removed element is still dismantled on the spot; the
+			// returned bit only says whether it was there before.
+			return member{kind: memberStd, typ: Type{Kind: FuncT, Name: group}, sig: methodSig{Params: []Param{{Typ: key}}, Ret: typeBool}}
 		case "take":
 			// 字典的值位置上一份"摘出来"的写法。清单有 `remove_at(位置)`、
 			// 树有 `json.take`，字典那一个位置从前只能读、不能留下。`hashset` 没有值可交，

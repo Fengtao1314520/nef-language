@@ -685,8 +685,8 @@ var stdDocs = map[string]StdDoc{
 		Eg: "let xs: list<int> = [1, 2]\nlet tail: int = xs.last()",
 	},
 	"list.remove": {
-		Zh: "删除一个元素。删除第一个与它相等的元素。",
-		En: "Removes the first element equal to it.",
+		Zh: "删除一个元素，返回是否删掉：删成 `true`，没有这个元素时 `false`。删除第一个与它相等的元素，删成的那一份当场析构。",
+		En: "Removes the first element equal to it and answers whether it was there: true when removed, false when not. The removed element is destroyed on the spot.",
 		Eg: "let xs: list<int> = [1, 2]\nxs.remove(2)",
 	},
 	"list.remove_at": {
@@ -737,8 +737,8 @@ var stdDocs = map[string]StdDoc{
 		Eg: "let d: dict<string, int> = {}\nlet names: list<string> = d.keys()",
 	},
 	"dict.remove": {
-		Zh: "删除一个元素。删除一个键；找不到这个键时不抛出错误，容器原样保留。删除成功的那条记录当场析构。",
-		En: "Removes a key; a key that is not there throws nothing and leaves the container as it was. The record removed is destroyed on the spot.",
+		Zh: "删除一个元素，返回是否删掉：删成 `true`，没有这个元素时 `false`。删除一个键；找不到这个键时不抛出错误，容器原样保留。删除成功的那条记录当场析构。",
+		En: "Removes a key and answers whether it was there: true when removed, false when not. A key that is not there throws nothing and leaves the container as it was. The record removed is destroyed on the spot.",
 		Eg: "let d: dict<string, int> = {}\nd.set(\"甲\", 1)\nd.remove(\"甲\")",
 	},
 	"dict.take": {
@@ -774,8 +774,8 @@ var stdDocs = map[string]StdDoc{
 		Eg: "let a: hashset<int> = {}\nlet b: hashset<int> = {}\nlet both: hashset<int> = a.intersect(b)",
 	},
 	"hashset.remove": {
-		Zh: "删除一个元素。移除一个元素；不在里面的时候不抛出错误，集合原样保留。",
-		En: "Removes an element; one that is not there throws nothing and leaves the set alone.",
+		Zh: "删除一个元素，返回是否删掉：删成 `true`，没有这个元素时 `false`。移除一个元素；不在里面的时候不抛出错误，集合原样保留。",
+		En: "Removes an element and answers whether it was there: true when removed, false when not. One that is not there throws nothing and leaves the set alone.",
 		Eg: "let s: hashset<int> = {}\ns.add(1)\ns.remove(1)",
 	},
 	"hashset.union": {

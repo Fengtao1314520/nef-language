@@ -317,6 +317,7 @@ func Build() Blob {
 	b.routine("@list_touch", listTouch)
 	b.routine("@str_eq", strEq)
 	b.routine("@list_remove", listRemove)
+	b.routine("@list_remove_flag", listRemoveFlag)
 	// 文本这一支：先能比字，再能切一截，最后才谈得上按分隔切
 	b.routine("@str_cmp", strCmp)
 	b.routine("@str_sub", strSub)
@@ -365,6 +366,7 @@ func Build() Blob {
 	b.routine("@map_at", mapAt)
 	b.routine("@map_contains", mapContains)
 	b.routine("@map_remove", mapRemove)
+	b.routine("@map_remove_flag", mapRemoveFlag)
 	b.routine("@map_next", mapNext)
 	// 小数这一支：先是拆解与比大小的几个基础操作，最后才是 @put_float
 	b.routine("@f_mul", fMul)
@@ -3166,6 +3168,22 @@ func strEq(b *rt) {
 // as an entry still on the books, and dismantling it would dismantle the live one - so it is
 // only zeroed (a value has exactly one holder at any moment).
 func listRemove(b *rt) {
+	listRemoveCore(b, false)
+}
+
+// @list_remove_flag 与 @list_remove 同一件事，只是返回值换成 1／0（删成／没删成）。
+//
+// 元素是值类型（int、float、boolean、enum、unicode）时，被删掉的那一个值本身可能就是 0，
+// 与"没删成"的 0 分不开；那种元素没有要析构的东西，所以走这一条，把"删成没删成"直接问出来。
+// en: @list_remove_flag does exactly what @list_remove does, except that it answers 1/0
+// (removed / not found). When the element is a value type (int, float, boolean, enum, unicode)
+// the removed value itself may be 0, indistinguishable from "nothing removed"; such an element
+// owns nothing to dismantle, so this entry point asks the question directly.
+func listRemoveFlag(b *rt) {
+	listRemoveCore(b, true)
+}
+
+func listRemoveCore(b *rt, wantFlag bool) {
 	const kRemoved = 5 // 被删那一个句柄，留着到末尾返回
 	a := b.a
 	b.prologue()
@@ -3253,7 +3271,11 @@ func listRemove(b *rt) {
 	a.MovLoad(x64.RAX, x64.RDI, cVer)
 	a.AddImm(x64.RAX, 1)
 	a.MovStore(x64.RDI, cVer, x64.RAX)
-	b.get(x64.RAX, kRemoved)
+	if wantFlag {
+		a.MovImm(x64.RAX, 1)
+	} else {
+		b.get(x64.RAX, kRemoved)
+	}
 	b.epilogue()
 
 	a.Mark(notFound)

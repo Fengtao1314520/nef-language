@@ -92,3 +92,44 @@ for (i:int from 0 until 20000) {
 		t.Fatalf("两万圈各删一次，峰值 %d 字节：被删那一份大概还没人拆", used)
 	}
 }
+
+// TestRemoveAnswersBoolean 覆盖三种容器的 remove 现在都答 boolean：删成 true，没删成 false。
+// 值类型那一路最容易判错——被删掉的那个值本身就可能就是 0，与"没删成"的 0 分不开，
+// 所以那一档走的是专门答 1／0 的例程（@list_remove_flag／@map_remove_flag）。
+func TestRemoveAnswersBoolean(t *testing.T) {
+	got, code := run(t, `
+let xs:list<int> = [0, 1]
+console.print(xs.remove(0), length(xs))
+console.print(xs.remove(9), length(xs))
+console.print(xs.remove(1), length(xs))
+
+let d:dict<string, int> = {"甲": 0}
+console.print(d.remove("甲"), length(d))
+console.print(d.remove("乙"), length(d))
+
+let s:hashset<int> = {0}
+console.print(s.remove(0), length(s))
+console.print(s.remove(0), length(s))
+
+let names:list<string> = ["甲", "乙"]
+console.print(names.remove("甲"), length(names))
+`)
+	want := "true 1\nfalse 1\ntrue 0\ntrue 0\nfalse 0\ntrue 0\nfalse 0\ntrue 1\n"
+	if got != want || code != 0 {
+		t.Fatalf("remove 的布尔结果不对：\n got %q 码 %d\nwant %q", got, code, want)
+	}
+}
+
+// TestRemoveBooleanFreesLikeBefore 复核答 boolean 之后，删掉的那一份照样当场析构。
+func TestRemoveBooleanFreesLikeBefore(t *testing.T) {
+	if used := heapAt(t, `
+for (i:int from 0 until 20000) {
+    let d:dict<string, string> = {"甲": "乙丙" + "丁"}
+    d.remove("甲")
+    let s:hashset<string> = {"甲乙" + "丙丁"}
+    s.remove("甲乙丙丁")
+}
+`); used > 8000 {
+		t.Fatalf("两万圈各删一次，峰值 %d 字节：删掉的那一份大概还没人拆", used)
+	}
+}

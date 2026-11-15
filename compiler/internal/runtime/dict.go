@@ -582,6 +582,23 @@ func mapContains(b *rt) {
 // handed the value and destructs it by shape. The value slot is zeroed before returning -
 // leaving it would mean the tombstone and lowering's temporary slot both hold the same block.
 func mapRemove(b *rt) {
+	mapRemoveCore(b, false)
+}
+
+// @map_remove_flag 与 @map_remove 同一件事，只是返回值换成 1／0（删成／没删成）。
+//
+// 值类型（int、float、boolean、enum、unicode）那一份值本身可能就是 0，与"没删成"分不开；
+// 集合那一侧根本没有值槽位，一直答 0 也说不出删成没删成。这两种情况都没有要析构的东西，
+// 所以走这一条把问题直接问出来。
+// en: @map_remove_flag does exactly what @map_remove does, except that it answers 1/0
+// (removed / not found). A value-type value may itself be 0, and the set side has no value slot
+// at all and always answered 0, so neither could say whether the removal happened. Neither has
+// anything to dismantle, so this entry point asks the question directly.
+func mapRemoveFlag(b *rt) {
+	mapRemoveCore(b, true)
+}
+
+func mapRemoveCore(b *rt, wantFlag bool) {
 	const kValue = 4 // 被删那一条的值，保留到末尾返回
 	a := b.a
 	b.prologue()
@@ -619,7 +636,11 @@ func mapRemove(b *rt) {
 	a.MovStore(x64.RDI, cLen, x64.R9)
 	a.MovImm(x64.R9, 1)
 	a.LockXadd(x64.RDI, cVer, x64.R9) // 旧值留在 r9 里，没人看它
-	b.get(x64.RAX, kValue)
+	if wantFlag {
+		a.MovImm(x64.RAX, 1)
+	} else {
+		b.get(x64.RAX, kValue)
+	}
 	b.epilogue()
 	a.Mark(gone)
 	a.Xor(x64.RAX, x64.RAX)

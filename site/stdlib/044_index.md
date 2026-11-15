@@ -2,9 +2,9 @@
 
 标准库分成十五组，在任何文件里都能直接调用：不需要 `import`，也无法被 `export`。
 
-写成 `组名.动作` 的一共 99 个，另外还有一个全局的 `length`。
+写成 `组名.动作` 的一共 86 个，另外还有一个全局的 `length`。
 
-三个容器的成员（`add`、`remove`、`sort`、`insert_at` 等），以及文本的十八个点号成员（`split`、`index_of`、`trim_start`、`to_bytes` 等），都不在这 95 个名字里，各页的成员表会逐条列出。
+三个容器的成员（`add`、`remove`、`sort`、`insert_at` 等），以及文本的十八个点号成员（`split`、`index_of`、`trim_start`、`to_bytes` 等），都不在这 86 个名字里，各页的成员表会逐条列出。
 
 字节块的 `slice` 与 `to_base64`、套接字的 `send`、`recv_into`、`close`、监听的 `accept` 与 `close`、进程的 `wait` 与 `close`、线程的 `wait` 与 `id` 同样不在其中。
 

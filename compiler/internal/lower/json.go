@@ -714,8 +714,8 @@ var jsonMemberFn = map[string]string{
 	"json.take":       fnJSONTake,
 	"json.take_at":    fnJSONTakeI,
 	"json.to_text":    fnJSONToText,
-	"json.to_integer": fnJSONToInt,
-	"json.to_number":  fnJSONToFloat,
+	"json.to_int":     fnJSONToInt,
+	"json.to_float":   fnJSONToFloat,
 	"json.to_boolean": fnJSONToBool,
 	"json.to_json":    fnJSONRender,
 	// 构造与写入那一族

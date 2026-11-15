@@ -39,7 +39,7 @@ struct P {
 }
 let d:dict<string, P> = {}
 let k1:string = "甲".slice(0, 1)
-d.add(k1, P{name: "甲", qty: 3})
+d.set(k1, P{name: "甲", qty: 3})
 let a:P = d["甲"]
 a.qty = 9
 console.print(a.qty, d["甲"].qty, length(d))
@@ -62,7 +62,7 @@ struct P {
 }
 let d:dict<string, P> = {}
 let key:string = "abc".slice(0, 3)
-d.add(key, P{name: "甲", qty: 7})
+d.set(key, P{name: "甲", qty: 7})
 let other:string = "abc".to_upper().to_lower()
 console.print(length(d), d[other].qty, d[other].name)
 `)

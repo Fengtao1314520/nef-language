@@ -498,7 +498,7 @@ console.print(total)
 let total:int = 0
 for (i:int from 0 until @N@) {
     let bag:list<list<int>> = []
-    bag.set([i, i])
+    bag.add([i, i])
     total = total + length(bag[0])
 }
 console.print(total)

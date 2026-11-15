@@ -293,7 +293,7 @@ console.print(total)
 func TestJSONWriteRefused(t *testing.T) {
 	cases := []struct{ src, want string }{
 		{`let b:Bytes = bytes.allocate(2)
-console.print(json.from_value(b).to_json())`, "bytes 写不成 JSON"},
+console.print(json.from_value(b).to_json())`, "Bytes 写不成 JSON"},
 		{`let s:hashset<int> = {1, 2}
 console.print(json.from_value(s).to_json())`, "hashset<int> 写不成 JSON"},
 		{`let j:Json = json.parse("[1]")
@@ -301,7 +301,7 @@ console.print(json.from_value(j).to_json())`, "Json 本来就是一棵树"},
 		{`let row:list<Bytes> = [bytes.allocate(2)]
 console.print(json.from_value(row).to_json())`, "写不成 JSON"},
 		{`let row:Json = json.empty_array()
-row.add(bytes.allocate(2))`, "bytes 写不成 JSON"},
+row.add(bytes.allocate(2))`, "Bytes 写不成 JSON"},
 	}
 	for _, c := range cases {
 		err := compileErr(c.src)

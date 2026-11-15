@@ -234,7 +234,7 @@ class Adder {
 }
 
 let x:Adder = new Adder(seed: 100)
-console.print(x.set(1, 2), x.set(10, 20))
+console.print(x.add(1, 2), x.add(10, 20))
 `)
 	if got != "103 130\n" {
 		t.Fatalf("得到 %q", got)

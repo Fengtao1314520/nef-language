@@ -140,7 +140,7 @@ console.print(length(w))
 func TestDictGetWithListValue(t *testing.T) {
 	got, code := run(t, `
 let d:dict<string, list<int>> = {}
-d.add("有", [1, 2])
+d.set("有", [1, 2])
 console.print(length(d.get("有", [7, 8, 9])), d.get("有", [7, 8, 9])[0])
 console.print(d.contains("有"))
 console.print(length(d.get("无", [4])), d.get("无", [4])[0])
@@ -153,7 +153,7 @@ console.print(length(d.get("无", [4])), d.get("无", [4])[0])
 	// 度量的是峰值；析构之后可以复用，所以这一条核对"没有涨上去"。
 	if used := heapAt(t, `
 let d:dict<string, list<int>> = {}
-d.add("有", [1, 2])
+d.set("有", [1, 2])
 for (i:int from 0 until 20000) {
     d.get("有", [3, 4, 5]);
 }

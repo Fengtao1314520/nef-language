@@ -20,7 +20,7 @@ for (r:string in rows) {
     if (by.contains(key)) {
         by[key] = Stock{name: what, qty: by[key].qty + num}
     } else {
-        by.add(key, Stock{name: what, qty: num})
+        by.set(key, Stock{name: what, qty: num})
     }
 }
 

@@ -115,7 +115,7 @@ func TestAnonymousArgKeptFreedAtReceiver(t *testing.T) {
 let total:int = 0
 for (i:int from 0 until 500) {
     let bag:list<list<int>> = []
-    bag.set([i, i])
+    bag.add([i, i])
     let got:list<int> = bag.remove_at(0)
     total = total + length(got) + got[0]
 }

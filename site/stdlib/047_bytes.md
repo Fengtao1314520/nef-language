@@ -46,11 +46,11 @@
 ## 创建、写入与截取
 
 ```nf
-let head:bytes = bytes.allocate(4)
+let head:Bytes = bytes.allocate(4)
 head[0] = 72
 head[1] = 105
 console.print(length(head), head)
-let cut:bytes = head.slice(0, 2)
+let cut:Bytes = head.slice(0, 2)
 console.print(cut)
 console.print(text.from_bytes(cut))
 ```
@@ -68,10 +68,10 @@ Hi
 把两块合并成一块用 `bytes.join`：网络上一段一段接收的数据要连续存放，靠的就是这个函数。
 
 ```nf
-let b:bytes = "甲a".to_bytes()
+let b:Bytes = "甲a".to_bytes()
 console.print(b.to_base64(), bytes.from_base64("/w=="))
-let first:bytes = b.slice(0, 3)
-let rest:bytes = b.slice(3, 4)
+let first:Bytes = b.slice(0, 3)
+let rest:Bytes = b.slice(3, 4)
 console.print(bytes.join([first, rest]))
 console.print(bytes.join([]))
 ```

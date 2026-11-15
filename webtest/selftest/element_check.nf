@@ -291,7 +291,7 @@ if (!ok34) {
 
 // 三十五：截图
 rows_page.screenshot(shot)
-let head:bytes = file.read_bytes(shot)
+let head:Bytes = file.read_bytes(shot)
 let ok35:boolean = check_int("三十五、screenshot 落成 png", head[0] as int, 137)
 if (!ok35) {
     bad = bad + 1

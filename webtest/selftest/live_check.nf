@@ -67,7 +67,7 @@ console.print("过  页面层的命令走到了（读得出那一页的标题）
 // 导航的答复只说"开始导航"，立刻截图会报 {"error":{"code":-32000,"message":"Not attached to
 // an active page"}}（实测），所以 open_page 里面已经等到这一页报成 complete 才返回来。
 page.screenshot(shot)
-let head:bytes = file.read_bytes(shot)
+let head:Bytes = file.read_bytes(shot)
 if (head[0] as int != 137) {
     console.print("png 的头一格不对:", head[0])
     exit (1, "截图落出来的不是 png")

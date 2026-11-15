@@ -133,7 +133,7 @@ if (page.read_url().contains("/domains/reserved")) {
 
 // 七、在跳到的那一家上截一张图，png 落得了文件
 page.screenshot(shot)
-let head:bytes = file.read_bytes(shot)
+let head:Bytes = file.read_bytes(shot)
 let ok7:boolean = check_int("七、截图落成 png（头一个字节是 137）", head[0] as int, 137)
 if (!ok7) {
     bad = bad + 1

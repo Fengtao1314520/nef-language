@@ -364,7 +364,7 @@ func TestWebTestFromContainer(t *testing.T) {
 		t.Fatalf("nf pack 没成：退出码 %d，输出 %q", code, out)
 	}
 	main := "import wt from \"libs/web_test\"\n" +
-		"let key:bytes = bytes.allocate(4)\n" +
+		"let key:Bytes = bytes.allocate(4)\n" +
 		"key[0] = 0x37\nkey[1] = 0xFA\nkey[2] = 0x21\nkey[3] = 0x58\n" +
 		"console.print(wt.build_frame(\"Hi\", key))\n" +
 		"console.print(wt.reply_field(\"{\\\"id\\\":1,\\\"result\\\":{\\\"targetId\\\":\\\"ABC\\\"}}\", \"targetId\"))\n" +

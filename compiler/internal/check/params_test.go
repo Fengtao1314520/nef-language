@@ -94,14 +94,14 @@ func TestSignatureShape(t *testing.T) {
 		{"length", "length(value): int"},
 		{"text.to_int", "text.to_int(text: string): int"},
 		{"file.read_bytes_from", "file.read_bytes_from(path: string, at: int, count: int): string"},
-		{"http.post", "http.post(url: string, body: bytes, timeout_ms: int, headers: list<string> = []): Response"},
+		{"http.post", "http.post(url: string, body: Bytes, timeout_ms: int, headers: list<string> = []): Response"},
 		{"math.smaller", "math.smaller(a, b)"},
 		{"list.add", "list.add(value: T)"},
 		{"list.slice", "list.slice(start: int, end: int): list<T>"},
 		{"dict.get", "dict.get(key: K, fallback: V): V"},
 		{"dict.set", "dict.set(key: K, value: V)"},
 		{"string.replace", "string.replace(from: string, to: string): string"},
-		{"socket.send", "socket.send(data: bytes): int"},
+		{"socket.send", "socket.send(data: Bytes): int"},
 		{"process.wait", "process.wait(): int"},
 	} {
 		if got := StdSignature(c.dotName); got != c.want {

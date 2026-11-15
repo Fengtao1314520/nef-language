@@ -54,8 +54,8 @@ console.print(file.exists(src), file.exists(dst))
 let a:string = "`+bin+`"
 let b:string = "`+d+`/副本.bin"
 file.copy(a, b)
-let left:bytes = file.read_bytes(a)
-let right:bytes = file.read_bytes(b)
+let left:Bytes = file.read_bytes(a)
+let right:Bytes = file.read_bytes(b)
 console.print(length(left), length(right))
 let bad:int = 0
 for (i:int from 0 until length(left)) {

@@ -17,8 +17,8 @@ export class Wire {
     ready:boolean
     fin:boolean
     opcode:int
-    payload:bytes
-    rest:bytes
+    payload:Bytes
+    rest:Bytes
 }
 
 // 把一段文本编码成一帧送出去：FIN 加上 text 操作码（1），长度按三档编码（小于 126 占一个
@@ -26,14 +26,14 @@ export class Wire {
 // 与掩码后的正文。客户端发出的帧一律要带掩码。
 // key 必须正好四个字节：比对结果要写成固定值，就得自带一串固定的密钥。
 // en: Packs one text frame: FIN plus opcode 1, the length in its three widths (one byte below 126, two below 65536, eight beyond that, all big-endian), then the four-byte masking key and the masked body. Everything a client sends is masked, and the key has to be exactly four bytes because the comparison values are written out as fixed text.
-export method encode_text(payload:bytes, key:bytes):bytes {
+export method encode_text(payload:Bytes, key:Bytes):Bytes {
     return encode_frame(1, payload, key)
 }
 
 // 同上，只是操作码由参数给出：pong 需要 10。
 // 这一条只编码 FIN 置位的一帧——我们发出的命令都装得下整条消息，不分段。
 // en: The same packing with the opcode given from outside, which is what pong needs (10). Only frames with FIN set are packed here: every command we send fits one message, so nothing is continued.
-export method encode_frame(opcode:int, payload:bytes, key:bytes):bytes {
+export method encode_frame(opcode:int, payload:Bytes, key:Bytes):Bytes {
     if (length(key) != 4) {
         throw (203, "掩码密钥要四个字节")
     }
@@ -46,7 +46,7 @@ export method encode_frame(opcode:int, payload:bytes, key:bytes):bytes {
             head = 10
         }
     }
-    let out:bytes = bytes.allocate(head + 4 + n)
+    let out:Bytes = bytes.allocate(head + 4 + n)
     out[0] = (0x80 | opcode) as byte
     if (head == 2) {
         out[1] = (0x80 + n) as byte
@@ -77,7 +77,7 @@ export method encode_frame(opcode:int, payload:bytes, key:bytes):bytes {
 // 没拆成时是整块抄的一份。
 // 浏览器发来的帧不带掩码；带掩码也识别，把四个掩码字节读掉即可。
 // en: Splits the first frame off a block. The block handed in is this function's to dispose of (the caller's name is spent on the way in), and Wire.rest is what is left over: a fresh copy when a frame came off, a copy of what was received when it did not.
-export method take_wire(buf:bytes):Wire {
+export method take_wire(buf:Bytes):Wire {
     let out:Wire = new Wire()
     out.ready = false
     out.payload = bytes.allocate(0)
@@ -113,7 +113,7 @@ export method take_wire(buf:bytes):Wire {
             at = at + 4
         }
         if (enough && n >= at + len) {
-            let body:bytes = bytes.allocate(len)
+            let body:Bytes = bytes.allocate(len)
             for (i:int from 0 until len) {
                 let v:int = buf[at + i] as int
                 if (masked) {

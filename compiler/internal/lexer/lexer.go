@@ -99,7 +99,7 @@ func init() {
 		Keywords[w] = true
 	}
 	for _, w := range strings.Fields("boolean int float byte unicode string object " +
-		"list dict hashset Calendar Json bytes Socket Listener Process Response Thread " +
+		"list dict hashset Calendar Json Bytes bytes Socket Listener Process Response Thread " +
 		"length exit " +
 		"console text number math time file path environment regular_expression json net http process thread " +
 		"args") {

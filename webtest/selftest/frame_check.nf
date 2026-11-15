@@ -11,15 +11,15 @@
 
 import wt from "libs/web_test"
 
-method from_numbers(xs:list<int>):bytes {
-    let out:bytes = bytes.allocate(length(xs))
+method from_numbers(xs:list<int>):Bytes {
+    let out:Bytes = bytes.allocate(length(xs))
     for (i:int from 0 until length(xs)) {
         out[i] = xs[i] as byte
     }
     return out
 }
 
-method check_bytes(name:string, got:bytes, want:bytes):boolean {
+method check_bytes(name:string, got:Bytes, want:Bytes):boolean {
     if (length(got) != length(want)) {
         console.print("失败  " + name, "长度", length(got), "要", length(want))
         console.print("  给", got)
@@ -66,17 +66,17 @@ method check_text(name:string, got:string, want:string):boolean {
 let bad:int = 0
 
 // 一、带掩码那一帧：长度小的一档，掩码密钥用 RFC 例子里那四个字节
-let key1:bytes = from_numbers([0x37, 0xFA, 0x21, 0x58])
-let want1:bytes = from_numbers([0x81, 0x85, 0x37, 0xFA, 0x21, 0x58, 0x7F, 0x9F, 0x4D, 0x34, 0x58])
-let got1:bytes = wt.build_frame("Hello", key1)
+let key1:Bytes = from_numbers([0x37, 0xFA, 0x21, 0x58])
+let want1:Bytes = from_numbers([0x81, 0x85, 0x37, 0xFA, 0x21, 0x58, 0x7F, 0x9F, 0x4D, 0x34, 0x58])
+let got1:Bytes = wt.build_frame("Hello", key1)
 let ok1:boolean = check_bytes("一、Hello 掩码一帧", got1, want1)
 if (!ok1) {
     bad = bad + 1
 }
 
 // 二、130 字节要走两个字节那一档的长度；掩码密钥全 0，遮与不遮结果一样
-let zeros:bytes = from_numbers([0, 0, 0, 0])
-let mid:bytes = wt.build_frame("A".repeat(130), zeros)
+let zeros:Bytes = from_numbers([0, 0, 0, 0])
+let mid:Bytes = wt.build_frame("A".repeat(130), zeros)
 let ok2:boolean = check_int("二、总长 2+2+4+130", length(mid), 138)
 if (!ok2) {
     bad = bad + 1
@@ -94,16 +94,16 @@ let ok5:boolean = check_int("二、后面两格读出 130", wide2, 130)
 if (!ok5) {
     bad = bad + 1
 }
-let mid_body:bytes = mid.slice(8, 138)
-let mid_want:bytes = "A".repeat(130).to_bytes()
+let mid_body:Bytes = mid.slice(8, 138)
+let mid_want:Bytes = "A".repeat(130).to_bytes()
 let ok6:boolean = check_bytes("二、正文一格不差", mid_body, mid_want)
 if (!ok6) {
     bad = bad + 1
 }
 
 // 三、七万字节要走八个字节那一档
-let big_zeros:bytes = from_numbers([0, 0, 0, 0])
-let big:bytes = wt.build_frame("B".repeat(70000), big_zeros)
+let big_zeros:Bytes = from_numbers([0, 0, 0, 0])
+let big:Bytes = wt.build_frame("B".repeat(70000), big_zeros)
 let ok7:boolean = check_int("三、总长 2+8+4+70000", length(big), 70014)
 if (!ok7) {
     bad = bad + 1
@@ -122,7 +122,7 @@ if (!ok9) {
 }
 
 // 四、拆一帧不带掩码的（浏览器发给我们的就是这个样子）
-let buf4:bytes = from_numbers([0x81, 0x05, 72, 105, 33, 63, 33])
+let buf4:Bytes = from_numbers([0x81, 0x05, 72, 105, 33, 63, 33])
 let one:wt.Frame = wt.read_frame(buf4)
 let ok10:boolean = check_true("四、拆开了", one.ready)
 if (!ok10) {
@@ -148,7 +148,7 @@ if (!ok14) {
 }
 
 // 五、拆一帧带掩码的：拿第一节那十一个字节反过来读
-let buf5:bytes = from_numbers([0x81, 0x85, 0x37, 0xFA, 0x21, 0x58, 0x7F, 0x9F, 0x4D, 0x34, 0x58])
+let buf5:Bytes = from_numbers([0x81, 0x85, 0x37, 0xFA, 0x21, 0x58, 0x7F, 0x9F, 0x4D, 0x34, 0x58])
 let two:wt.Frame = wt.read_frame(buf5)
 let ok15:boolean = check_true("五、拆开了", two.ready)
 if (!ok15) {
@@ -161,7 +161,7 @@ if (!ok16) {
 }
 
 // 六、还不够一帧：剩下的那一些抄一份留着
-let buf6:bytes = from_numbers([0x81, 0x05, 72])
+let buf6:Bytes = from_numbers([0x81, 0x05, 72])
 let part:wt.Frame = wt.read_frame(buf6)
 let ok17:boolean = check_true("六、说还没成一帧", part.ready == false)
 if (!ok17) {
@@ -174,16 +174,16 @@ if (!ok18) {
 }
 
 // 七、两块连在一起：头一块吃掉之后，剩下的正好是第二块
-let a7:bytes = from_numbers([0x81, 0x02, 65, 66])
-let b7:bytes = from_numbers([0x81, 0x05, 72, 105, 33, 63, 33])
-let joined:bytes = bytes.join([a7, b7])
+let a7:Bytes = from_numbers([0x81, 0x02, 65, 66])
+let b7:Bytes = from_numbers([0x81, 0x05, 72, 105, 33, 63, 33])
+let joined:Bytes = bytes.join([a7, b7])
 let first:wt.Frame = wt.read_frame(joined)
 let body7:string = text.from_bytes(first.payload)
 let ok19:boolean = check_text("七、头一块的正文", body7, "AB")
 if (!ok19) {
     bad = bad + 1
 }
-let tail7:bytes = first.rest
+let tail7:Bytes = first.rest
 let left7:int = length(tail7)
 let ok20:boolean = check_int("七、剩下七格", left7, 7)
 if (!ok20) {
@@ -197,8 +197,8 @@ if (!ok21) {
 }
 
 // 八、拼出去的大帧再拆回来：130 那一档两头都走一遍
-let key8:bytes = from_numbers([1, 2, 3, 4])
-let frame8:bytes = wt.build_frame("A".repeat(130), key8)
+let key8:Bytes = from_numbers([1, 2, 3, 4])
+let frame8:Bytes = wt.build_frame("A".repeat(130), key8)
 let round:wt.Frame = wt.read_frame(frame8)
 let ok22:boolean = check_true("八、拆开了", round.ready)
 if (!ok22) {

@@ -68,7 +68,7 @@ export method reply_field_of(answer:string, key:string):string {
 // 把一条截图答复里那串 base64 解码成 png 的字节。解不开是语言的 10014 号，
 // 答复里没有那个字段是 204 号。
 // en: Turns the base64 inside a screenshot reply into png bytes. Base64 that will not decode is the language's 10014; a reply without that slot is 204.
-export method png_from_reply_of(answer:string):bytes {
+export method png_from_reply_of(answer:string):Bytes {
     let data:string = reply_field_of(answer, "data")
     if (data == null) {
         throw (204, "答复里没有 data 那一段：" + first_chars_of(answer, 80))

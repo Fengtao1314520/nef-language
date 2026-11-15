@@ -59,7 +59,7 @@ let hs:list<string> = [
     "Accept: application/json",
     "X-Test-Round: 7"
 ]
-let body:bytes = "{\"name\":\"dev-7\"}".to_bytes()
+let body:Bytes = "{\"name\":\"dev-7\"}".to_bytes()
 let r:Response = http.request("POST", "http://127.0.0.1:8080/api", hs, body, 5000)
 console.print(r.status, length(r.headers))
 ```

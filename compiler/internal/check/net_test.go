@@ -13,7 +13,7 @@ func TestNetFuncSignatures(t *testing.T) {
 	expectOK(t, `let s:Socket = net.connect("127.0.0.1", 80, 3000)
 let l:Listener = net.listen(8080)
 let a:Socket = l.accept()
-let m:bytes = "hi".to_bytes()
+let m:Bytes = "hi".to_bytes()
 console.print(s.send(m), s.recv_into(bytes.allocate(8)))
 a.close()
 s.close()

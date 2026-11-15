@@ -1662,7 +1662,7 @@ func putNL(b *rt) {
 //
 // en: @exit (rcx = exit code) hands it straight to ExitProcess: values already built have been
 // released by the caller at the semantic level before arriving here. @heap_report():
-// only when the NEF_HEAP environment variable is set does it print one line "heap <bytes>\n";
+// only when the NEF_HEAP environment variable is set does it print one line "heap <Bytes>\n";
 // otherwise it does nothing. What is reported is heapCur - heapFrom: the total ever asked from
 // the heap. Returning a block to the free list does not return it to the operating system, so
 // after reuse is wired up this figure reads "what the peak needed", which is exactly what the

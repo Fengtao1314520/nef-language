@@ -97,8 +97,8 @@ const kind_text:int = 3
 class Link {
     sock:Socket
     proc:Process
-    pending:bytes
-    held:bytes
+    pending:Bytes
+    held:Bytes
     next_id:int
     port:int
     ws_path:string
@@ -110,7 +110,7 @@ let link:Link = new Link()
 
 // —— 一条命令进、一条答复出 ——
 
-method send_all(body:bytes) {
+method send_all(body:Bytes) {
     let sent:int = 0
     let n:int = length(body)
     while (sent < n) {
@@ -123,12 +123,12 @@ method send_all(body:bytes) {
 }
 
 method send_text_line(body:string) {
-    let key:bytes = random_key()
+    let key:Bytes = random_key()
     send_all(encode_text(body.to_bytes(), key))
 }
 
-method random_key():bytes {
-    let k:bytes = bytes.allocate(4)
+method random_key():Bytes {
+    let k:Bytes = bytes.allocate(4)
     for (i:int from 0 until 4) {
         k[i] = math.random(0, 256) as byte
     }
@@ -136,7 +136,7 @@ method random_key():bytes {
 }
 
 method pull_into() {
-    let block:bytes = bytes.allocate(recv_size)
+    let block:Bytes = bytes.allocate(recv_size)
     let got:int = link.sock.recv_into(block)
     if (got <= 0) {
         throw (code_socket_closed, "浏览器那边关了这条连接")
@@ -144,8 +144,8 @@ method pull_into() {
     link.pending = bytes.join([link.pending, block.slice(0, got)])
 }
 
-method reply_pong(body:bytes) {
-    let key:bytes = random_key()
+method reply_pong(body:Bytes) {
+    let key:Bytes = random_key()
     send_all(encode_frame(10, body, key))
 }
 
@@ -154,7 +154,7 @@ method reply_pong(body:bytes) {
 method read_message():string {
     link.held = bytes.allocate(0)
     while (true) {
-        let buf:bytes = link.pending
+        let buf:Bytes = link.pending
         let one:Frame = take_wire(buf)
         link.pending = one.rest
         if (one.ready) {
@@ -163,7 +163,7 @@ method read_message():string {
             }
             if (one.opcode == 9) {
                 // 字段位置的值直接当实参交出去会走过户，交出后位置就空了，所以先接给一个名字
-                let beat:bytes = one.payload
+                let beat:Bytes = one.payload
                 reply_pong(beat)
             } else if (one.opcode == 0 || one.opcode == 1 || one.opcode == 2) {
                 link.held = bytes.join([link.held, one.payload])
@@ -524,7 +524,7 @@ export class Browser {
     // en: Sends the whole block, piece by piece until it is all out.
     // 例：
     // browser.send_all_bytes(bytes.allocate(64))
-    method send_all_bytes(body:bytes) {
+    method send_all_bytes(body:Bytes) {
         send_all(body)
     }
 
@@ -1291,8 +1291,8 @@ method handshake() {
         pull_into()
         at = find_header_end()
     }
-    let head_buf:bytes = link.pending
-    let head_bytes:bytes = head_buf.slice(0, at)
+    let head_buf:Bytes = link.pending
+    let head_bytes:Bytes = head_buf.slice(0, at)
     link.pending = head_buf.slice(at, length(head_buf))
     let head:string = text.from_bytes(head_bytes)
     if (!head.starts_with("HTTP/1.1 101")) {
@@ -1301,7 +1301,7 @@ method handshake() {
 }
 
 method find_header_end():int {
-    let buf:bytes = link.pending
+    let buf:Bytes = link.pending
     let n:int = length(buf)
     let at:int = -1
     for (i:int from 0 until n - 3) {
@@ -1312,7 +1312,7 @@ method find_header_end():int {
             break
         }
     }
-    // 上面那句 `let buf:bytes = link.pending` 是把字段里的值交出去，
+    // 上面那句 `let buf:Bytes = link.pending` 是把字段里的值交出去，
     // 位置当场空了，所以读完必须写回去——不论后面是否还用到，交出就是交出。
     link.pending = buf
     return at
@@ -1324,7 +1324,7 @@ method find_header_end():int {
 // en: Encodes one body into a whole WebSocket frame with this mask key; the key and the body both come in as parameters.
 // 例：
 // let packed: bytes = wt.build_frame("甲", block)
-export method build_frame(body:string, key:bytes):bytes {
+export method build_frame(body:string, key:Bytes):Bytes {
     return encode_text(body.to_bytes(), key)
 }
 
@@ -1332,7 +1332,7 @@ export method build_frame(body:string, key:bytes):bytes {
 // en: Reads the frontmost frame out of this run of bytes, or a null handle when it is not a whole frame yet; the part consumed leaves the buffer.
 // 例：
 // let got: wt.Frame = wt.read_frame(block)
-export method read_frame(buf:bytes):Frame {
+export method read_frame(buf:Bytes):Frame {
     return take_wire(buf)
 }
 
@@ -1356,7 +1356,7 @@ export method reply_field(answer:string, key:string):string {
 // en: Decodes the base64 screenshot carried in a reply into a whole PNG block.
 // 例：
 // let picture: bytes = wt.png_from_reply(answer)
-export method png_from_reply(answer:string):bytes {
+export method png_from_reply(answer:string):Bytes {
     return png_from_reply_of(answer)
 }
 

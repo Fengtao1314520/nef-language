@@ -70,7 +70,7 @@ if (!ok4) {
 
 // 五、六：那一串 base64 拆成 png 的字节，再落成一个文件读回来
 let png_answer:string = file.read(dir + "/screenshot.txt")
-let png:bytes = wt.png_from_reply(png_answer)
+let png:Bytes = wt.png_from_reply(png_answer)
 let ok5:boolean = check_int("五、png 的字节数", length(png), 1005)
 if (!ok5) {
     bad = bad + 1
@@ -84,7 +84,7 @@ if (!ok7) {
     bad = bad + 1
 }
 file.write_bytes(shot, png)
-let back:bytes = file.read_bytes(shot)
+let back:Bytes = file.read_bytes(shot)
 let ok8:boolean = check_int("六、读回来还是 1005 个字节", length(back), 1005)
 if (!ok8) {
     bad = bad + 1
@@ -97,7 +97,7 @@ if (!ok9) {
 // 七：答复里没有 data 那一段，报的是 204
 let code:int = -1
 try {
-    let junk:bytes = wt.png_from_reply("{\"id\":9,\"result\":{}}")
+    let junk:Bytes = wt.png_from_reply("{\"id\":9,\"result\":{}}")
     console.print("不该走到这一句", length(junk))
 } catch (c, m, at) {
     code = c

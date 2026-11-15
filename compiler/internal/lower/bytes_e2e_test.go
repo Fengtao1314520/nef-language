@@ -34,7 +34,7 @@ func TestFileReadBytes(t *testing.T) {
 	}
 	pp := filepath.ToSlash(p)
 	got, code := run(t, `
-let buf:bytes = file.read_bytes("`+pp+`")
+let buf:Bytes = file.read_bytes("`+pp+`")
 console.print(length(buf))
 console.print(buf[0], buf[1], buf[2])
 console.print(buf[3], buf[4])
@@ -77,12 +77,12 @@ func TestFileBytesRoundTrip(t *testing.T) {
 	p := filepath.ToSlash(filepath.Join(dir, "all.bin"))
 	got, code := run(t, `
 let p:string = "`+p+`"
-let buf:bytes = bytes.allocate(256)
+let buf:Bytes = bytes.allocate(256)
 for (i:int from 0 until 256) {
     buf[i] = i as byte
 }
 file.write_bytes(p, buf)
-let back:bytes = file.read_bytes(p)
+let back:Bytes = file.read_bytes(p)
 let sum:int = 0
 for (i:int from 0 until length(back)) {
     sum = sum + (back[i] as int)
@@ -110,7 +110,7 @@ func TestFileBytesEmpty(t *testing.T) {
 	out := filepath.ToSlash(filepath.Join(dir, "也空.bin"))
 	got, code := run(t, `
 console.print(length(file.read_bytes("`+filepath.ToSlash(in)+`")))
-let none:bytes = bytes.allocate(0)
+let none:Bytes = bytes.allocate(0)
 file.write_bytes("`+out+`", none)
 console.print(file.size("`+out+`"), length(file.read_bytes("`+out+`")))
 `)
@@ -131,13 +131,13 @@ func TestFileBytesOverwritesWhole(t *testing.T) {
 	pp := filepath.ToSlash(p)
 	got, code := run(t, `
 let p:string = "`+pp+`"
-let src:bytes = bytes.allocate(4)
+let src:Bytes = bytes.allocate(4)
 src[0] = 1
 src[1] = 2
 src[2] = 3
 src[3] = 4
 file.write_bytes(p, src)
-let back:bytes = file.read_bytes(p)
+let back:Bytes = file.read_bytes(p)
 console.print(length(back), file.size(p))
 console.print(back[0], back[1], back[2], back[3])
 `)
@@ -154,14 +154,14 @@ func TestFileWriteBytesKeepsBlock(t *testing.T) {
 	first := filepath.ToSlash(filepath.Join(dir, "甲.bin"))
 	second := filepath.ToSlash(filepath.Join(dir, "乙.bin"))
 	got, code := run(t, `
-let buf:bytes = bytes.allocate(3)
+let buf:Bytes = bytes.allocate(3)
 buf[0] = 10
 buf[1] = 20
 buf[2] = 30
 file.write_bytes("`+first+`", buf)
 file.write_bytes("`+second+`", buf)
 console.print(length(buf), buf[0], buf[2])
-let back:bytes = file.read_bytes("`+second+`")
+let back:Bytes = file.read_bytes("`+second+`")
 console.print(back[0], back[1], back[2])
 `)
 	want := "3 10 30\n10 20 30\n"
@@ -189,7 +189,7 @@ func TestFileReadBytesSizes(t *testing.T) {
 	var src strings.Builder
 	for _, n := range sizes {
 		p := filepath.ToSlash(filepath.Join(dir, "s"+strconv.Itoa(n)+".bin"))
-		fmt.Fprintf(&src, "let b%d:bytes = file.read_bytes(%q)\n", n, p)
+		fmt.Fprintf(&src, "let b%d:Bytes = file.read_bytes(%q)\n", n, p)
 		fmt.Fprintf(&src, "console.print(length(b%d), b%d[0], b%d[%d])\n", n, n, n, n-1)
 	}
 	var want []string
@@ -233,7 +233,7 @@ func TestFileBytesCodes(t *testing.T) {
 // 打印格式是 `[65, 255, 0]`——与旧版 `list<byte>` 的输出逐字相同（类型更换改的是内存布局，不是那行输出）。
 func TestBytesShape(t *testing.T) {
 	got, code := run(t, `
-let b:bytes = bytes.allocate(4)
+let b:Bytes = bytes.allocate(4)
 console.print(length(b), b)
 b[0] = 65
 b[1] = 255
@@ -241,7 +241,7 @@ b[2] = 0
 b[3] = 7
 console.print(b)
 console.print(b[1])
-let mid:bytes = b.slice(1, 3)
+let mid:Bytes = b.slice(1, 3)
 console.print(length(mid), mid)
 console.print(b.slice(2, 2), b.slice(0, 4))
 let same:list<byte> = [65, 255, 0, 7]
@@ -258,7 +258,7 @@ console.print(b == b, length(same))
 // 一个 1 字节的槽位与一个 8 字节的槽位读回来必须是同一个数。
 func TestBytesSamePrintAsList(t *testing.T) {
 	got, code := run(t, `
-let b:bytes = bytes.allocate(3)
+let b:Bytes = bytes.allocate(3)
 b[0] = 255
 b[1] = 0
 b[2] = 65
@@ -279,11 +279,11 @@ console.print(xs)
 // 读到最后一个位置之后、读到负数的位置、往越界的位置写。
 func TestBytesIndexOutOfBounds(t *testing.T) {
 	cases := []string{
-		`let b:bytes = bytes.allocate(3)
+		`let b:Bytes = bytes.allocate(3)
 console.print(b[3])`,
-		`let b:bytes = bytes.allocate(3)
+		`let b:Bytes = bytes.allocate(3)
 console.print(b[-1])`,
-		`let b:bytes = bytes.allocate(3)
+		`let b:Bytes = bytes.allocate(3)
 b[3] = 1`,
 	}
 	for _, src := range cases {
@@ -298,11 +298,11 @@ b[3] = 1`,
 // 止越界、负的下标、起大于止都算越界，各抛 10031 号。
 func TestBytesSliceOutOfBounds(t *testing.T) {
 	cases := []string{
-		`let b:bytes = bytes.allocate(3)
+		`let b:Bytes = bytes.allocate(3)
 console.print(b.slice(0, 4))`,
-		`let b:bytes = bytes.allocate(3)
+		`let b:Bytes = bytes.allocate(3)
 console.print(b.slice(-1, 2))`,
-		`let b:bytes = bytes.allocate(3)
+		`let b:Bytes = bytes.allocate(3)
 console.print(b.slice(2, 1))`,
 	}
 	for _, src := range cases {
@@ -317,7 +317,7 @@ console.print(b.slice(2, 1))`,
 // （10091 号），那句报错说的是这台机器给不出这么多，不是"符号写错了"。
 // 错误码取容器那一段的默认错误码 10030 号。
 func TestBytesNegativeSizeIsRefused(t *testing.T) {
-	got, code := run(t, `let b:bytes = bytes.allocate(0 - 4)
+	got, code := run(t, `let b:Bytes = bytes.allocate(0 - 4)
 console.print(length(b))`)
 	if code != 1 || !strings.Contains(got, "10030）：bytes.allocate 要的字节数不能是负数") {
 		t.Fatalf("负的那一头得到 %q 码 %d，要 10030 那一句", got, code)
@@ -327,11 +327,11 @@ console.print(length(b))`)
 // TestBytesNullHandle 验证拿着空句柄访问这一型：三条路各抛 10092 号，与容器行为一致。
 func TestBytesNullHandle(t *testing.T) {
 	cases := []string{
-		`let none:bytes = null
+		`let none:Bytes = null
 console.print(length(none))`,
-		`let none:bytes = null
+		`let none:Bytes = null
 console.print(none[0])`,
-		`let none:bytes = null
+		`let none:Bytes = null
 console.print(none.slice(0, 1))`,
 	}
 	for _, src := range cases {
@@ -340,7 +340,7 @@ console.print(none.slice(0, 1))`,
 			t.Fatalf("%s 得到 %q 码 %d，要 10092 那一句", src, got, code)
 		}
 	}
-	if out, code := run(t, "let none:bytes = null\nconsole.print(none)\n"); code != 0 || out != "null\n" {
+	if out, code := run(t, "let none:Bytes = null\nconsole.print(none)\n"); code != 0 || out != "null\n" {
 		t.Fatalf("空的句柄印出来要的是 null：%q 码 %d", out, code)
 	}
 }
@@ -359,34 +359,34 @@ func TestBytesReleases(t *testing.T) {
 	}{
 		{"每一圈造一块，句柄到名字作废那一处就散", `
 for (i:int from 0 until 20000) {
-    let b:bytes = bytes.allocate(24)
+    let b:Bytes = bytes.allocate(24)
     b[0] = 200
 }`},
 		{"每一圈造一块放进容器，容器自己散", `
 let total:int = 0
 for (i:int from 0 until 20000) {
-    let xs:list<bytes> = [bytes.allocate(24)]
+    let xs:list<Bytes> = [bytes.allocate(24)]
     total = total + length(xs[0])
 }`},
 		{"每一圈读一个小文件进来", `
 let p:string = "` + p + `"
 let total:int = 0
 for (i:int from 0 until 20000) {
-    let b:bytes = file.read_bytes(p)
+    let b:Bytes = file.read_bytes(p)
     total = total + length(b)
 }
 console.print(total)`},
 		{"每一圈把一块交给标准库（只读借用，不还别人的）", `
 let p:string = "` + p + `"
 for (i:int from 0 until 20000) {
-    let b:bytes = bytes.allocate(8)
+    let b:Bytes = bytes.allocate(8)
     file.write_bytes(p, b)
 }`},
 		{"slice 造出来的那一片归接住它的名字", `
-let head:bytes = bytes.allocate(64)
+let head:Bytes = bytes.allocate(64)
 let total:int = 0
 for (i:int from 0 until 20000) {
-    let cut:bytes = head.slice(0, 8)
+    let cut:Bytes = head.slice(0, 8)
     total = total + length(cut)
 }
 console.print(total)`},
@@ -406,7 +406,7 @@ console.print(total)`},
 // 没有这一条，上一条"累计很小"可能只是根本没造出东西来。
 func TestBytesKeptGrows(t *testing.T) {
 	used := heapAt(t, `
-let keep:list<bytes> = []
+let keep:list<Bytes> = []
 for (i:int from 0 until 20000) {
     keep.add(bytes.allocate(24))
 }
@@ -424,12 +424,12 @@ func TestBytesTextRoundTrip(t *testing.T) {
 	p := filepath.ToSlash(filepath.Join(dir, "文本.bin"))
 	got, code := run(t, `
 let s:string = "甲a"
-let bs:bytes = s.to_bytes()
+let bs:Bytes = s.to_bytes()
 console.print(length(bs), bs[0], bs[1], bs[2], bs[3])
 console.print(text.from_bytes(bs) == s)
 console.print(length("".to_bytes()), "".to_bytes())
 file.write_bytes("`+p+`", bs)
-let back:bytes = file.read_bytes("`+p+`")
+let back:Bytes = file.read_bytes("`+p+`")
 console.print(back == bs)
 console.print(text.from_bytes(back))
 `)
@@ -457,12 +457,12 @@ func TestBytesBase64(t *testing.T) {
 	for _, raw := range cases {
 		enc := base64.StdEncoding.EncodeToString(raw)
 		var src strings.Builder
-		fmt.Fprintf(&src, "let b:bytes = bytes.allocate(%d)\n", len(raw))
+		fmt.Fprintf(&src, "let b:Bytes = bytes.allocate(%d)\n", len(raw))
 		for i, v := range raw {
 			fmt.Fprintf(&src, "b[%d] = %d\n", i, v)
 		}
 		src.WriteString("console.print(b.to_base64())\n")
-		fmt.Fprintf(&src, `let back:bytes = bytes.from_base64("%s")`+"\n", enc)
+		fmt.Fprintf(&src, `let back:Bytes = bytes.from_base64("%s")`+"\n", enc)
 		src.WriteString("console.print(length(back), back)\n")
 		got, code := run(t, src.String())
 		var want strings.Builder
@@ -484,7 +484,7 @@ console.print(text.to_base64("a"), text.to_base64("ab"), text.to_base64("abc"), 
 	}
 
 	// 0xFF 那一串在文本那一侧抛 10044 号，在这一侧是三个字节里最普通的一个数据字节
-	got, code = run(t, `let b:bytes = bytes.from_base64("/w==")
+	got, code = run(t, `let b:Bytes = bytes.from_base64("/w==")
 console.print(length(b), b[0])`)
 	if got != "1 255\n" || code != 0 {
 		t.Fatalf("非 UTF-8 的那一串要交回一个字节：got %q 码 %d", got, code)
@@ -501,11 +501,11 @@ console.print(length(b), b[0])`)
 	// 名字要写在圈里——`console.print(f(), g())` 那种无名中转值眼下是"释放后同一槽位无法取回"，
 	// 每轮都算进累计（`s.trim()` 同样摆法，量出来一样是每轮 32 字节），拿它当参照会误报
 	if used := heapAt(t, `
-let b:bytes = "甲a".to_bytes()
+let b:Bytes = "甲a".to_bytes()
 let t:string = b.to_base64()
 for (i:int from 0 until 20000) {
     let s:string = b.to_base64()
-    let back:bytes = bytes.from_base64(t)
+    let back:Bytes = bytes.from_base64(t)
     console.print(length(s), length(back))
 }`); used > 4000 {
 		t.Errorf("两万圈各写各读：累计 %d 字节，那两块接住的大概没拆", used)
@@ -517,25 +517,25 @@ for (i:int from 0 until 20000) {
 // 而 `bytes` 的长度在 `bytes.allocate` 那一步定下之后不再增减，"两块并成一块"需要专门的构造操作。
 func TestBytesJoin(t *testing.T) {
 	got, code := run(t, `
-let a:bytes = "甲".to_bytes()
-let b:bytes = "a".to_bytes()
+let a:Bytes = "甲".to_bytes()
+let b:Bytes = "a".to_bytes()
 console.print(bytes.join([a, b]))
 console.print(bytes.join([]))
-let z1:bytes = bytes.allocate(0)
-let t1:bytes = "ab".to_bytes()
+let z1:Bytes = bytes.allocate(0)
+let t1:Bytes = "ab".to_bytes()
 console.print(bytes.join([z1, t1]))
-let t2:bytes = "ab".to_bytes()
-let z2:bytes = bytes.allocate(0)
+let t2:Bytes = "ab".to_bytes()
+let z2:Bytes = bytes.allocate(0)
 console.print(bytes.join([t2, z2]))
-let z3:bytes = bytes.allocate(0)
-let z4:bytes = bytes.allocate(0)
+let z3:Bytes = bytes.allocate(0)
+let z4:Bytes = bytes.allocate(0)
 console.print(bytes.join([z3, z4]))
-let head:bytes = bytes.allocate(2)
+let head:Bytes = bytes.allocate(2)
 head[0] = 255
-let m1:bytes = "甲".to_bytes()
+let m1:Bytes = "甲".to_bytes()
 console.print(bytes.join([head, m1]))
-let xs:list<bytes> = [bytes.allocate(2), "甲".to_bytes()]
-let all:bytes = bytes.join(xs)
+let xs:list<Bytes> = [bytes.allocate(2), "甲".to_bytes()]
+let all:Bytes = bytes.join(xs)
 console.print(length(xs), length(all), xs[0], all)
 `)
 	want := "[231, 148, 178, 97]\n[]\n[97, 98]\n[97, 98]\n[]\n[255, 0, 231, 148, 178]\n2 5 [0, 0] [0, 0, 231, 148, 178]\n"
@@ -544,8 +544,8 @@ console.print(length(xs), length(all), xs[0], all)
 	}
 
 	// 清单里那个位置是空句柄：与 `text.join` 同一条规则，10092 号
-	got, code = run(t, `let none:bytes = null
-let xs:list<bytes> = [none]
+	got, code = run(t, `let none:Bytes = null
+let xs:list<Bytes> = [none]
 console.print(bytes.join(xs))`)
 	if code != 1 || !strings.Contains(got, "10092）：对着空句柄取成员或调用方法") {
 		t.Fatalf("空句柄那一格得到 %q 码 %d，要 10092 那一句", got, code)
@@ -553,9 +553,9 @@ console.print(bytes.join(xs))`)
 
 	// 二百五十块并起来：长度是各块之和，头一个位置与末一个位置各落在头一块与末一块上
 	var many strings.Builder
-	many.WriteString("let parts:list<bytes> = []\n")
-	many.WriteString("for (i:int from 0 until 250) {\n    let one:bytes = bytes.allocate(3)\n    one[0] = 7\n    one[2] = i as byte\n    parts.add(one)\n}\n")
-	many.WriteString("let all:bytes = bytes.join(parts)\nconsole.print(length(parts), length(all), all[0], all[747], all[749])\n")
+	many.WriteString("let parts:list<Bytes> = []\n")
+	many.WriteString("for (i:int from 0 until 250) {\n    let one:Bytes = bytes.allocate(3)\n    one[0] = 7\n    one[2] = i as byte\n    parts.add(one)\n}\n")
+	many.WriteString("let all:Bytes = bytes.join(parts)\nconsole.print(length(parts), length(all), all[0], all[747], all[749])\n")
 	got, code = run(t, many.String())
 	if got != "250 750 7 7 249\n" || code != 0 {
 		t.Fatalf("二百五十块并一块：got %q 码 %d", got, code)
@@ -564,9 +564,9 @@ console.print(bytes.join(xs))`)
 	// 释放账目：清单留着不动，并出来的那一块没人接住就应在语句尽头释放。
 	// 接结果的名字要写在圈里——无名中转值眼下是"释放后同一槽位无法取回"，每轮都算进累计
 	if used := heapAt(t, `
-let parts:list<bytes> = ["甲".to_bytes(), "a".to_bytes()]
+let parts:list<Bytes> = ["甲".to_bytes(), "a".to_bytes()]
 for (i:int from 0 until 20000) {
-    let all:bytes = bytes.join(parts)
+    let all:Bytes = bytes.join(parts)
     console.print(length(all))
 }`); used > 4000 {
 		t.Errorf("两万圈各并一块：累计 %d 字节，并出来的那一块大概没拆", used)
@@ -587,7 +587,7 @@ func listOf(raw []byte) string {
 func TestBytesInClassField(t *testing.T) {
 	got, code := run(t, `
 class Holder {
-    data:bytes
+    data:Bytes
 }
 let h:Holder = new Holder(data: bytes.allocate(2))
 h.data[0] = 7
@@ -601,7 +601,7 @@ console.print(h.data)
 	}
 	if used := heapAt(t, `
 class Holder {
-    data:bytes
+    data:Bytes
 }
 let total:int = 0
 for (i:int from 0 until 20000) {

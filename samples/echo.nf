@@ -16,7 +16,7 @@ console.print("在等连接:", port)
 let one:Socket = door.accept()
 console.print("连进来一个")
 
-let box:bytes = bytes.allocate(256)
+let box:Bytes = bytes.allocate(256)
 let n:int = one.recv_into(box)
 while (n > 0) {
     one.send(box.slice(0, n))

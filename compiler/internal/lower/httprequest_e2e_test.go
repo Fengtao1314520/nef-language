@@ -437,7 +437,7 @@ func TestHttpRequestPostBody(t *testing.T) {
 	}))
 	defer srv.Close()
 	got, code := run(t, `
-let msg:bytes = "甲乙丙".to_bytes()
+let msg:Bytes = "甲乙丙".to_bytes()
 let r:Response = http.request("POST", "`+urlOf(srv)+`/echo", ["Content-Type: application/octet-stream"], msg, 5000)
 let s:Response = http.post("`+urlOf(srv)+`/echo", msg, 5000)
 console.print(r.status, text.from_bytes(r.body), length(msg))
@@ -525,7 +525,7 @@ func TestHttpRequestSlope(t *testing.T) {
 	}))
 	defer srv.Close()
 	tmpl := `
-let msg:bytes = "甲".to_bytes()
+let msg:Bytes = "甲".to_bytes()
 let total:int = 0
 for (i:int from 0 until @N@) {
     let hs:list<string> = ["X-Nef: 1", "Accept: text/plain"]

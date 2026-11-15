@@ -39,7 +39,7 @@ func TestByteLiteralSameAsReadBytes(t *testing.T) {
 	}
 	pp := filepath.ToSlash(p)
 	got, code := run(t, `
-let from_file:bytes = file.read_bytes("`+pp+`")
+let from_file:Bytes = file.read_bytes("`+pp+`")
 let from_lit:list<byte> = [255, 0, 65]
 console.print(from_file[0], from_file[1], from_file[2])
 console.print(from_lit[0], from_lit[1], from_lit[2])

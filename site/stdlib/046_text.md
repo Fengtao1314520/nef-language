@@ -114,7 +114,7 @@ console.print("7".pad_start(3, "0"), "|", "月".pad_end(3, "·"), "|")
 
 ```nf
 let s:string = "甲a"
-let bs:bytes = s.to_bytes()
+let bs:Bytes = s.to_bytes()
 console.print(length(bs), bs[0], text.from_bytes(bs) == s)
 console.print(text.to_base64(s), text.from_base64("YWJj"))
 console.print(text.to_int_in_base("ff", 16), text.to_int_in_base("1010", 2))
@@ -229,4 +229,4 @@ try {
 
 ## 参见
 
-- [字节块](/stdlib/047_bytes)：`bytes` 类型的创建、按下标读写、截取、Base64 编码与拼接
+- [字节块](/stdlib/047_bytes)：`Bytes` 类型的创建、按下标读写、截取、Base64 编码与拼接

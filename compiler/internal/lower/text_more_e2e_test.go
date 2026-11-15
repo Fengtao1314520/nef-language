@@ -53,7 +53,7 @@ for (i:int from 0 until 20000) {
 func TestTextBytesAndBase64(t *testing.T) {
 	got, code := run(t, `
 let s:string = "甲a"
-let bs:bytes = s.to_bytes()
+let bs:Bytes = s.to_bytes()
 console.print(length(bs), bs[0], bs[1], bs[2], bs[3])
 let back:string = text.from_bytes(bs)
 console.print(back, length(back), back == s)
@@ -121,7 +121,7 @@ console.print(length(s))
 func TestTextFromBytesRefused(t *testing.T) {
 	// 单个字节 0xFF 不是合法的 UTF-8：报 10044 号那句，与 file.read 一致
 	got, code := run(t, `
-let bs:bytes = bytes.allocate(1)
+let bs:Bytes = bytes.allocate(1)
 bs[0] = 255
 let s:string = text.from_bytes(bs)
 console.print(s)
@@ -131,7 +131,7 @@ console.print(s)
 	}
 	if used := heapAt(t, `
 for (i:int from 0 until 20000) {
-    let bs:bytes = ("甲" + "乙").to_bytes()
+    let bs:Bytes = ("甲" + "乙").to_bytes()
     let t:string = text.from_bytes(bs)
 }
 `); used > 4000 {

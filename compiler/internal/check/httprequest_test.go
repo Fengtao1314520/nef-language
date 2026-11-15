@@ -11,7 +11,7 @@ import "testing"
 
 func TestHttpRequestSignature(t *testing.T) {
 	expectOK(t, `let hs:list<string> = ["X-Nef: 甲"]
-let b:bytes = "甲".to_bytes()
+let b:Bytes = "甲".to_bytes()
 let r:Response = http.request("POST", "http://127.0.0.1/", hs, b, 5000)
 let s:Response = http.request("GET", "http://127.0.0.1/", hs, null, 5000, true, 1024)
 let u:Response = http.request("GET", "http://127.0.0.1/", [], null, 5000)
@@ -33,14 +33,14 @@ let r:Response = http.request("GET", "http://x/", d, null, 5000)`,
 	expectErr(t, `let r:Response = http.request("GET", "http://x/", [1], null, 5000)`,
 		"这里要的是 list<string>，给的是 list<int>；类型之间不自动转换")
 	expectErr(t, `let r:Response = http.request("GET", "http://x/", [], "甲", 5000)`,
-		"这里要的是 bytes，给的是 string；类型之间不自动转换")
+		"这里要的是 Bytes，给的是 string；类型之间不自动转换")
 	expectErr(t, `let r:Response = http.request("GET", "http://x/", [], null, "5000")`,
 		"这里要的是 int，给的是 string；类型之间不自动转换")
 	expectErr(t, `let r:Response = http.request("GET", "http://x/", [], null, 5000, false, "1024")`,
 		"这里要的是 int，给的是 string；类型之间不自动转换")
 	// 头与正文都只是被读一遍：调用之后原来的名字照旧能用
 	expectOK(t, `let hs:list<string> = ["X: 1"]
-let b:bytes = bytes.allocate(4)
+let b:Bytes = bytes.allocate(4)
 let r:Response = http.request("POST", "http://x/", hs, b, 5000)
 console.print(length(hs), length(b), r.status)
 `)
@@ -62,5 +62,5 @@ console.print(r.status, s.status)
 	expectErr(t, `let r:Response = http.get("http://x/", 5000, [], 5000)`,
 		"get 收 3 个参数，这里给了 4 个")
 	expectErr(t, `let r:Response = http.post("http://x/", "甲", 5000)`,
-		"这里要的是 bytes，给的是 string；类型之间不自动转换")
+		"这里要的是 Bytes，给的是 string；类型之间不自动转换")
 }

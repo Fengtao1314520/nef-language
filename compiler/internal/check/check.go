@@ -129,7 +129,7 @@ func (k Kind) String() string {
 	case Json:
 		return "Json"
 	case Bytes:
-		return "bytes"
+		return "Bytes"
 	case Socket:
 		return "Socket"
 	case Listener:
@@ -2593,6 +2593,10 @@ func (c *Checker) resolveType(t ast.Type, where ast.Pos) Type {
 }
 
 func baseType(name string) (Type, bool) {
+	// 旧的 `bytes` 写法仍认：它落到同一只类型上，报错文字里一律写 `Bytes`。
+	if name == "bytes" {
+		name = "Bytes"
+	}
 	for _, t := range []Type{
 		{Kind: Bool, Name: "boolean"}, {Kind: Int, Name: "int"}, {Kind: Float, Name: "float"},
 		{Kind: Byte, Name: "byte"}, {Kind: Unicode, Name: "unicode"}, {Kind: Str, Name: "string"},
@@ -2602,7 +2606,7 @@ func baseType(name string) (Type, bool) {
 		{Kind: Json, Name: "Json"},
 		// bytes 也是内建的引用类型：名字同样在 lexer 的保留名表里，
 		// 与 Json 的区别是它可以创建——`bytes.allocate(容量)`，也能写进容器与字段。
-		{Kind: Bytes, Name: "bytes"},
+		{Kind: Bytes, Name: "Bytes"},
 		// 操作系统那两类句柄：创建它们的是 `net.connect`／`net.listen`，
 		// 文件里写不出这两只类型名（都在保留名表里）。
 		{Kind: Socket, Name: "Socket"},

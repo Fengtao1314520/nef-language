@@ -17,7 +17,7 @@ func TestCaughtOutOfMemoryKeepsHeapUsable(t *testing.T) {
 	got, code := run(t, `
 let big:int = 4294967296
 try {
-    let b:bytes = bytes.allocate(big)
+    let b:Bytes = bytes.allocate(big)
     console.print("这么大的请求本该抛出来")
 } catch (c, m, at) {
     console.print(c, m)
@@ -38,7 +38,7 @@ let big:int = 4294967296
 let hits:list<int> = []
 for (i:int from 0 until 2) {
     try {
-        let b:bytes = bytes.allocate(big)
+        let b:Bytes = bytes.allocate(big)
         console.print(b)
     } catch (c, m, at) {
         hits.add(c)

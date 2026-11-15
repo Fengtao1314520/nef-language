@@ -39,7 +39,7 @@ var (
 	typeAuto    = Type{Kind: ErrT, Name: "任意"}
 	// typeBytes 是内建引用类型 `bytes`。尖括号里不需要参数：
 	// 它装的一定是字节，容量在 `bytes.allocate(容量)` 那一步定下来。
-	typeBytes = Type{Kind: Bytes, Name: "bytes"}
+	typeBytes = Type{Kind: Bytes, Name: "Bytes"}
 	// typeSocket 与 typeListener 是那两类操作系统给的句柄。
 	// 它们没有成员表可查的形状：手上只有一个句柄，形状在系统那一侧。
 	typeSocket   = Type{Kind: Socket, Name: "Socket"}
@@ -450,7 +450,7 @@ func (c *Checker) fieldPath(v ast.Expr) string {
 // 这一次读就是交出，后端读完把字段那个位置写空——与容器那个位置同一本账。
 // 那一条裁定只改写了这一条的两处：文本走共用那一路（读出来不动那一个位置），
 // 可变的数据照旧跟着位置走。把这一条整句作废会造出"读得动、谁也接不走"的字段：
-// `let buf:bytes = link.pending` 之后 `link.pending` 还留着那一份，两个持有者各析构一次。
+// `let buf:Bytes = link.pending` 之后 `link.pending` 还留着那一份，两个持有者各析构一次。
 //
 // 只在交出的那五处调用（落到名字、当实参交出去、`return` 出去、装进容器位置、装进盒子）。
 // 顺着读一次不算：`console.print(o.i.n)`、`length(o.name)`、`o.list.add(x)` 都不产生新持有者，
@@ -463,7 +463,7 @@ func (c *Checker) fieldPath(v ast.Expr) string {
 // afterwards - the same ledger as a container position. The narrowed rule rewrites exactly two things
 // here: text is shared, so a read leaves the position intact, and mutable data still follows the
 // position. Cancelling this rule whole would create a field you can read but nobody can carry
-// away: after `let buf:bytes = link.pending` the field still holds that value and two owners each
+// away: after `let buf:Bytes = link.pending` the field still holds that value and two owners each
 // destroy once. Called only at the five handover sites (into a name, as an argument, through
 // `return`, into a container position, into a box). Reading through does not count:
 // `console.print(o.i.n)`, `length(o.name)` and `o.list.add(x)` create no new holder, and emptying

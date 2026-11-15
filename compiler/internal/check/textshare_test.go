@@ -43,7 +43,7 @@ func TestMutableTypesStillMove(t *testing.T) {
 		"a 已经交出去了，这个名字不能再写")
 	expectErr(t, "class C { }\nlet o:C = new C()\nlet bag:list<C> = [o]\nconsole.print(o)\n",
 		"o 已经交出去了，这个名字不能再写")
-	expectErr(t, "let buf:bytes = bytes.allocate(8)\nlet keep:bytes = buf\nconsole.print(length(keep), length(buf))\n",
+	expectErr(t, "let buf:Bytes = bytes.allocate(8)\nlet keep:Bytes = buf\nconsole.print(length(keep), length(buf))\n",
 		"buf 已经交出去了，这个名字不能再写")
 	// 文本仍然进不了盒子：那一条与归属无关，是拆箱要认类型字
 	expectErr(t, "let o:object = \"甲\" as object\n", "串与非串之间不走 as：变串写 number.to_string，读回数字写 text.to_int")

@@ -11,20 +11,20 @@ import wt from "libs/web_test"
 // 对面那一只套接字：读到的字节先攒起来，需要多少取多少，取完把已用掉的前段切掉。
 class Peer {
     sock:Socket
-    kept:bytes
+    kept:Bytes
 
     method pull() {
-        let block:bytes = bytes.allocate(8192)
+        let block:Bytes = bytes.allocate(8192)
         let n:int = this.sock.recv_into(block)
         if (n <= 0) {
             throw (202, "对面先关了这条连接")
         }
-        let old:bytes = this.kept
+        let old:Bytes = this.kept
         this.kept = bytes.join([old, block.slice(0, n)])
     }
 
     // 收到够 size 个字节为止，返回整 size 个字节（多收的部分留在缓冲区里）
-    method read_up_to(size:int):bytes {
+    method read_up_to(size:int):Bytes {
         while (length(this.kept) < size) {
             this.pull()
         }
@@ -32,11 +32,11 @@ class Peer {
     }
 
     method drop(size:int) {
-        let all:bytes = this.kept
+        let all:Bytes = this.kept
         this.kept = all.slice(size, length(all))
     }
 
-    method send_raw(body:bytes) {
+    method send_raw(body:Bytes) {
         this.sock.send(body)
     }
 }
@@ -70,8 +70,8 @@ method open_door():Door {
     return out
 }
 
-method from_numbers(xs:list<int>):bytes {
-    let out:bytes = bytes.allocate(length(xs))
+method from_numbers(xs:list<int>):Bytes {
+    let out:Bytes = bytes.allocate(length(xs))
     for (i:int from 0 until length(xs)) {
         out[i] = xs[i] as byte
     }
@@ -108,10 +108,10 @@ console.print("自己连自己，端口", door.port)
 
 // 一、两万个字节压成一帧送出去，对面收回来再拆开，正文还是那一段
 let body_text:string = "x".repeat(20000)
-let frame:bytes = wt.build_frame(body_text, from_numbers([1, 2, 3, 4]))
+let frame:Bytes = wt.build_frame(body_text, from_numbers([1, 2, 3, 4]))
 let frame_size:int = length(frame)
 b.send_all_bytes(frame)
-let got_back:bytes = peer.read_up_to(frame_size)
+let got_back:Bytes = peer.read_up_to(frame_size)
 let ok1:boolean = check_int("一、对面收到的字节数", length(got_back), frame_size)
 if (!ok1) {
     bad = bad + 1
@@ -129,8 +129,8 @@ if (!ok3) {
 peer.drop(frame_size)
 
 // 二、对面把一条消息切成两段送过来：头一段 fin 没置（0x01），第二段是接续且 fin 置着（0x80）
-let frag_head:bytes = from_numbers([0x01, 0x02, 65, 66])
-let frag_tail:bytes = from_numbers([0x80, 0x02, 67, 68])
+let frag_head:Bytes = from_numbers([0x01, 0x02, 65, 66])
+let frag_tail:Bytes = from_numbers([0x80, 0x02, 67, 68])
 peer.send_raw(bytes.join([frag_head, frag_tail]))
 let msg_a:string = b.next_message()
 let ok4:boolean = check_true("二、两段拼成一条", msg_a == "ABCD")
@@ -140,14 +140,14 @@ if (!ok4) {
 
 // 三、对面发一条空正文的 ping（0x89 0x00），这一侧要回 pong；后面紧跟一条完整消息，
 // 让读的那一句不必阻塞等待
-let ping:bytes = from_numbers([0x89, 0x00, 0x81, 0x02, 65, 66])
+let ping:Bytes = from_numbers([0x89, 0x00, 0x81, 0x02, 65, 66])
 peer.send_raw(ping)
 let msg_b:string = b.next_message()
 let ok5:boolean = check_true("三、ping 之后照常收到一条消息", msg_b == "AB")
 if (!ok5) {
     bad = bad + 1
 }
-let pong:bytes = peer.read_up_to(6)
+let pong:Bytes = peer.read_up_to(6)
 let ok6:boolean = check_int("三、pong 的第一个字节是 0x8A", pong[0] as int, 0x8A)
 if (!ok6) {
     bad = bad + 1
@@ -159,10 +159,10 @@ if (!ok7) {
 
 // 四、答复前面先来一条不带 id 的通知：认答复那一步要跳过它，不能因为取不到 id 就抛 10092
 // （真浏览器上确实会发生：Target.attachToTarget 之后立刻来一条通知）。
-let key_a:bytes = from_numbers([9, 8, 7, 6])
-let key_b:bytes = from_numbers([9, 8, 7, 6])
-let notice:bytes = wt.build_frame("{\"method\":\"Target.targetCreated\",\"params\":{}}", key_a)
-let answer:bytes = wt.build_frame("{\"id\":1,\"result\":{\"ok\":true}}", key_b)
+let key_a:Bytes = from_numbers([9, 8, 7, 6])
+let key_b:Bytes = from_numbers([9, 8, 7, 6])
+let notice:Bytes = wt.build_frame("{\"method\":\"Target.targetCreated\",\"params\":{}}", key_a)
+let answer:Bytes = wt.build_frame("{\"id\":1,\"result\":{\"ok\":true}}", key_b)
 peer.send_raw(bytes.join([notice, answer]))
 let got_reply:string = b.call("Nop", "{}")
 let ok8:boolean = check_true("四、跳过头上那条通知，认回了自己的答复", got_reply == "{\"id\":1,\"result\":{\"ok\":true}}")

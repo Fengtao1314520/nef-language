@@ -71,7 +71,7 @@ func TestHttpPostEcho(t *testing.T) {
 	}))
 	defer srv.Close()
 	got, code := run(t, `
-let msg:bytes = "甲乙丙".to_bytes()
+let msg:Bytes = "甲乙丙".to_bytes()
 let r:Response = http.post("`+urlOf(srv)+`/echo", msg, 5000)
 console.print(r.status, length(msg), length(r.body), text.from_bytes(r.body))
 console.print(r.body[0], r.body[8])

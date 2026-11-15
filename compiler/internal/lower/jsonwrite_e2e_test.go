@@ -292,13 +292,13 @@ console.print(total)
 // TestJSONWriteRefused 钉检查阶段就拒绝的几种写法：不是到了运行期才交一个 null。
 func TestJSONWriteRefused(t *testing.T) {
 	cases := []struct{ src, want string }{
-		{`let b:bytes = bytes.allocate(2)
+		{`let b:Bytes = bytes.allocate(2)
 console.print(json.from_value(b).to_json())`, "bytes 写不成 JSON"},
 		{`let s:hashset<int> = {1, 2}
 console.print(json.from_value(s).to_json())`, "hashset<int> 写不成 JSON"},
 		{`let j:Json = json.parse("[1]")
 console.print(json.from_value(j).to_json())`, "Json 本来就是一棵树"},
-		{`let row:list<bytes> = [bytes.allocate(2)]
+		{`let row:list<Bytes> = [bytes.allocate(2)]
 console.print(json.from_value(row).to_json())`, "写不成 JSON"},
 		{`let row:Json = json.empty_array()
 row.add(bytes.allocate(2))`, "bytes 写不成 JSON"},

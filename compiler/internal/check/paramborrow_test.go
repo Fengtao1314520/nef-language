@@ -27,7 +27,7 @@ func TestParamKeepsTheCallerName(t *testing.T) {
 	expectOK(t, "method q(s:string) { console.print(s) }\nlet a:string = \"甲\"\nq(a)\nq(a)\nconsole.print(a)\n")
 	expectOK(t, "method q(xs:list<int>) { console.print(length(xs)) }\nlet a:list<int> = [1, 2]\nq(a)\nq(a)\nconsole.print(length(a))\n")
 	expectOK(t, "class C { n:int }\nmethod q(c:C) { console.print(c.n) }\nlet o:C = new C(n: 1)\nq(o)\nq(o)\nconsole.print(o.n)\n")
-	expectOK(t, "method q(b:bytes) { console.print(length(b)) }\nlet buf:bytes = bytes.allocate(8)\nq(buf)\nq(buf)\nconsole.print(length(buf))\n")
+	expectOK(t, "method q(b:Bytes) { console.print(length(b)) }\nlet buf:Bytes = bytes.allocate(8)\nq(buf)\nq(buf)\nconsole.print(length(buf))\n")
 	// 系统给的句柄走的是交出那一条：调用方那一个名字第二次写就报"已经交出去了"
 	expectErr(t, "method q(l:Listener) { }\nlet s:Listener = net.listen(9301, 5000)\nq(s)\nq(s)\n",
 		"s 已经交出去了，这个名字不能再写")

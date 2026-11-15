@@ -245,6 +245,8 @@ func Build() Blob {
 	// @exit 要叫它，所以它排在 @exit 前面；它自己要的 @write／@put_int／@put_nl 都在更前面。
 	b.routine("@heap_report", heapReport)
 	b.routine("@exit", exitProc)
+	// 栈用完这一类致命错误走的出口。它只叫 @out_flush（排在更前面），不叫 @heap_report，
+	// 也不叫 WSACleanup：那两步都要当场开不出来的栈。
 	// winsock 的开机那一步：`nef.main` 的第一条指令叫它
 	b.routine("@winsock_start", winsockStart)
 	// @free 排在 @throw 之前：抛出那一条路要释放摘下来的处理器记录（@throw_walk call @free）。
@@ -2759,7 +2761,13 @@ func die(b *rt) {
 //
 // 这一条不走 @throw_walk，也不跑顶层那本账：归还一块内存本身就要用栈，而栈正是用完的那个东西。
 // 每一帧开场那一次比较就是它唯一的入口（`internal/codegen/link.go` 的 StackGuard），
-// 下限留了 64 KiB 余量，够这一路把话打印完。
+// 下限留了 64 KiB 余量，够把那一行打印完。
+//
+// 打印完之后还要再往前一步：退出。这一步不能留在原栈上做——下限之上那 64 KiB 只够把话说完，
+// 再进一层调用（哪怕只多压一帧）就踩到边界，实测那样退出的进程拿到的是 0xC0000005，
+// 而不是规则写的退出码 1。所以收尾之前先把 rsp 换到这一条线程状态块里那块 aBuf 的顶上：
+// 它是 file／http 转码用的暂存区，用它的那一次调用早就返回了（栈用完是下一次进场才发现的），
+// 此刻不可能还有人用；拿它当临时栈不占产物一个字节。
 //
 // en: @die_stack(): the calls went too deep and the stack is exhausted (code 10093). Print
 // the error sentence and exit with 1. This path does not use @throw_walk and does not run the top
@@ -2767,6 +2775,13 @@ func die(b *rt) {
 // out. The comparison at the start of every frame is its only entry point (StackGuard in
 // internal/codegen/link.go), and the floor keeps 64 KiB of headroom - enough to print the
 // sentence.
+//
+// After printing there is one more step: exit. It must not run on the same stack - those 64 KiB
+// only cover the sentence, and one more call frame (even a single push) crosses the boundary;
+// measured, such a process dies with 0xC0000005 instead of the exit code 1 the rules promise.
+// So before finishing, rsp moves to the top of this thread's aBuf: it is the scratch area for
+// file/http transcoding, whatever used it has long returned (the exhaustion is only noticed at
+// the next frame entry), and borrowing it costs the artifact not one byte.
 func dieStack(b *rt) {
 	a := b.a
 	b.prologue()
@@ -2789,8 +2804,19 @@ func dieStack(b *rt) {
 	a.MovImm(x64.RDX, codeStack) // 错误号：等的那一方读到非 0 就抛 10094
 	b.call("@thread_exit")
 	a.Mark(fromMain)
+	// 程序自己那一条线程：换一块栈再收尾。栈已经贴着下限了，任何一次再进一层的调用
+	// （哪怕只是多压一帧）都踩到边界——实测多调一帧就 0xC0000005，而不是"再多打印几行"。
+	// 借这一条线程状态块里那块 aBuf 当头：它是 file／http 转码用的暂存区，此刻不可能还有人用
+	// （用它的那一次调用早就返回了，栈用完是下一次进场才发现的），拿它当 16 KiB 的临时栈
+	// 不占产物一个字节。
+	b.leaCell(x64.RAX, "aBuf")
+	a.AddImm(x64.RAX, strHead+lineCap)
+	a.AndImm(x64.RAX, -16)
+	a.Mov(x64.RSP, x64.RAX)
+	// 换完栈再交行缓冲：这一句与下一句都在新栈上跑，余量足够。
+	b.call("@out_flush")
 	a.MovImm(x64.RCX, 1)
-	b.call("@exit")
+	b.impCall("ExitProcess")
 	b.epilogue()
 }
 

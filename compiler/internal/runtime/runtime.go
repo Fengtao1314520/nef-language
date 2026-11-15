@@ -2810,14 +2810,19 @@ func dieStack(b *rt) {
 	// 程序自己那一条线程：换一块栈再收尾。栈已经贴着下限了，任何一次再进一层的调用
 	// （哪怕只是多压一帧）都踩到边界——实测多调一帧就 0xC0000005，而不是"再多打印几行"。
 	// 借这一条线程状态块里那块 aBuf 当头：它是 file／http 转码用的暂存区，此刻不可能还有人用
-	// （用它的那一次调用早就返回了，栈用完是下一次进场才发现的），拿它当 16 KiB 的临时栈
-	// 不占产物一个字节。
+	// （用它的那一次调用早就返回了，栈用完是下一次进场才发现的），拿它当临时栈不占产物一个字节。
+	// 先把贴边的那一个 rsp 存进帧里：交完行缓冲要换回来再进 ExitProcess。
+	// 不换回来时实测有几次退出码是 0xC00000FD 一类的怪数——ntdll 收尾会看这一条线程的栈界限，
+	// 而 rsp 指着 .data 里那块缓冲，不在栈的范围内。换回贴边的那一个 rsp 之后，
+	// ExitProcess 只再压一帧，64 KiB 余量足够。
+	b.put(0, x64.RSP)
 	b.leaCell(x64.RAX, "aBuf")
 	a.AddImm(x64.RAX, strHead+lineCap)
 	a.AndImm(x64.RAX, -16)
 	a.Mov(x64.RSP, x64.RAX)
-	// 换完栈再交行缓冲：这一句与下一句都在新栈上跑，余量足够。
+	// 换完栈再交行缓冲：调用链与 WriteFile 都在新栈上跑，余量足够。
 	b.call("@out_flush")
+	b.get(x64.RSP, 0)
 	a.MovImm(x64.RCX, 1)
 	b.impCall("ExitProcess")
 	b.epilogue()

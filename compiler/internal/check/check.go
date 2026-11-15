@@ -2263,13 +2263,13 @@ func (c *Checker) layout(name string) *typeInfo {
 }
 
 // checkInstanceField 判一只实例的字段能不能这样放：
-// 指回自己这一只、经两只以上 struct 绕成环、`struct` 的字段放句柄、`class` 的字段放 `Json`，
-// 四种都在这里拒，判据与句子都取自源码那一份声明的检查（`internal/check/def.go` 的 checkObject）。
+// 指回自己这一只、经两只以上 struct 绕成环、`struct` 的字段放句柄，三种都在这里拒，
+// 判据与句子都取自源码那一份声明的检查（`internal/check/def.go` 的 checkObject）。
 //
 // en: checkInstanceField decides whether one instance field may hold what it was given: pointing
-// back at this very instance, closing a cycle through two or more structs, a struct field
-// holding a handle, or a class field holding Json - all refused here, with the same tests and
-// the same sentences checkObject uses for a declaration in the source.
+// back at this very instance, closing a cycle through two or more structs, or a struct field
+// holding a handle - all refused here, with the same tests and the same sentences checkObject
+// uses for a declaration in the source.
 func (c *Checker) checkInstanceField(info *typeInfo, kind string, at ast.Pos, f field) {
 	t := f.Typ
 	if t.Name == info.name {
@@ -2285,9 +2285,9 @@ func (c *Checker) checkInstanceField(info *typeInfo, kind string, at ast.Pos, f 
 		}
 		return
 	}
-	if t.Kind == Json {
-		c.fail(at, "%s 只能待在名字、实参与返回值里，不能当字段", t)
-	}
+	// `Json` 不在这一句里：字段那一格的形状是 KindJson，覆盖与析构都走 nef.json.free。
+	// en: Json is not refused here: the field's shape is KindJson, and both overwriting and
+	// dismantling go through nef.json.free.
 }
 
 // objMethods 只取这个类型自己写的方法（不含从 base 摊上来的），用来给后端建 "类型名.方法名" 表。
@@ -2634,6 +2634,13 @@ func keyReason(t Type) string {
 	case Struct, List, Dict, Set:
 		return "逐字段比、字段还能改，散列值守不住"
 	case Bool, Int, Byte, Unicode, Str, Enum, Class, Obj:
+		return ""
+	case Json:
+		// 一棵树的"相等"按身份算（与 class、容器同一条）：句柄就是那一个地址，
+		// 散列与比较都不必进树里看内容，所以能当 `hashset` 的元素、也能当 `dict` 的键。
+		// en: A tree compares by identity, the same rule as a class and a container: the
+		// handle is that address, so neither hashing nor equality enters the tree - it can be a
+		// hashset element and a dict key.
 		return ""
 	}
 	return "这个类型不能当键"

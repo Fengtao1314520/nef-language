@@ -146,11 +146,11 @@ func (c *Checker) lookupTypeParam(name string) (Type, bool) {
 func (c *Checker) checkTypeArguments(args []Type, containerName string, where ast.Pos) {
 	for _, a := range args {
 		c.checkTypeUsable(a, where)
-		// `Json` 头上没有运行期的类型字（`lower.go` 的 `tagOf`），那个位置的形状与析构
-		// 都要靠它：不作处理的话，打印出来会是 `[null, null]` 这种静默的错误结果。
-		if a.Kind == Json {
-			c.fail(where, "%s 进不了 %s：先把它拆成自己要的值，或者存那段文本", a, containerName)
-		}
+		// `Json` 现在能进容器与泛型实例的位置：形状表里 `KindJson` 那一条早就有了，
+		// 打印走 nef.json.render、析构走 nef.json.free，容器存的就是一个 8 字节的节点句柄。
+		// en: Json now enters containers and generic instances: the shape table has had its
+		// KindJson row all along, printing goes through nef.json.render and dismantling through
+		// nef.json.free, and a container position holds an 8-byte node handle.
 		// Socket 与 Listener 同理：那个位置要的是能被完整持有并一路析构的一块内存，
 		// 而句柄的释放方式是调用一次关闭；两只名字指着同一个句柄会导致它被关闭两次。
 		// Process 也在这一条上：它同样是调用一次关闭，而且它并不是一块内存。

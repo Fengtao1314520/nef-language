@@ -320,11 +320,11 @@ func (c *Checker) checkObject(o *ast.Object) {
 		if o.Kind == "struct" && !fieldHoldsValue(t) {
 			c.fail(f.Where(), "struct 的字段只能放值类型、string 或另一个 struct，这里是 %s", t)
 		}
-		// 与容器同一道拒绝：`Json` 没有类型字，字段释放时无法识别它，
-		// 不在定义处拒绝的话，到发码阶段才报"后端还没做到这些"。
-		if o.Kind == "class" && t.Kind == Json {
-			c.fail(f.Where(), "%s 只能待在名字、实参与返回值里，不能当字段", t)
-		}
+		// `Json` 能当 `class` 的字段：字段那一格的形状表条目是 `KindJson`，
+		// 覆盖旧值与整个对象析构时都走 nef.json.free（与容器那个位置同一条路）。
+		// en: Json may be a class field: that field's shape row is KindJson, and both
+		// overwriting the old value and dismantling the whole object go through nef.json.free,
+		// the same route as a container position.
 	}
 	// base 只能是接口
 	if o.Base != nil {

@@ -143,7 +143,7 @@ console.print(p.left, p.right, twice(21), twice<string>("丙"))    // 1 乙 21 �
 | 造值 | `class` 写 `new Basket<int>(v: 3, count: 1)`，`struct` 写 `Pair<int, string>{left: 1, right: "乙"}`；字段仍然必须列全 |
 | 调用 | 尖括号可以省：`twice(21)` 由实参推出 `Element` 是 `int`。参数位置上出现不了的那个类型参数才必须写出来 |
 | 判等与转换 | `Basket<int>` 与 `Basket<string>` 是两个类型，之间不自动转换；`is` 与 `as` 认的也是写全的名称 |
-| 能填什么 | 判据与容器相同：`Json`、`Socket`、`Listener`、`Process` 与函数值填不进去，报的句子也与容器同一份，例如 `Json 进不了 Basket：先把它拆成自己要的值，或者存那段文本`。声明那里不检查类型参数能做什么，用到说不通的动作时才报错 |
+| 能填什么 | 判据与容器相同：`Json` 可以填；`Socket`、`Listener`、`Process` 与函数值填不进去，报的句子与容器同一份，例如 `Socket 进不了 Basket：它是操作系统给的句柄，只待在名字、实参与返回值里`。声明那里不检查类型参数能做什么，用到说不通的动作时才报错 |
 
 ```nf-bad
 class Box<Content> {

@@ -9,7 +9,8 @@ import (
 )
 
 // TestGenericInstanceArguments 钉住尖括号里能填哪些类型：判据与容器那本账一条一条对得上——
-// `Json`、三种系统句柄、函数值各撞一句现成的话，一只实例与另一只实例之间不自动转换。
+// 三种系统句柄、函数值各撞一句现成的话（`Json` 与函数值现在填得进去），
+// 一只实例与另一只实例之间不自动转换。
 // 这几句都在清单上原有的句子里，泛型这一段一句新的也没添。
 //
 // en: TestGenericInstanceArguments pins which types may be filled in: the judgments match the
@@ -18,8 +19,9 @@ import (
 // is already on the list; this segment adds none.
 func TestGenericInstanceArguments(t *testing.T) {
 	head := "class Box<Content> {\n    v:Content\n}\n\n"
-	expectErr(t, head+"let a:Box<Json> = new Box<Json>(v: null)\n",
-		"Json 进不了 Box：先把它拆成自己要的值，或者存那段文本")
+	expectErr(t, head+"let a:Box<Socket> = new Box<Socket>(v: null)\n",
+		"Socket 进不了 Box：它是操作系统给的句柄，只待在名字、实参与返回值里")
+	expectOK(t, head+"let a:Box<Json> = new Box<Json>(v: json.parse(\"1\"))\nconsole.print(a.v.kind())\n")
 	// 函数值能进容器的实例（2026-11-15）：它就是 8 字节的入口地址，字段装得下。
 	expectOK(t, "method twice(v:int):int {\n    return v * 2\n}\n"+head+"let a:Box<fn(int):int> = new Box<fn(int):int>(v: twice)\nlet f:fn(int):int = a.v\nconsole.print(f(3))\n")
 	expectErr(t, head+"let a:Box<int> = new Box<string>(v: \"甲\")\n",

@@ -988,12 +988,21 @@ func stdMember(base Type, name string) member {
 				return member{}
 			}
 			return member{kind: memberStd, typ: Type{Kind: FuncT, Name: group}, sig: methodSig{Params: []Param{{Typ: key}}, Ret: typeBool}}
-		case "sort", "index_of":
+		case "sort", "sort_by", "index_of":
 			if base.Kind != List {
 				return member{} // 只有 list 能排序，也只有 list 有"第几个位置"
 			}
-			if name == "sort" {
+			switch name {
+			case "sort":
 				return member{kind: memberStd, typ: Type{Kind: FuncT, Name: group}}
+			case "sort_by":
+				// 比较器自己说自己怎么排：fn(T,T):int，负数在前、正数在后、0 不动。
+				// 元素类型不限——比较器收的就是元素本身，能不能比由它决定。
+				// en: The comparator says how to order: fn(T,T):int, negative first, positive
+				// later, zero leaves the pair alone. Any element type is allowed - the
+				// comparator receives the element itself and decides what compares.
+				return member{kind: memberStd, typ: Type{Kind: FuncT, Name: group},
+					sig: methodSig{Params: []Param{{Typ: funcTypeOf(typeInt, []Type{elem, elem})}}}}
 			}
 			return member{kind: memberStd, typ: Type{Kind: FuncT, Name: group}, sig: methodSig{Params: []Param{{Typ: elem}}, Ret: typeInt}}
 		case "keys", "values":

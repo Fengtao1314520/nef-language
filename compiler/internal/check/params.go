@@ -181,6 +181,7 @@ var stdParamNames = map[string][]string{
 	"list.reverse":   {},
 	"list.slice":     {"start", "end"},
 	"list.sort":      {},
+	"list.sort_by":   {"by"},
 	"list.to_set":    {},
 
 	"dict.set":      {"key", "value"},

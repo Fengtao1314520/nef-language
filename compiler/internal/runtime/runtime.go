@@ -403,6 +403,7 @@ func Build() Blob {
 	b.routine("@str_pad", strPad)
 	b.routine("@list_index_of", listIndexOf)
 	b.routine("@list_sort", listSort)
+	b.routine("@list_sort_by", listSortBy)
 	b.routine("@dict_entries", dictEntries)
 	// 这三条：一头一尾与整只清空走的是 @list_at 同一条判断，集合三条造新表走 @map_*
 	b.routine("@list_pop_last", listPopLast)
@@ -4267,6 +4268,135 @@ func listSort(b *rt) {
 	b.call("@free")
 	a.Mark(touch)
 	b.get(x64.RCX, sList)
+	b.call("@list_touch")
+	b.epilogue()
+}
+
+// @list_sort_by(rcx=句柄, rdx=比较器地址, r8=元素是不是小数)：按比较器就地排。
+//
+// 用插入排序：稳定、只挪句柄、不要第二块数据区，列表的长度在语言里也不会大到需要更快的排法。
+// 比较器是 `fn(T,T):int`：负数表示头一个在前，正数表示后一个在前，0 保持原来的先后。
+// 每一次比较都要跨过一次用户代码的调用，所以游标一律放在帧里，调用回来再取；
+// 元素在槽位里就是 8 个字节，文本、class、容器、Json 交过去的是句柄，值类型交过去的是值本身。
+// 小数那一种的比较器参数走 xmm0／xmm1（与直接调用同一套摆法），第三个入参就是这件事的开关。
+// 排完把"改过几次"推一个位置，理由与 @list_sort 相同。
+//
+// en: @list_sort_by (rcx = handle, rdx = comparator address, r8 = whether the element is a
+// float): sort in place by the comparator. Insertion sort - stable, moves handles only, needs no
+// second data area, and a list in this language never grows big enough to want a faster one. The
+// comparator is fn(T,T):int: negative puts the first argument first, positive the second, zero
+// keeps the original order. Every comparison crosses into user code, so cursors live in the frame
+// and are reloaded after the call; an element occupies exactly 8 bytes in a slot - text, class,
+// containers and Json hand over a handle, a value type hands over the value itself. For a float
+// element the comparator's parameters travel in xmm0/xmm1 (the same placement as a direct call);
+// the third argument is the switch for that. When done, the mutation counter advances for the
+// same reason as @list_sort.
+func listSortBy(b *rt) {
+	const (
+		gList  = 0 // 句柄
+		gFn    = 1 // 比较器地址
+		gFloat = 2 // 1 = 元素是小数字节
+		gN     = 3 // 几格
+		gData  = 4 // 数据块起点
+		gI     = 5 // 这一轮要插进去的位置
+		gJ     = 6 // 往回看的游标
+		gKey   = 7 // 这一轮要插进去的那一份
+		gA     = 8 // 回头看到的这一份
+	)
+	a := b.a
+	b.prologue()
+	b.put(gList, x64.RCX)
+	b.put(gFn, x64.RDX)
+	b.put(gFloat, x64.R8)
+	b.get(x64.RAX, gList)
+	a.MovLoad(x64.RAX, x64.RAX, cLen)
+	b.put(gN, x64.RAX)
+	a.CmpImm(x64.RAX, 2)
+	done := b.label()
+	a.Jcc(x64.B, done)
+	b.get(x64.RAX, gList)
+	a.MovLoad(x64.RAX, x64.RAX, cData)
+	b.put(gData, x64.RAX)
+	a.MovImm(x64.RAX, 1)
+	b.put(gI, x64.RAX)
+
+	outer := b.label()
+	inner := b.label()
+	place := b.label()
+	numCall := b.label()
+	doCall := b.label()
+
+	a.Mark(outer)
+	b.get(x64.RAX, gI)
+	b.get(x64.RDX, gN)
+	a.Cmp(x64.RAX, x64.RDX)
+	a.Jcc(x64.AE, done)
+	// key = data[i]，j = i - 1
+	b.get(x64.RSI, gData)
+	b.get(x64.RDX, gI)
+	a.ShlImm(x64.RDX, 3)
+	a.Add(x64.RSI, x64.RDX)
+	a.MovLoad(x64.RAX, x64.RSI, 0)
+	b.put(gKey, x64.RAX)
+	b.get(x64.RDX, gI)
+	a.AddImm(x64.RDX, -1)
+	b.put(gJ, x64.RDX)
+
+	a.Mark(inner)
+	b.get(x64.R9, gJ)
+	a.CmpImm(x64.R9, 0)
+	a.Jcc(x64.L, place)
+	// a = data[j]，然后 call cmp(a, key)
+	b.get(x64.RSI, gData)
+	b.get(x64.RDX, gJ)
+	a.ShlImm(x64.RDX, 3)
+	a.Add(x64.RSI, x64.RDX)
+	a.MovLoad(x64.RAX, x64.RSI, 0)
+	b.put(gA, x64.RAX)
+	b.get(x64.R8, gFloat)
+	a.Test(x64.R8, x64.R8)
+	a.Jcc(x64.E, numCall)
+	b.get(x64.RAX, gA)
+	a.MovsdFromGPR(0, x64.RAX)
+	b.get(x64.RAX, gKey)
+	a.MovsdFromGPR(1, x64.RAX)
+	a.Jmp(doCall)
+	a.Mark(numCall)
+	b.get(x64.RCX, gA)
+	b.get(x64.RDX, gKey)
+	a.Mark(doCall)
+	b.get(x64.R11, gFn)
+	a.CallReg(x64.R11)
+	a.CmpImm(x64.RAX, 0)
+	a.Jcc(x64.LE, place)
+	// data[j+1] = a，再把 j 往回挪一格
+	b.get(x64.RSI, gData)
+	b.get(x64.RDX, gJ)
+	a.AddImm(x64.RDX, 1)
+	a.ShlImm(x64.RDX, 3)
+	a.Add(x64.RSI, x64.RDX)
+	b.get(x64.RAX, gA)
+	a.MovStore(x64.RSI, 0, x64.RAX)
+	b.get(x64.RDX, gJ)
+	a.AddImm(x64.RDX, -1)
+	b.put(gJ, x64.RDX)
+	a.Jmp(inner)
+
+	a.Mark(place)
+	b.get(x64.RSI, gData)
+	b.get(x64.RDX, gJ)
+	a.AddImm(x64.RDX, 1)
+	a.ShlImm(x64.RDX, 3)
+	a.Add(x64.RSI, x64.RDX)
+	b.get(x64.RAX, gKey)
+	a.MovStore(x64.RSI, 0, x64.RAX)
+	b.get(x64.RDX, gI)
+	a.AddImm(x64.RDX, 1)
+	b.put(gI, x64.RDX)
+	a.Jmp(outer)
+
+	a.Mark(done)
+	b.get(x64.RCX, gList)
 	b.call("@list_touch")
 	b.epilogue()
 }

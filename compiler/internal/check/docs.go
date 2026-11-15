@@ -689,6 +689,11 @@ var stdDocs = map[string]StdDoc{
 		En: "Removes the first element equal to it and answers whether it was there: true when removed, false when not. The removed element is destroyed on the spot.",
 		Eg: "let xs: list<int> = [1, 2]\nxs.remove(2)",
 	},
+	"list.sort_by": {
+		Zh: "按比较器排先后：`by` 收两个元素、返回 int，负数表示前一个在前，正数表示后一个在前，0 保持原来的先后。排序就地完成，元素类型不限。",
+		En: "Orders by a comparator: by takes two elements and returns an int - negative puts the first first, positive the second, zero keeps the original order. The sort is in place and any element type is accepted.",
+		Eg: "method by_length(a: string, b: string): int { return length(a) - length(b) }\nlet xs: list<string> = [\"甲乙\", \"丙\"]\nxs.sort_by(by_length)",
+	},
 	"list.remove_at": {
 		Zh: "从某个位置移除，返回被移除的元素。",
 		En: "Removes the element at a position and returns it.",

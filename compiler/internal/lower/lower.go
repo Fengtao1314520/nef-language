@@ -1216,7 +1216,7 @@ func (c *fc) listLit(x *ast.ListLit, t check.Type) (ir.Val, check.Type, error) {
 // action leaves Recv empty, so the receiver must be looked up from the left side of the dot.
 func containerAction(name string) bool {
 	switch name {
-	case "length", "list.add", "list.remove", "list.sort", "list.index_of",
+	case "length", "list.add", "list.remove", "list.sort", "list.sort_by", "list.index_of",
 		"list.first", "list.last", "list.clear",
 		"list.reverse", "list.add_all", "list.to_set", "list.slice", "list.insert_at", "list.remove_at",
 		"dict.set", "dict.remove", "dict.contains", "dict.keys", "dict.values", "dict.get", "dict.take",
@@ -1360,6 +1360,21 @@ func (c *fc) stdContainer(x *ast.Call, ref check.CallRef, t check.Type) (ir.Val,
 		}
 		c.f.Emit(&ir.Call{Fn: "@list_sort", Args: []ir.Val{recv, ir.K(mode)},
 			FT: []ir.T{ir.TInt, ir.TInt}})
+		return nil, t, nil
+	case "list.sort_by":
+		// 比较器是函数值：那一份地址只是被用一下，不改变归属。元素一种一种地递过去——
+		// 槽里躺的就是那 8 个字节；小数要换成 xmm，由运行期那一侧按第三个入参决定。
+		fn, _, err := c.expr(x.Args[0])
+		if err != nil {
+			return nil, t, err
+		}
+		c.guardNotNull(fn)
+		way := int64(0)
+		if len(rt.Args) > 0 && rt.Args[0].Kind == check.Float {
+			way = 1
+		}
+		c.f.Emit(&ir.Call{Fn: "@list_sort_by", Args: []ir.Val{recv, fn, ir.K(way)},
+			FT: []ir.T{ir.TInt, ir.TInt, ir.TInt}})
 		return nil, t, nil
 	case "list.index_of":
 		v, vt, err := c.expr(x.Args[0])

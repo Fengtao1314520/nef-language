@@ -482,6 +482,13 @@ type Facts struct {
 	Calls    map[*ast.Call]CallRef
 	EnumVals map[string]int64     // "D.a" → 它的值
 	Tests    map[*ast.Test]Type   // `x is T` 里那个 T——结果本身恒为 boolean，被判断的类型要另记
+	// Narrow 记的是 `if (o is C)` 那一支里、被收窄成 C 的每一个使用点：
+	// 键是那一个 `o` 的语法节点，值是它在那一处按哪一只类型看。出了那一支就不再记。
+	// 后端不靠它取字段偏移（Types 上记的已经是收窄后的类型），它留给编辑器与测试查。
+	// en: Narrow records every use inside an `if (o is C)` branch that sees o as C: the key is
+	// that Name node, the value is the type it is seen as there. Nothing is recorded outside the
+	// branch. The backend does not read field offsets from it (Types already carries the narrowed
+	// type); it is for the editor and for tests.
 	Funcs    map[string]*ast.Func // 规范名 → 函数体；方法是 "类型名.方法名"
 	// Sigs 是每一个函数与方法算好的签名（键与 Funcs 同一种写法：方法是"类型名.方法名"，
 	// 包里的带包根）。编辑器那一侧的补全与悬停使用这一张表；标准库那些不在这里，
@@ -608,6 +615,8 @@ type Facts struct {
 	// creates no new holder. A text field is not recorded: that one is shared and the position
 	// stays (the sharing tier for text).
 	Taken map[ast.Expr]bool
+	// Narrow 记的是 `if (o is C)` 那一支里、被收窄成 C 的每一个使用点。
+	Narrow map[*ast.Name]Type
 	// ParamBorrow 记的是：这一个参数只是借来看一眼，那一个位置到尽头不归还。
 	// 实参一律改成只读借用之后自己写的函数与方法的每一个参数都是借用，只有类型要挑一挑：
 	// 值类型与 struct 是拷贝（那一份归这一个位置），文本走的是共用（谁都不归还），
@@ -784,6 +793,7 @@ func newFacts() *Facts {
 		Calls:        map[*ast.Call]CallRef{},
 		EnumVals:     map[string]int64{},
 		Tests:        map[*ast.Test]Type{},
+		Narrow:       map[*ast.Name]Type{},
 		Funcs:        map[string]*ast.Func{},
 		Sigs:         map[string]Signature{},
 		TmplSigs:     map[*ast.Func]Signature{},
@@ -828,7 +838,8 @@ func RunWithFacts(p *Program, wantFacts bool) ([]Error, *Facts) {
 		facts = newFacts()
 	}
 	c := &Checker{prog: p, types: map[string]*typeInfo{}, typeAlias: map[string]*typeAliasInfo{}, funcs: map[string]funcInfo{},
-		vars: map[string]Type{}, moved: map[string]bool{}, consts: map[string]bool{}, borrowed: map[string]string{},
+		vars: map[string]Type{}, moved: map[string]bool{}, narrow: map[string]narrowFact{},
+		consts: map[string]bool{}, borrowed: map[string]string{},
 		borrowRead: map[ast.Expr]bool{}, shared: map[string]bool{},
 		imported: map[string]ImportedName{}, usedImp: map[string]bool{}, usedGroup: map[string]bool{},
 		covered: map[*ast.Switch]bool{}, fieldOf: map[ast.Expr]Type{}, facts: facts,
@@ -1267,6 +1278,10 @@ type Checker struct {
 	funcs     map[string]funcInfo
 	vars      map[string]Type
 	moved     map[string]bool
+	// narrow 是 `if (o is C)` 那一层的临时结论，按名字与声明节点记；见 narrow.go。
+	// en: narrow is the temporary "if (o is C)" conclusion, keyed by name and declaration node;
+	// see narrow.go.
+	narrow map[string]narrowFact
 	consts    map[string]bool
 	// topVals 是这一趟里每一份文件顶层那些 `const` 与 `export shared`：键与 funcs、types
 	// 同一种写法（包里的带包根）。包外面按点号取一个导出的数读的就是它。

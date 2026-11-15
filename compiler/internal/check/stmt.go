@@ -41,8 +41,15 @@ func (c *Checker) stmt(s ast.Stmt) {
 			// 每条路都从"进入那一刻"的状态出发：上一支里交出掉的名字，
 			// 不该让这一支的条件与本体误报（else if 就是靠这一点才成立）。
 			c.moved = c.snapshotOf(enter)
+			// `if (o is C)` 那一支里 `o` 按 C 看；出了这一支就丢掉，下一支（else if／else）
+			// 不继承——"这一问为假"只说明不是 C，说不了是别的什么。
+			// en: inside the `if (o is C)` branch o is seen as C; it is dropped when the branch
+			// ends and the next branch inherits nothing - "false" says only "not C".
+			narrowed := c.pushNarrow()
 			c.exprExpected(cond, typeBool)
+			c.noteNarrow(cond)
 			c.runBranch(enter, st.Bodies[i], out)
+			c.popNarrow(narrowed)
 		}
 		if st.HasElse {
 			c.moved = c.snapshotOf(enter)

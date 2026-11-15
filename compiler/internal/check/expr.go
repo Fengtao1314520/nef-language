@@ -293,12 +293,22 @@ func (c *Checker) nameExpr(n *ast.Name, want Type) Type {
 		return errType
 	}
 	c.markUsed(n.Text)
+	// `if (o is C)` 那一支里，这个名字按 C 看；窄化按声明节点认，出了那一支就没了。
+	// en: inside an `if (o is C)` branch this name is seen as C; the narrowing is keyed by the
+	// declaration node and gone once the branch ends.
+	seen := v.typ
+	if t, ok := c.narrowed(n.Text, v); ok {
+		seen = t
+		if c.facts != nil {
+			c.facts.Narrow[n] = t
+		}
+	}
 	if c.facts != nil {
 		decl, _ := v.node.(*ast.Decl)
 		param, _ := v.node.(*ast.Param)
-		c.facts.Binds[n] = Bind{By: v.by, Global: depth == 0, Decl: decl, Param: param, Typ: v.typ, At: v.pos}
+		c.facts.Binds[n] = Bind{By: v.by, Global: depth == 0, Decl: decl, Param: param, Typ: seen, At: v.pos}
 	}
-	return v.typ
+	return seen
 }
 
 func (c *Checker) isKnownFunc(name string) bool {
@@ -557,7 +567,21 @@ func (c *Checker) refuseOrder(b *ast.Binary, l Type) {
 }
 
 func (c *Checker) binary(b *ast.Binary) Type {
-	if b.Op == "&&" || b.Op == "||" {
+	if b.Op == "&&" {
+		// 左边成立时右边才看：左半边认出来的 `o is C` 在右半边生效。
+		// en: the right side is only reached when the left holds, so a narrowing the left half
+		// established is in force there.
+		c.exprExpected(b.Left, typeBool)
+		saved := c.pushNarrow()
+		c.noteNarrow(b.Left)
+		c.exprExpected(b.Right, typeBool)
+		c.popNarrow(saved)
+		return typeBool
+	}
+	if b.Op == "||" {
+		// 左边为假时才看右边，那时候说不了 `o` 是什么：不窄化。
+		// en: the right side runs only when the left is false, which says nothing about what o
+		// is; no narrowing.
 		c.exprExpected(b.Left, typeBool)
 		c.exprExpected(b.Right, typeBool)
 		return typeBool

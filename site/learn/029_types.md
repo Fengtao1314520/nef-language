@@ -199,7 +199,7 @@ console.print(length(box))
 
 读一个位置不拿走那个位置上的值，所以 `box` 走完一圈还是满的。要把它接给一个名字由这个名字拿着，写 `let one:object = box.remove_at(i)`：那个位置交出来，后面的位置依次前移。
 
-`is` 不会自动收窄类型，判断通过后仍需写出 `as` 来取值。
+`is` 在 `if (o is C)` 那一支里把 `o` 收窄成 `C`：本体里直接写 `o.field` 就行，不必再 `as C`。收窄只活在这一支里，`else` 与 `||` 右边都不继承；`&&` 的右半边继承左边的结论。被问的不是一个名字（`box[i] is Note`）时不收窄，取值仍然要写 `as`。
 
 从容器里读一个位置不拿走值，所以 `(box[i] as Note).body` 这样当场读当场拆就行。要把那个对象留下来自己拿着，先摘出来再拆：`let one:object = box.remove_at(i)`，然后 `one as Note`。
 

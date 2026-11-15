@@ -6,7 +6,7 @@
 
 | 作用 | `list` | `dict` | `hashset` |
 | --- | --- | --- | --- |
-| 添加一个元素 | `a.add(9)` | `d.add("k", 1)` | `s.add(9)` |
+| 添加一个元素 | `a.add(9)` | `d.set("k", 1)` | `s.add(9)` |
 | 删除一个元素 | `a.remove(9)` | `d.remove("k")` | `s.remove(9)` |
 | 统计元素个数 | `length(a)` | `length(d)` | `length(s)` |
 | 是否存在 | 没有 | `d.contains("k")` | `s.contains(9)` |
@@ -34,7 +34,7 @@
 
 `remove_at` 与 `slice` 的越界规则和方括号、`s.slice` 相同：下标为负、`起 > 止`、终点超出长度都抛 10031 号。在空的列表上调用 `remove_at` 也是这一个错误码。
 
-三个 `remove` 找不到给定元素时也不做任何事，长度不变；被删除的元素当场释放：它原来所在的位置是它唯一的持有者。`dict.add` 命中已有的键时是覆盖，替换下来的旧值同样当场释放。需要留意的是下面三种抛出错误的情形：
+三个 `remove` 找不到给定元素时也不做任何事，长度不变；被删除的元素当场释放：它原来所在的位置是它唯一的持有者。`dict.set` 命中已有的键时是覆盖，替换下来的旧值同样当场释放。需要留意的是下面三种抛出错误的情形：
 
 | 位置 | 抛 | 消息 |
 | --- | --- | --- |
@@ -53,7 +53,7 @@ let seen:hashset<int> = {1, 2}
 seen.add(2)
 
 let ages:dict<string, int> = {}
-ages.add("阿明", 31)
+ages.set("阿明", 31)
 
 console.print(length(items), items[0], length(seen), ages.contains("阿明"))
 ```
@@ -117,7 +117,7 @@ xs.clear()
 console.print(length(xs))
 
 let scores:dict<string, int> = {}
-scores.add("语文", 92)
+scores.set("语文", 92)
 console.print(scores.get("语文", 0), scores.get("数学", 0))
 
 let a:hashset<int> = {1, 2, 3}
@@ -142,7 +142,7 @@ true false
 
 `d.get(key, fallback)` 两个位置都只读一次：命中读的是表里那个位置，没有命中读的是调用处递进来的默认值，读回来的那一份是借来的，接不进名字；键与默认值两边的原名在这条调用之后都还能用。并、交、差三个运算各返回一个新的集合，进去的两个集合不发生变化。
 
-`add`、`remove`、`contains` 只作为容器的成员存在，不占用全局名字，自己的 `class` 里可以照原样写 `method add(...)`。
+`add`（`dict` 上是 `set`）、`remove`、`contains` 只作为容器的成员存在，不占用全局名字，自己的 `class` 里可以照原样写 `method add(...)`。
 
 键不必是固定的字面量。下面的例子统计每个词出现的次数。
 
@@ -156,7 +156,7 @@ for (w:string in words) {
     if (n.contains(key)) {
         n[key] = n[key] + 1
     } else {
-        n.add(key, 1)
+        n.set(key, 1)
     }
 }
 
@@ -203,7 +203,7 @@ console.print(length(n), n["秋"], n["风"], n["水"])
 
 ```nf
 let scores:dict<string, int> = {"甲": 90}
-scores.add("乙", 71)
+scores.set("乙", 71)
 
 for (k:string in scores) {
     console.print(k, scores[k])

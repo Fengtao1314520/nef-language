@@ -130,7 +130,7 @@ if (ages.contains("老赵")) {
 
 ```nf
 let scores:dict<string, int> = {"甲": 90}
-scores.add("乙", 71)
+scores.set("乙", 71)
 
 for (k:string in scores) {
     console.print(k, scores[k])

@@ -954,9 +954,17 @@ func stdMember(base Type, name string) member {
 	switch base.Kind {
 	case List, Set, Dict:
 		switch name {
-		case "add":
+		// 键值容器写 `set`，序列与集合写 `add`：同一个动作在两个类型上不该有两个名字，
+		// 而 `add` 在 `list` 上只收一个值、在 `dict` 上收两个，同名不同形状更容易看错。
+		case "add", "set":
 			if base.Kind == Dict {
+				if name == "add" {
+					return member{}
+				}
 				return member{takes: true, kind: memberStd, typ: Type{Kind: FuncT, Name: group}, sig: methodSig{Params: []Param{{Typ: key}, {Typ: val}}}}
+			}
+			if name == "set" {
+				return member{}
 			}
 			return member{takes: true, kind: memberStd, typ: Type{Kind: FuncT, Name: group}, sig: methodSig{Params: []Param{{Typ: elem}}}}
 		case "remove":
@@ -1102,9 +1110,9 @@ func stdMember(base Type, name string) member {
 			return member{kind: memberStd, typ: Type{Kind: FuncT, Name: group}, sig: methodSig{Params: []Param{{Typ: typeStr}}, Ret: typeJson}}
 		case "take_at":
 			return member{kind: memberStd, typ: Type{Kind: FuncT, Name: group}, sig: methodSig{Params: []Param{{Typ: typeInt}}, Ret: typeJson}}
-		case "to_integer":
+		case "to_int":
 			return member{kind: memberStd, typ: Type{Kind: FuncT, Name: group}, sig: methodSig{Params: []Param{{Typ: typeInt}}, Ret: typeInt}}
-		case "to_number":
+		case "to_float":
 			return member{kind: memberStd, typ: Type{Kind: FuncT, Name: group}, sig: methodSig{Params: []Param{{Typ: typeFloat}}, Ret: typeFloat}}
 		case "to_boolean":
 			return member{kind: memberStd, typ: Type{Kind: FuncT, Name: group}, sig: methodSig{Params: []Param{{Typ: typeBool}}, Ret: typeBool}}
@@ -2584,7 +2592,7 @@ var stdFuncs = map[string]stdSig{
 	// 树上的读取、写入与渲染全挂在 `Json` 这个类型上（见 stdMember 的 Json 那一段与
 	// `internal/check/params.go` 的成员那一段）；取一个位置写成 `tree[键]` 与 `tree[位置]`，
 	// 数元素写成 `length(tree)`。取不到一律返回 null，不新增错误码——所以 `tree[键]`、
-	// `to_text` 的返回类型是可空的引用类型；那三条返回值类型的（`to_integer`／`to_number`／
+	// `to_text` 的返回类型是可空的引用类型；那三条返回值类型的（`to_int`／`to_float`／
 	// `to_boolean`）多带一个默认值，与 `dict.get(键, 默认)` 同一种形状（值类型不能取 null）。
 	"json.parse":   {params: []Param{{Typ: typeStr}}, ret: typeJson},
 	"json.explain": {params: []Param{{Typ: typeStr}}, ret: typeStr},

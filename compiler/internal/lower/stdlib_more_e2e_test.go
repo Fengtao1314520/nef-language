@@ -118,11 +118,11 @@ throw (7, "补位之后抛出")
 func TestDictGet(t *testing.T) {
 	got, code := run(t, `
 let d:dict<string, int> = {}
-d.add("甲", 7)
+d.set("甲", 7)
 console.print(d.get("甲", -1))
 console.print(d.get("乙", -1), length(d))
 let w:dict<string, string> = {}
-w.add("语言", "Nef")
+w.set("语言", "Nef")
 console.print(w.get("语言", "没有"))
 console.print(length(w))
 `)

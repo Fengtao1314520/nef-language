@@ -55,11 +55,11 @@ console.print(length(xs), xs[0].n, xs[1].n)
 `},
 		{"dict.add",
 			`    let d:dict<string, Rec> = {"丙": Rec { n: 0 }}
-    d.add("甲", Rec { n: i })
+    d.set("甲", Rec { n: i })
     total = total + d["甲"].n
 `, "2 1 2\n",
 			recDecl + `let d:dict<string, Rec> = {"甲": Rec { n: 1 }}
-d.add("乙", Rec { n: 2 })
+d.set("乙", Rec { n: 2 })
 console.print(length(d), d["甲"].n, d["乙"].n)
 `},
 	}
@@ -92,7 +92,7 @@ func TestDictAddOverwriteFreesTheOldBlock(t *testing.T) {
 	const prog = recDecl + `let d:dict<string, Rec> = {"甲": Rec { n: 0 }}
 let total:int = 0
 for (i:int in 0 until @N@) {
-    d.add("甲", Rec { n: i })
+    d.set("甲", Rec { n: i })
     total = total + d["甲"].n
 }
 console.print(total)
@@ -249,7 +249,7 @@ func TestContainerCopySweep(t *testing.T) {
     total = total + xs[0].n
 `, 0},
 		{"字面量交 dict.add", `    let d:dict<string, Rec> = {"丙": Rec { n: 0 }}
-    d.add("甲", Rec { n: i })
+    d.set("甲", Rec { n: i })
     total = total + d["甲"].n
 `, 0},
 		{"名字进 list（名字仍是自己那一块的持有者）", `    let one:Rec = Rec { n: i }

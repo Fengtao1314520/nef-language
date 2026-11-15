@@ -494,15 +494,15 @@ var stdDocs = map[string]StdDoc{
 		En: "Reads the node as a boolean, falling back to the second argument when it is not a boolean.",
 		Eg: `let tree: Json = json.parse("true")` + "\n" + `let flag: boolean = tree.to_boolean(false)`,
 	},
-	"json.to_integer": {
+	"json.to_int": {
 		Zh: "只有整数形态的数能取到值（3、-12），其他情况返回默认值。",
 		En: "Reads the node as an integer, falling back to the second argument when it is not an integer.",
-		Eg: `let tree: Json = json.parse("7")` + "\n" + `let n: int = tree.to_integer(0)`,
+		Eg: `let tree: Json = json.parse("7")` + "\n" + `let n: int = tree.to_int(0)`,
 	},
-	"json.to_number": {
+	"json.to_float": {
 		Zh: "两种形态的数都能取到值，3 也算作 3.0，其他情况返回默认值。",
 		En: "Reads the node as a float, falling back to the second argument when it is not a float.",
-		Eg: `let tree: Json = json.parse("7")` + "\n" + `let f: float = tree.to_number(0.0)`,
+		Eg: `let tree: Json = json.parse("7")` + "\n" + `let f: float = tree.to_float(0.0)`,
 	},
 	"json.to_text": {
 		Zh: "返回文本类型的值的内容，返回的是一份拷贝。其他种类返回 null。",
@@ -716,10 +716,10 @@ var stdDocs = map[string]StdDoc{
 	},
 
 	// —— dict：字典
-	"dict.add": {
+	"dict.set": {
 		Zh: "添加一个元素。添加一个键与它的值；键已经存在时是编译错误，要改值就写 d[键] = 值。",
 		En: "Adds a key with its value; an existing key is a compile error — write d[key] = value to change it.",
-		Eg: "let d: dict<string, int> = {}\nd.add(\"甲\", 1)",
+		Eg: "let d: dict<string, int> = {}\nd.set(\"甲\", 1)",
 	},
 	"dict.contains": {
 		Zh: "是否存在。问有没有那一个键，只询问不抛出错误。",
@@ -739,12 +739,12 @@ var stdDocs = map[string]StdDoc{
 	"dict.remove": {
 		Zh: "删除一个元素。删除一个键；找不到这个键时不抛出错误，容器原样保留。删除成功的那条记录当场析构。",
 		En: "Removes a key; a key that is not there throws nothing and leaves the container as it was. The record removed is destroyed on the spot.",
-		Eg: "let d: dict<string, int> = {}\nd.add(\"甲\", 1)\nd.remove(\"甲\")",
+		Eg: "let d: dict<string, int> = {}\nd.set(\"甲\", 1)\nd.remove(\"甲\")",
 	},
 	"dict.take": {
 		Zh: "把一个键对应的那一份值摘出来交给接住它的名字。摘走之后桶里那一个位置读回来是 null，那条记录还在容器里（contains 仍然为真，length 不少一）；键不存在时抛 10032。值那一种是拷贝时不开这一条：读一次就在手上，要删那条记录写 remove。",
 		En: "Takes the value under a key out for the name that receives it. That bucket position then reads back as null while the entry stays in the container (contains is still true and length does not drop); a missing key throws 10032. A value type, which is a copy, has no take: read it once and it is yours, use remove to drop the entry.",
-		Eg: "class Note { body:string }\nlet d: dict<string, Note> = {}\nd.add(\"甲\", new Note(body: \"第一段\"))\nlet one: Note = d.take(\"甲\")",
+		Eg: "class Note { body:string }\nlet d: dict<string, Note> = {}\nd.set(\"甲\", new Note(body: \"第一段\"))\nlet one: Note = d.take(\"甲\")",
 	},
 	"dict.values": {
 		Zh: "取全部值，返回一份新的 list<V>。",

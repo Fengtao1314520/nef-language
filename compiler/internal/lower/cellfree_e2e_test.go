@@ -55,17 +55,17 @@ class Row {
 }
 let d:dict<string, Row> = {}
 let first:string = "头".slice(0, 1)
-d.add(first, new Row(n: 1, kids: [1, 2]))
+d.set(first, new Row(n: 1, kids: [1, 2]))
 let total:int = 0
 for (i:int in 0 until 8000) {
     let k:string = "头".slice(0, 1)
-    d.add(k, new Row(n: i, kids: [i]))       // 命中：没收下的那个键当场拆，旧值也拆
+    d.set(k, new Row(n: i, kids: [i]))       // 命中：没收下的那个键当场拆，旧值也拆
     total = total + d["头"].n + length(d["头"].kids)   // 读两遍同一个位置，第二遍还在
     let k2:string = "头".slice(0, 1)
-    d.add(k2, new Row(n: 1, kids: [1, 2, 3]))
+    d.set(k2, new Row(n: 1, kids: [1, 2, 3]))
     total = total + length(d["头"].kids)
     let k3:string = "尾".slice(0, 1)
-    d.add(k3, new Row(n: 3, kids: []))
+    d.set(k3, new Row(n: 3, kids: []))
     d.remove("尾")
 }
 console.print(total, length(d), d["头"].n)

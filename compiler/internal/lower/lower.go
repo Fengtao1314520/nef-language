@@ -1219,7 +1219,7 @@ func containerAction(name string) bool {
 	case "length", "list.add", "list.remove", "list.sort", "list.index_of",
 		"list.first", "list.last", "list.clear",
 		"list.reverse", "list.add_all", "list.to_set", "list.slice", "list.insert_at", "list.remove_at",
-		"dict.add", "dict.remove", "dict.contains", "dict.keys", "dict.values", "dict.get", "dict.take",
+		"dict.set", "dict.remove", "dict.contains", "dict.keys", "dict.values", "dict.get", "dict.take",
 		"hashset.add", "hashset.remove", "hashset.contains",
 		"hashset.union", "hashset.intersect", "hashset.difference",
 		"bytes.slice", "bytes.to_base64",
@@ -1247,7 +1247,7 @@ func containerAction(name string) bool {
 // the unused default is returned at the end of the sentence.
 func stdBorrowsArgs(name string) bool {
 	switch name {
-	case "list.add", "list.remove", "dict.add", "dict.remove", "dict.contains", "dict.take",
+	case "list.add", "list.remove", "dict.set", "dict.remove", "dict.contains", "dict.take",
 		"hashset.add", "hashset.remove", "hashset.contains",
 		"list.sort", "list.index_of", "dict.keys", "dict.values",
 		"list.first", "list.last", "list.clear",
@@ -1325,7 +1325,7 @@ func (c *fc) stdContainer(x *ast.Call, ref check.CallRef, t check.Type) (ir.Val,
 	}
 	c.guardNotNull(recv)
 	switch ref.Std {
-	case "dict.add", "dict.remove", "dict.contains",
+	case "dict.set", "dict.remove", "dict.contains",
 		"hashset.add", "hashset.remove", "hashset.contains":
 		return c.mapAction(x, ref, t)
 	}
@@ -1700,7 +1700,7 @@ func (c *fc) stdContainer(x *ast.Call, ref check.CallRef, t check.Type) (ir.Val,
 
 // mapAction 落挂在 dict／hashset 上的 add／remove／contains。三种容器共用一张表，
 // 所以三个组名发的例程也一样——差别只在 hashset 的值槽位写 0、contains 要读取返回值。
-// mapStore 落 dict 的 `d[k] = v` 与 `d.add(k, v)`／`s.add(k)`：
+// mapStore 落 dict 的 `d[k] = v` 与 `d.set(k, v)`／`s.add(k)`：
 // 命中就是替换那个位置——被换下的旧值要析构，**没被收下的那一个键也要析构**（键已在表里，交进来的
 // 那一块从此无人认领）；没命中才走 @map_put 插入，那时键与值都归那个位置。
 //
@@ -1710,7 +1710,7 @@ func (c *fc) stdContainer(x *ast.Call, ref check.CallRef, t check.Type) (ir.Val,
 // en: mapAction lowers add/remove/contains on dict and hashset. The three containers share one
 // table, so the routines emitted under the three group names are the same too; the only
 // differences are that a hashset writes 0 in the value position and contains must read the
-// reply. mapStore lowers dict's `d[k] = v` and `d.add(k, v)` / `s.add(k)`:
+// reply. mapStore lowers dict's `d[k] = v` and `d.set(k, v)` / `s.add(k)`:
 // a hit replaces that position - the value being replaced is
 // dismantled, and THE KEY THAT WAS NOT ACCEPTED IS DISMANTLED TOO (the key is already in the
 // table, so the block handed in is now claimed by nobody); only a miss goes to @map_put to
@@ -1766,7 +1766,7 @@ func (c *fc) mapAction(x *ast.Call, ref check.CallRef, t check.Type) (ir.Val, ch
 	}
 	key := c.bitsOf(k, kt)
 	switch ref.Std {
-	case "dict.add":
+	case "dict.set":
 		v, vt, err := c.expr(x.Args[1])
 		if err != nil {
 			return nil, t, err
@@ -6093,7 +6093,7 @@ func (c *fc) storeToPath(target ast.Expr, v ir.Val, vt check.Type) ([]ir.Val, er
 			return []ir.Val{node}, nil
 		}
 		if bt.Kind == check.Dict {
-			// `d[k] = v` 与 `d.add(k, v)` 是同一条语言规则：没有这个键就是添一条，
+			// `d[k] = v` 与 `d.set(k, v)` 是同一条语言规则：没有这个键就是添一条，
 			// 所以这里不能走 @map_at——那一条找不到键要抛 10032 号。
 			// 键的类型不含小数，所以它不必先转位型。
 			c.shareText(at, t.At, bt.Args[0]) // 桶里那一个键的位置与来路那一边共用一块

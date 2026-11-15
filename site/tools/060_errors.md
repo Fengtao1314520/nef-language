@@ -696,7 +696,7 @@ winsock 与 winhttp 各有上千个错误号，逐个分配编号会让这张表
 ```text
 出错了（10031）：下标越界（在 main.nf 8:12）
     main.nf 8:12 read_age
-    main.nf 14:12 to_number
+    main.nf 14:12 to_float
     main.nf 16:5 main.nf
 ```
 

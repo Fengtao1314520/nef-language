@@ -242,7 +242,7 @@ class Row {
 let total:int = 0
 for (i:int in 0 until @N@) {
     let d:dict<string, Row> = {}
-    d.add("甲".slice(0, 1), new Row(n: i))
+    d.set("甲".slice(0, 1), new Row(n: i))
     d["甲".slice(0, 1)] = new Row(n: i + 1)
     total = total + length(d)
 }
@@ -261,7 +261,7 @@ console.print(total)
 let total:int = 0
 for (i:int in 0 until @N@) {
     let d:dict<string, int> = {"甲": 1}
-    d.add("甲".slice(0, 1), 2)
+    d.set("甲".slice(0, 1), 2)
     total = total + length(d)
 }
 console.print(total)
@@ -272,7 +272,7 @@ console.print(total)
 let total:int = 0
 for (i:int in 0 until @N@) {
     let d:dict<string, string> = {}
-    d.add("甲".slice(0, 1), "旧旧".slice(0, 2))
+    d.set("甲".slice(0, 1), "旧旧".slice(0, 2))
     total = total + length(d)
 }
 console.print(total)
@@ -285,7 +285,7 @@ let total:int = 0
 for (i:int in 0 until @N@) {
     let d:dict<string, int> = {}
     let k:string = "甲".slice(0, 1)
-    d.add(k, i)
+    d.set(k, i)
     total = total + length(d) + length(k)
 }
 console.print(total)
@@ -311,9 +311,9 @@ console.print(total)
 let d:dict<string, int> = {}
 for (i:int in 0 until @N@) {
     let seed:string = number.to_string(i) + "abcdefghi"
-    d.add(seed.slice(0, 3), i)
-    d.add(seed.slice(3, 6), i)
-    d.add(seed.slice(6, 9), i)
+    d.set(seed.slice(0, 3), i)
+    d.set(seed.slice(3, 6), i)
+    d.set(seed.slice(6, 9), i)
 }
 console.print(length(d))
 `},
@@ -338,7 +338,7 @@ class Row2 {
 let total:int = 0
 for (i:int in 0 until @N@) {
     let d:dict<string, Row2> = {}
-    d.add("甲".slice(0, 1), new Row2(n: i, m: i))
+    d.set("甲".slice(0, 1), new Row2(n: i, m: i))
     total = total + length(d)
 }
 console.print(total)
@@ -356,7 +356,7 @@ class Row {
 let total:int = 0
 for (i:int in 0 until @N@) {
     let d:dict<string, Row> = {}
-    d.add("甲".slice(0, 1), new Row(n: i, kids: [i, i]))
+    d.set("甲".slice(0, 1), new Row(n: i, kids: [i, i]))
     d["甲".slice(0, 1)] = new Row(n: i + 1, kids: [i])
     total = total + length(d)
 }
@@ -498,7 +498,7 @@ console.print(total)
 let total:int = 0
 for (i:int in 0 until @N@) {
     let bag:list<list<int>> = []
-    bag.add([i, i])
+    bag.set([i, i])
     total = total + length(bag[0])
 }
 console.print(total)

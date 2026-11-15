@@ -232,11 +232,11 @@ func TestContainerLiteralTransfers(t *testing.T) {
 
 // TestDictIndexStoreTransfers 覆盖 `d[键] = 值`：文本的键与桶里那一个位置共用同一块，
 // 原名不作废（遍历借来的那一份也一样写得进去）；值那一侧是可变的那一种时仍按交出算，
-// 与 `d.add(键, 值)` 同一份记录。值类型那一侧的键（`int`）是拷贝，名字照旧能用。
+// 与 `d.set(键, 值)` 同一份记录。值类型那一侧的键（`int`）是拷贝，名字照旧能用。
 //
 // en: TestDictIndexStoreTransfers covers `d[key] = value`: a text key shares its block with that
 // bucket position, so the name stays alive (a loop-borrowed text writes in as well). A mutable
-// value is still handed over, the same ledger as `d.add(key, value)`. A value-typed key such as
+// value is still handed over, the same ledger as `d.set(key, value)`. A value-typed key such as
 // `int` is copied, so its name stays usable.
 func TestDictIndexStoreTransfers(t *testing.T) {
 	expectOK(t, "let d:dict<string, int> = {}\nlet k:string = \"甲\" + \"乙\"\nd[k] = 1\nconsole.print(k)\n")

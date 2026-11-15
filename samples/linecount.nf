@@ -15,7 +15,7 @@ method tally(target:string, width:int) {
         if (by_length.contains(n)) {
             by_length[n] = by_length[n] + 1
         } else {
-            by_length.add(n, 1)
+            by_length.set(n, 1)
         }
     }
 

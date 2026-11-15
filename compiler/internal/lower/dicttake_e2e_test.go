@@ -28,8 +28,8 @@ func TestDictTakeHandsTheValueOver(t *testing.T) {
 }
 
 let d:dict<string, Note> = {}
-d.add("甲", new Note(body: "第一段"))
-d.add("乙", new Note(body: "第二段"))
+d.set("甲", new Note(body: "第一段"))
+d.set("乙", new Note(body: "第二段"))
 let one:Note = d.take("甲")
 console.print(one.body, d.contains("甲"), length(d), d.get("甲", new Note(body: "补")), d["乙"].body)
 `)
@@ -49,7 +49,7 @@ func TestDictTakeMissingKeyThrows(t *testing.T) {
 }
 
 let d:dict<string, Note> = {}
-d.add("甲", new Note(body: "第一段"))
+d.set("甲", new Note(body: "第一段"))
 try {
     let one:Note = d.take("丙")
     console.print("走不到这一句", one.body)
@@ -73,7 +73,7 @@ func TestDictTakeEndsNoDoubleRelease(t *testing.T) {
 
 let d:dict<string, Note> = {}
 for (i:int in 0 until @N@) {
-    d.add("甲", new Note(body: "第一段"))
+    d.set("甲", new Note(body: "第一段"))
     let one:Note = d.take("甲")
     if (one.body == null) {
         console.print("接不住")

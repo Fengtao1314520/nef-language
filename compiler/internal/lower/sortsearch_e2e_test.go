@@ -206,7 +206,7 @@ func TestKeysValuesOfBigDict(t *testing.T) {
 	var src strings.Builder
 	src.WriteString("let d:dict<string, int> = {}\n")
 	for i := 0; i < 40; i++ {
-		fmt.Fprintf(&src, "d.add(\"键%d\", %d)\n", i, i)
+		fmt.Fprintf(&src, "d.set(\"键%d\", %d)\n", i, i)
 	}
 	src.WriteString(`
 let ks:list<string> = d.keys()

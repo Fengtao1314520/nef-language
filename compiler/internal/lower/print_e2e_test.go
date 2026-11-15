@@ -274,7 +274,7 @@ let ps:list<string> = ["甲", "乙"]
 let shapes:list<Point> = [Point { x: 1, y: 2 }]
 let d:dict<string, list<int>> = {"甲": [1, 2]}
 let mixed:list<object> = []
-mixed.add(Point { x: 3, y: 4 } as object)
+mixed.set(Point { x: 3, y: 4 } as object)
 mixed.add(5 as object)
 mixed.add('乙' as object)
 console.print(number.to_string(ps) + "!")

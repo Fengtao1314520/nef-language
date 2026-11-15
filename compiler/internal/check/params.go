@@ -183,7 +183,7 @@ var stdParamNames = map[string][]string{
 	"list.sort":      {},
 	"list.to_set":    {},
 
-	"dict.add":      {"key", "value"},
+	"dict.set":      {"key", "value"},
 	"dict.contains": {"key"},
 	"dict.get":      {"key", "fallback"},
 	"dict.keys":     {},
@@ -228,8 +228,8 @@ var stdParamNames = map[string][]string{
 	"json.take":       {"key"},
 	"json.take_at":    {"index"},
 	"json.to_text":    {},
-	"json.to_integer": {"fallback"},
-	"json.to_number":  {"fallback"},
+	"json.to_int": {"fallback"},
+	"json.to_float":  {"fallback"},
 	"json.to_boolean": {"fallback"},
 	"json.to_json":    {},
 

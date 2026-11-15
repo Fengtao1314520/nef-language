@@ -234,7 +234,7 @@ class Adder {
 }
 
 let x:Adder = new Adder(seed: 100)
-console.print(x.add(1, 2), x.add(10, 20))
+console.print(x.set(1, 2), x.set(10, 20))
 `)
 	if got != "103 130\n" {
 		t.Fatalf("得到 %q", got)
@@ -718,9 +718,9 @@ console.print(d["zz"])
 func TestDictMutateWhileIterating(t *testing.T) {
 	got, code := run(t, `
 let d:dict<string, int> = {}
-d.add("a", 1)
+d.set("a", 1)
 for (k:string in d) {
-    d.add("b", 2)
+    d.set("b", 2)
 }
 console.print(length(d))
 `)
@@ -735,7 +735,7 @@ func TestDictManyKeys(t *testing.T) {
 	body.WriteString("let d:dict<int, int> = {}\n")
 	var want []string
 	for i := 1; i <= 40; i++ {
-		fmt.Fprintf(&body, "d.add(%d, %d)\n", i, i*3)
+		fmt.Fprintf(&body, "d.set(%d, %d)\n", i, i*3)
 		want = append(want, fmt.Sprintf("%d", i*3))
 	}
 	fmt.Fprintf(&body, "console.print(length(d))\n")

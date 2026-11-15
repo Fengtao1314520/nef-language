@@ -37,7 +37,7 @@ const jsonSigProg = `method signature(x:Json):string {
         return "false"
     }
     if (k == "number") {
-        return "n" + number.to_string(x.to_integer(0)) + "/" + number.to_string(x.to_number(0.0))
+        return "n" + number.to_string(x.to_int(0)) + "/" + number.to_string(x.to_float(0.0))
     }
     if (k == "string") {
         return "s:" + x.to_text()
@@ -125,9 +125,9 @@ console.print(length(j))
 `, "{\"a\":[1,2],\"b\":\"甲\"}\n2\n"},
 		{"读两遍都在，摘下来那一格才空", `
 let j:Json = json.parse("{ \"a\": 1 }")
-console.print(j["a"].kind(), j["a"].to_integer(-1))
+console.print(j["a"].kind(), j["a"].to_int(-1))
 let one:Json = j.take("a")
-console.print(one.kind(), one.to_integer(-1))
+console.print(one.kind(), one.to_int(-1))
 console.print(j["a"])
 console.print(j)
 `, "number 1\nnumber 1\nnull\n{\"a\":null}\n"},
@@ -139,7 +139,7 @@ console.print(json.explain("[1,"))
 let j:Json = json.parse("[10, 20, 30]")
 console.print(length(j))
 let mid:Json = j.take_at(1)
-console.print(mid.kind(), mid.to_integer(0))
+console.print(mid.kind(), mid.to_int(0))
 console.print(j[9] == null)
 console.print(j)
 `, "3\nnumber 20\ntrue\n[10,null,30]\n"},
@@ -149,7 +149,7 @@ console.print(j.contains("甲"), j.contains("丁"))
 let keys:list<string> = j.keys()
 console.print(length(keys), keys[0], keys[2])
 let v:Json = j.take("乙")
-console.print(v.to_number(0.0), v.to_integer(-1))
+console.print(v.to_float(0.0), v.to_int(-1))
 console.print(j["丙"].to_text())
 console.print(j.to_text(), j["甲"].to_boolean(false))
 `, "true false\n3 甲 丙\n2.5 -1\n喂\nnull true\n"},

@@ -24,7 +24,7 @@ let words:list<string> = "a b c d e f g h i j k l m n o p q r s t".split(" ")
 let by:dict<string, int> = {}
 for (w:string in words) {
     let k:string = w.slice(0, length(w))
-    by.add(k, 1)
+    by.set(k, 1)
 }
 console.print(length(by))
 `)
@@ -44,7 +44,7 @@ for (w:string in words) {
     if (by.contains(k)) {
         by[k] = by[k] + 1
     } else {
-        by.add(k, 1)
+        by.set(k, 1)
     }
 }
 let total:int = 0
@@ -65,7 +65,7 @@ let by:dict<string, int> = {}
 let i:int = 0
 while (i < 200) {
     let k:string = "k" + number.to_string(i)
-    by.add(k, i)
+    by.set(k, i)
     i = i + 1
 }
 let sum:int = 0

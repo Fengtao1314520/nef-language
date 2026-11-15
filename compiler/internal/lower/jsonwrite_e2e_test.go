@@ -68,7 +68,7 @@ let body:Json = json.parse("{ \"a\": 1, \"b\": 2 }")
 console.print(body.remove("a"), body.remove("丁"))
 let row:Json = json.parse("[7, 8]")
 let last:Json = row.remove_at(0)
-console.print(last.to_integer(0), row.to_json())
+console.print(last.to_int(0), row.to_json())
 `, "true false\n7 [8]\n"},
 		{"清空之后还在，长度是 0", `
 let body:Json = json.parse("{ \"a\": [1, 2] }")

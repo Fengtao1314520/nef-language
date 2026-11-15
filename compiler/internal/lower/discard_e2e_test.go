@@ -31,7 +31,7 @@ for (i:int in 0 until 20000) {
 		{"dict 的下标读走不接住", `
 for (i:int in 0 until 20000) {
     let d:dict<string, string> = {}
-    d.add("键", "甲乙" + "丙丁")
+    d.set("键", "甲乙" + "丙丁")
     d["键"];
 }
 `},
@@ -138,15 +138,15 @@ xs.remove_at(0);
 console.print(length(xs), xs)
 
 let d:dict<string, string> = {}
-d.add("一", "甲" + "乙")
-d.add("二", "丙" + "丁")
+d.set("一", "甲" + "乙")
+d.set("二", "丙" + "丁")
 d.remove("一")
 console.print(length(d), d)
 d.remove("没有")
 console.print(length(d), d)
 
 let dn:dict<string, int> = {}
-dn.add("k", 1)
+dn.set("k", 1)
 dn.remove("k")
 dn.remove("k")
 console.print(dn)
@@ -176,7 +176,7 @@ console.print(length(s), s)
 		if used := heapAt(t, `
 for (i:int in 0 until 20000) {
     let d:dict<string, `+one.elem+`> = {}
-    d.add("键", `+one.val+`)
+    d.set("键", `+one.val+`)
     d.remove("键")
 }
 `); used > 4000 {

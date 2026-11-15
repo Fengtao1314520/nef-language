@@ -23,8 +23,8 @@
 | `tree[index]` | `Json` | 不抛 | 读数组里指定位置的元素。读了不拿走：那一个位置之后还留着。位置为负、或者不小于个数时，返回 `null` |
 | `j.take_at(index)` | `Json` | 10092 | 把数组里那个位置的元素从树上摘下来交给调用方：那一个位置之后是 `null`，个数不变。要接给一个名字就写这一条 |
 | `j.to_text()` | `string` | 10092 | 返回文本类型的值的内容，返回的是一份拷贝。其他种类返回 `null` |
-| `j.to_integer(fallback)` | `int` | 10092 | 只有整数形态的数能取到值（`3`、`-12`），其他情况返回默认值 |
-| `j.to_number(fallback)` | `float` | 10092 | 两种形态的数都能取到值，`3` 也算作 `3.0`，其他情况返回默认值 |
+| `j.to_int(fallback)` | `int` | 10092 | 只有整数形态的数能取到值（`3`、`-12`），其他情况返回默认值 |
+| `j.to_float(fallback)` | `float` | 10092 | 两种形态的数都能取到值，`3` 也算作 `3.0`，其他情况返回默认值 |
 | `j.to_boolean(fallback)` | `boolean` | 10092 | 只有 `true` 与 `false` 能取到值，其他情况返回默认值 |
 | `j.to_json()` | `string` | 10092 | 把这棵树连同下面的整一支渲染成一段 JSON 文本，与 `console.print` 打印一个 `Json` 给出的那一字不差。被读走的位置写成 `null` |
 | `json.empty_object()` | `Json` | 不抛 | 造一棵空的树，形状是对象：还没有成员，`set(key, value)` 与 `tree[key] = value` 往里放 |
@@ -59,7 +59,7 @@
 let doc:Json = json.parse("{\"name\": \"nef\", \"port\": 8080, \"tags\": [\"语言\", \"编译器\"]}")
 console.print(doc.kind(), length(doc))
 console.print(doc["name"].to_text())
-console.print(doc["port"].to_integer(0))
+console.print(doc["port"].to_int(0))
 let tags:Json = doc.take("tags")
 console.print(length(tags), tags[0].to_text())
 ```
@@ -71,9 +71,9 @@ nef
 2 语言
 ```
 
-取 `port` 时给的默认值是 `0`。文本里没有这个键、或者对应位置放的是 `true`，`to_integer(0)` 就取不到值，此时总得返回一个结果，而 `int` 不能是 `null`。
+取 `port` 时给的默认值是 `0`。文本里没有这个键、或者对应位置放的是 `true`，`to_int(0)` 就取不到值，此时总得返回一个结果，而 `int` 不能是 `null`。
 
-所以 `to_integer`、`to_number`、`to_boolean` 这三条各带一个默认值，写法与[列表·字典·集合](/stdlib/049_containers)里 `d.get(key, fallback)` 的规则相同。
+所以 `to_int`、`to_float`、`to_boolean` 这三条各带一个默认值，写法与[列表·字典·集合](/stdlib/049_containers)里 `d.get(key, fallback)` 的规则相同。
 
 `to_text()` 返回的是 `string`，本来就可以是 `null`，所以它不带默认值。
 
@@ -132,10 +132,10 @@ true false
 
 ```nf
 let one:Json = json.parse("{ \"a\": 1 }")
-console.print(one["a"].to_integer(-1))
+console.print(one["a"].to_int(-1))
 console.print(one)
 let a:Json = one.take("a")
-console.print(a.to_integer(-1))
+console.print(a.to_int(-1))
 console.print(one)
 ```
 
@@ -205,7 +205,7 @@ row.add(3)
 row.insert_at(1, 2)
 console.print(row.to_json(), length(row))
 let last:Json = row.remove_at(2)
-console.print(row.to_json(), last.to_integer(0))
+console.print(row.to_json(), last.to_int(0))
 ```
 
 ```text

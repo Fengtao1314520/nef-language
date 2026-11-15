@@ -99,7 +99,7 @@ func TestSignatureShape(t *testing.T) {
 		{"list.add", "list.add(value: T)"},
 		{"list.slice", "list.slice(start: int, end: int): list<T>"},
 		{"dict.get", "dict.get(key: K, fallback: V): V"},
-		{"dict.add", "dict.add(key: K, value: V)"},
+		{"dict.set", "dict.set(key: K, value: V)"},
 		{"string.replace", "string.replace(from: string, to: string): string"},
 		{"socket.send", "socket.send(data: bytes): int"},
 		{"process.wait", "process.wait(): int"},

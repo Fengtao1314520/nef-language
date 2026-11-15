@@ -111,7 +111,7 @@ console.print(sum, length(xs))
 }
 
 // TestMidReadIntoCell 交进容器那个位置的值不算"没人接住"：`add`、`insert_at`、`d[键]=值`、
-// `d.add(key, value)` 四个落点都把句柄留在位置里，持有者就是那个位置。窗口逻辑要把它们挑出去，
+// `d.set(key, value)` 四个落点都把句柄留在位置里，持有者就是那个位置。窗口逻辑要把它们挑出去，
 // 其余的中间步骤照常释放。
 func TestMidReadIntoCell(t *testing.T) {
 	got, code := run(t, `let ys:list<list<int>> = [[1, 2], [3, 4]]
@@ -128,7 +128,7 @@ console.print(xs[0][0], xs[0][1], xs[2][0], xs[2][1])
 	got, code = run(t, `let ks:list<string> = ["甲", "乙"]
 let d:dict<string, int> = {}
 d[ks[0] + ""] = 7
-d.add(ks[1] + "", 8)
+d.set(ks[1] + "", 8)
 console.print(d["甲"], d["乙"], length(d), length(ks))
 `)
 	if got != "7 8 2 2\n" || code != 0 {

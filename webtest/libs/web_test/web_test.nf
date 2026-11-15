@@ -180,7 +180,7 @@ method read_message():string {
 
 // 送一条命令，读到 id 对得上的那一条答复为止。没有 id 的消息是浏览器主动发的通知，
 // 存进 link.events 等上层来取。
-// 必须先判 `id` 位置是否存在：`to_integer(0)` 拿到空句柄会抛 10092。
+// 必须先判 `id` 位置是否存在：`to_int(0)` 拿到空句柄会抛 10092。
 method ask(page_index:int, method_name:string, params:string):string {
     link.next_id = link.next_id + 1
     let id:int = link.next_id
@@ -200,7 +200,7 @@ method ask(page_index:int, method_name:string, params:string):string {
         if (id_slot == null) {
             store_event(one)
         } else {
-            if (id_slot.to_integer(0) == id) {
+            if (id_slot.to_int(0) == id) {
                 // 答复带 error 位置就是浏览器拒绝了这条命令，把原文带出去。不报这一句，
                 // "命令送出但未生效"这一类问题就无从定位。
                 if (doc["error"] != null) {

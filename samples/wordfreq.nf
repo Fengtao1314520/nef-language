@@ -16,7 +16,7 @@ for (w:string in words) {
     if (counts.contains(key)) {
         counts[key] = counts[key] + 1
     } else {
-        counts.add(key, 1)
+        counts.set(key, 1)
         order.add(key)
     }
 }

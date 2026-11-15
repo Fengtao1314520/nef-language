@@ -227,7 +227,7 @@ let d:dict<string, string> = {}
 let wrong:int = 0
 for (i:int in 0 until 2000) {
     let key:string = ("k" + number.to_string(i)).trim()
-    d.add(key, "v" + number.to_string(i))
+    d.set(key, "v" + number.to_string(i))
     if (i > 0) {
         let prev:string = ("k" + number.to_string(i - 1)).trim()
         if (length(d[prev]) != length(prev)) {

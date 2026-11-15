@@ -84,7 +84,7 @@ func TestContainerAndTextMembers(t *testing.T) {
 	}{
 		{"list", list, []string{"add", "sort", "first", "insert_at", "remove_at", "slice", "to_set"},
 			[]string{"contains", "keys", "values", "get", "union", "trim"}},
-		{"dict", dict, []string{"add", "get", "keys", "values", "contains", "remove"},
+		{"dict", dict, []string{"set", "get", "keys", "values", "contains", "remove"},
 			[]string{"first", "last", "sort", "union", "add_all", "insert_at"}},
 		{"hashset", set, []string{"add", "contains", "union", "intersect", "difference", "remove"},
 			[]string{"get", "keys", "values", "first", "index_of"}},

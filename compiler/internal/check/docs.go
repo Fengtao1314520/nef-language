@@ -599,19 +599,19 @@ var stdDocs = map[string]StdDoc{
 		Eg: `let gate: Listener = net.listen(8080)`,
 	},
 	"http.get": {
-		Zh: "发送一个 GET 请求，等待整个响应接收完成；headers 省掉就是不追加任何头。它是 http.request 的封装：方法写成 GET、后两个开关留默认；要带自定义头（如认证头）把那一串 \"名字: 值\" 写进最后的 headers。",
+		Zh: "发送一个 GET 请求，等待整个响应接收完成；headers 省掉就是不追加任何头。它是 http.request 的封装：方法写成 GET、后两个开关留默认；要带自定义头（如认证头）把那一串 \"名字: 值\" 写进 headers。",
 		En: "Sends a GET request and returns its status, headers and body; omitting headers appends none. A wrapper over http.request with the method fixed to GET and the last two switches left default; pass your list of \"name: value\" lines as headers to send custom headers such as an Authorization line.",
-		Eg: `let page: Response = http.get("https://example.com/", 5000, ["Authorization: Bearer abc123"])`,
+		Eg: `let page: Response = http.get("https://example.com/", ["Authorization: Bearer abc123"])`,
 	},
 	"http.post": {
 		Zh: "发送一个 POST 请求，传入的字节块就是发送出去的正文；body 也可以是一棵 Json，发出去的是渲染好的那一段文本；headers 省掉就是不追加任何头。它是 http.request 的封装：方法写成 POST；要带自定义头把那一串 \"名字: 值\" 写进最后的 headers。",
 		En: "Sends a POST request with the given bytes as the body, unchanged; a Json works in the same slot and goes out as the text it renders to. Omitting headers appends none. A wrapper over http.request with the method fixed to POST; pass your list of \"name: value\" lines as headers to send custom headers.",
-		Eg: `let page: Response = http.post("https://example.com/", bytes.allocate(2), 5000, ["Content-Type: application/octet-stream"])`,
+		Eg: `let page: Response = http.post("https://example.com/", bytes.allocate(2), ["Content-Type: application/octet-stream"])`,
 	},
 	"http.request": {
 		Zh: "发送一个请求，等待整个响应接收完成，返回状态码、头与正文；body 那一档与 http.post 同一条规则。method 认 GET、POST、PUT、DELETE、PATCH、HEAD、OPTIONS 七个词，大小写不敏感，其余抛 10108。headers 一行一个头，写成 \"名字: 值\"：名字为空、没有冒号、含回车或换行都抛 10109，消息里说是第几行；名字两侧与值左侧的空白去掉，一行最长 4096 个字符。body 是发送出去的字节块，也可以是一棵 Json，不发送就写 null。ignore_cert_error 写 true 时忽略全部五种证书错误（名字不符、过期、未知 CA、用途不符、弱签名），只在受控测试环境用，默认 false 仍然校验。max_body_bytes 是应答正文的字节上限：0 表示不限，负数抛 10107，超过上限抛 10106 并且这一次拿不到 Response。给了 Authorization、Cookie、Proxy-Authorization 三者之一时，这一次不自动跟随重定向，30x 原样返回；没给这三个头就照旧跟随到底。压缩应答会解开之后再交给 body：gzip 由系统解开，deflate 由库自己解开（zlib 包裹与不带包裹的 raw 两种都认），解不开抛 10113；max_body_bytes 按解开之后的大小算。",
 		En: "Sends one request and returns its status, headers and body. The method is one of GET, POST, PUT, DELETE, PATCH, HEAD, OPTIONS (case-insensitive); anything else throws 10108. Each header is one \"name: value\" line; an empty name, a missing colon or an embedded CR/LF throws 10109 naming the line. A true ignore_cert_error skips all five certificate checks, for controlled test environments only. max_body_bytes caps the body: 0 means no cap, a negative value throws 10107, exceeding it throws 10106. Supplying Authorization, Cookie or Proxy-Authorization turns off automatic redirects for that one request. Compressed responses are unpacked before body is returned: gzip by the system, deflate by the library itself (both zlib-wrapped and raw); a body that will not unpack throws 10113, and max_body_bytes is measured on the unpacked size.",
-		Eg: `let r: Response = http.request("GET", "https://example.com/", ["Accept: application/json"], null, 5000)`,
+		Eg: `let r: Response = http.request("GET", "https://example.com/", null, ["Accept: application/json"])`,
 	},
 
 	// —— process：进程

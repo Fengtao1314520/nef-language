@@ -5241,7 +5241,7 @@ func (c *fc) httpAction(x *ast.Call, ref check.CallRef, t check.Type) (ir.Val, c
 	case "http.post":
 		bodySlot = 1
 	case "http.request":
-		bodySlot = 3
+		bodySlot = 2
 	}
 	var sentBody ir.Val
 	if bodySlot >= 0 && kinds[bodySlot].Kind == check.Json {
@@ -5268,18 +5268,24 @@ func (c *fc) httpAction(x *ast.Call, ref check.CallRef, t check.Type) (ir.Val, c
 	// argument is given is the caller's `list<string>` handed down.
 	var url, send, ms, method, headers, ignoreV, maxV ir.Val = ir.K(0), ir.K(0), ir.K(0), ir.K(0), ir.K(0), ir.K(0), ir.K(0)
 	switch ref.Std {
-	case "http.get":
-		url, ms = vals[0], vals[1]
+	case "http.get": // (网址, 头, 超时毫秒)
+		url = vals[0]
+		if len(vals) > 1 {
+			headers = vals[1]
+		}
 		if len(vals) > 2 {
-			headers = vals[2]
+			ms = vals[2]
 		}
 		if !kinds[0].ByValue() {
 			c.guardNotNull(url)
 		}
-	case "http.post":
-		url, send, ms = vals[0], vals[1], vals[2]
+	case "http.post": // (网址, 正文, 头, 超时毫秒)
+		url, send = vals[0], vals[1]
+		if len(vals) > 2 {
+			headers = vals[2]
+		}
 		if len(vals) > 3 {
-			headers = vals[3]
+			ms = vals[3]
 		}
 		if !kinds[0].ByValue() {
 			c.guardNotNull(url)
@@ -5287,8 +5293,8 @@ func (c *fc) httpAction(x *ast.Call, ref check.CallRef, t check.Type) (ir.Val, c
 		if !kinds[1].ByValue() {
 			c.guardNotNull(send)
 		}
-	default: // http.request：方法与网址那两格不许是空句柄，头与正文写 null 就是"没有"
-		method, url, headers, send, ms = vals[0], vals[1], vals[2], vals[3], vals[4]
+	default: // http.request：(方法, 网址, 正文, 头, 超时毫秒, 忽略证书错误, 应答上限)
+		method, url, send, headers, ms = vals[0], vals[1], vals[2], vals[3], vals[4]
 		if !kinds[0].ByValue() {
 			c.guardNotNull(method)
 		}

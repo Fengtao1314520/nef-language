@@ -12,11 +12,11 @@
 
 | 写法 | 返回 | 抛出的错误码 | 说明 |
 | --- | --- | --- | --- |
-| `http.request(method, url, headers, body, timeout_ms, ignore_cert_error = false, max_body_bytes = 0)` | `Response` | 10100～10109、10113 | 发送一个请求，等待整个响应接收完成，返回状态码、头与正文；`body` 那一档与 `http.post` 同一条规则 |
-| `http.get(url, timeout_ms, headers = [])` | `Response` | 10100～10105、10109、10113 | 发送一个 GET 请求，等待整个响应接收完成；`headers` 省掉就是不追加任何头 |
-| `http.post(url, body, timeout_ms, headers = [])` | `Response` | 10100～10105、10109、10113 | 发送一个 POST 请求，传入的字节块就是发送出去的正文；`body` 也可以是一棵 `Json`，发出去的是渲染好的那一段文本；`headers` 省掉就是不追加任何头 |
+| `http.request(method, url, body = null, headers = [], timeout_ms = 30000, ignore_cert_error = false, max_body_bytes = 0)` | `Response` | 10100～10109、10113 | 发送一个请求，等待整个响应接收完成，返回状态码、头与正文；`body` 那一档与 `http.post` 同一条规则 |
+| `http.get(url, headers = [], timeout_ms = 30000)` | `Response` | 10100～10105、10109、10113 | 发送一个 GET 请求，等待整个响应接收完成；`headers` 省掉就是不追加任何头 |
+| `http.post(url, body, headers = [], timeout_ms = 30000)` | `Response` | 10100～10105、10109、10113 | 发送一个 POST 请求，传入的字节块就是发送出去的正文；`body` 也可以是一棵 `Json`，发出去的是渲染好的那一段文本；`headers` 省掉就是不追加任何头 |
 
-`http.get` 与 `http.post` 等于把方法写成 `GET` 或 `POST`、把后两个开关留默认的 `http.request`，写出来的程序与展开之后的产物没有区别。要发认证头，把那一串 `"名字: 值"` 写进最后的 `headers` 就行。
+`http.get` 与 `http.post` 等于把方法写成 `GET` 或 `POST`、把 `body`（GET 没有这一格）与后两个开关留默认的 `http.request`，写出来的程序与展开之后的产物没有区别。要发认证头，把那一串 `"名字: 值"` 写进 `headers` 就行。三条成员的参数顺序都是"网址之后先正文、再头、最后超时"：`body` 省掉是 `null`，`headers` 省掉是空表，`timeout_ms` 省掉是 30000 毫秒。
 
 正文是一篇 JSON 时，`body` 那一个位置直接收一棵 `Json`，发出去的是渲染好的那一段文本。
 
@@ -27,7 +27,7 @@
 写法见“程序里的值写成 JSON”那一节，在[读写 JSON](/stdlib/056_json)。
 
 ```nf
-let page:Response = http.get("http://example.com/", 5000)
+let page:Response = http.get("http://example.com/")
 if (page.status == 200) {
     console.print(length(page.body), text.from_bytes(page.body.slice(0, 40)))
 }
@@ -38,8 +38,8 @@ if (page.status == 200) {
 `method` 认七个词：`GET`、`POST`、`PUT`、`DELETE`、`PATCH`、`HEAD`、`OPTIONS`。大小写都收，发出去一律写成大写。这七个之外的词当场抛 10108 号，消息里带着写进去的那一个。
 
 ```nf
-let a:Response = http.request("get", "http://example.com/", [], null, 5000)
-let b:Response = http.request("DELETE", "http://example.com/item/7", [], null, 5000)
+let a:Response = http.request("get", "http://example.com/")
+let b:Response = http.request("DELETE", "http://example.com/item/7")
 console.print(a.status, b.status)
 ```
 
@@ -60,7 +60,7 @@ let hs:list<string> = [
     "X-Test-Round: 7"
 ]
 let body:Bytes = "{\"name\":\"dev-7\"}".to_bytes()
-let r:Response = http.request("POST", "http://127.0.0.1:8080/api", hs, body, 5000)
+let r:Response = http.request("POST", "http://127.0.0.1:8080/api", body, hs)
 console.print(r.status, length(r.headers))
 ```
 
@@ -73,7 +73,7 @@ console.print(r.status, length(r.headers))
 写 `0` 或者省掉就是不限制，对方给多少收多少。写负数抛 10107 号。
 
 ```nf
-let r:Response = http.request("GET", "http://127.0.0.1:8080/big", [], null, 60000, false, 1048576)
+let r:Response = http.request("GET", "http://127.0.0.1:8080/big", null, [], 60000, false, 1048576)
 console.print(length(r.body))
 ```
 
@@ -94,7 +94,7 @@ https 的加密、证书与重定向都由系统的 winhttp 处理。证书校�
 测试设备的自签证书可以写这一个开关。它是逐次请求的开关：这一条写了 `true`，下一条不写仍要校验。它只免掉证书这一项，超时、应答大小那两条照旧管着。
 
 ```nf
-let r:Response = http.request("GET", "https://192.168.1.10/api/status", [], null, 5000, true)
+let r:Response = http.request("GET", "https://192.168.1.10/api/status", null, [], 5000, true)
 console.print(r.status)
 ```
 
@@ -108,7 +108,7 @@ console.print(r.status)
 
 ```nf
 let hs:list<string> = ["Authorization: Bearer abc123"]
-let first:Response = http.request("GET", "http://127.0.0.1:8080/start", hs, null, 5000)
+let first:Response = http.request("GET", "http://127.0.0.1:8080/start", null, hs)
 console.print(first.status)
 for (line:string in first.headers) {
     if (line.starts_with("Location:")) {
@@ -155,7 +155,7 @@ method collect(r:Response) {
 method beat(url:string):int {
     let n:int = 0
     while (n < 20) {
-        let r:Response = http.request("POST", url, [], null, 3000)
+        let r:Response = http.request("POST", url, null, [], 3000)
         console.print(r.status)
         time.sleep(5000)
         n = n + 1
@@ -164,7 +164,7 @@ method beat(url:string):int {
 }
 
 let t:Thread<int> = thread.start(beat, "http://127.0.0.1:8080/heartbeat")
-let data:Response = http.request("GET", "http://127.0.0.1:8080/export", [], null, 60000)
+let data:Response = http.request("GET", "http://127.0.0.1:8080/export", null, [], 60000)
 let sent:int = t.wait()
 console.print(data.status, sent)
 ```
@@ -176,7 +176,7 @@ console.print(data.status, sent)
 网址只接受 `http://` 与 `https://` 两种开头，其余一概拒绝。带查询串时按平时的写法即可：
 
 ```nf
-let q:Response = http.get("http://example.com/search?word=甲", 5000)
+let q:Response = http.get("http://example.com/search?word=甲")
 console.print(q.status)
 ```
 
@@ -225,7 +225,7 @@ console.print(q.status)
 
 ```nf
 try {
-    let page:Response = http.request("GET", "http://127.0.0.1:9/", [], null, 1000)
+    let page:Response = http.request("GET", "http://127.0.0.1:9/", null, [], 1000)
     console.print(page.status)
 } catch (code, msg, at, trace) {
     console.print("没取到:", code)

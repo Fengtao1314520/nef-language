@@ -157,9 +157,9 @@ var stdParamNames = map[string][]string{
 	// 网络
 	"net.connect": {"host", "port", "timeout_ms"},
 	"net.listen":  {"port"},
-	"http.get":    {"url", "timeout_ms", "headers"},
-	"http.post":   {"url", "body", "timeout_ms", "headers"},
-	"http.request": {"method", "url", "headers", "body", "timeout_ms",
+	"http.get":    {"url", "headers", "timeout_ms"},
+	"http.post":   {"url", "body", "headers", "timeout_ms"},
+	"http.request": {"method", "url", "body", "headers", "timeout_ms",
 		"ignore_cert_error", "max_body_bytes"},
 
 	// 起进程那一档

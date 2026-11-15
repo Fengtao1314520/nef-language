@@ -10,7 +10,7 @@ dict.add	dict.add(key: K, value: V)
 dict.contains	dict.contains(key: K): boolean
 dict.get	dict.get(key: K, fallback: V): V
 dict.keys	dict.keys(): list<K>
-dict.remove	dict.remove(key: K)
+dict.remove	dict.remove(key: K): boolean
 dict.values	dict.values(): list<V>
 environment.current_directory	environment.current_directory(): string
 environment.get	environment.get(name: string): string
@@ -43,10 +43,10 @@ hashset.add	hashset.add(value: T)
 hashset.contains	hashset.contains(value: T): boolean
 hashset.difference	hashset.difference(other: hashset<T>): hashset<T>
 hashset.intersect	hashset.intersect(other: hashset<T>): hashset<T>
-hashset.remove	hashset.remove(value: T)
+hashset.remove	hashset.remove(value: T): boolean
 hashset.union	hashset.union(other: hashset<T>): hashset<T>
-http.get	http.get(url: string, timeout_ms: int, headers: list<string> = []): Response
-http.post	http.post(url: string, body: bytes, timeout_ms: int, headers: list<string> = []): Response
+http.get	http.get(url: string, headers: list<string> = [], timeout_ms: int = 30000): Response
+http.post	http.post(url: string, body: bytes, headers: list<string> = [], timeout_ms: int = 30000): Response
 json.at	json.at(doc: Json, key: string): Json
 json.count	json.count(doc: Json): int
 json.explain	json.explain(text: string): string
@@ -67,11 +67,12 @@ list.first	list.first(): T
 list.index_of	list.index_of(value: T): int
 list.insert_at	list.insert_at(index: int, value: T)
 list.last	list.last(): T
-list.remove	list.remove(value: T)
+list.remove	list.remove(value: T): boolean
 list.remove_at	list.remove_at(index: int): T
 list.reverse	list.reverse()
 list.slice	list.slice(start: int, end: int): list<T>
 list.sort	list.sort()
+list.sort_by	list.sort_by(by: fn(T, T): int)
 list.to_set	list.to_set(): hashset<T>
 listener.accept	listener.accept(): Socket
 listener.close	listener.close()

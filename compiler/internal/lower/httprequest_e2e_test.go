@@ -36,9 +36,9 @@ func TestHttpRequestHeadersAndVerb(t *testing.T) {
 	defer srv.Close()
 	got, code := run(t, `
 let hs:list<string> = ["X-Nef-Trace: 42", "Authorization: Bearer abc123"]
-let r:Response = http.request("delete", "`+urlOf(srv)+`/thing", hs, null, 5000)
+let r:Response = http.request("delete", "`+urlOf(srv)+`/thing", null, hs, 5000)
 console.print(r.status, text.from_bytes(r.body))
-let s:Response = http.request("GET", "`+urlOf(srv)+`/again", hs, null, 5000, false, 0)
+let s:Response = http.request("GET", "`+urlOf(srv)+`/again", null, hs, 5000, false, 0)
 console.print(s.status, length(hs))
 `)
 	want := "200 ok\n200 2\n"
@@ -64,11 +64,11 @@ func TestHttpWrappersCarryHeaders(t *testing.T) {
 	defer srv.Close()
 	got, code := run(t, `
 let hs:list<string> = ["Authorization: Bearer tok9", "X-Nef: 7"]
-let a:Response = http.get("`+urlOf(srv)+`/", 5000)
+let a:Response = http.get("`+urlOf(srv)+`/", [], 5000)
 console.print(a.status)
-let b:Response = http.get("`+urlOf(srv)+`/", 5000, hs)
+let b:Response = http.get("`+urlOf(srv)+`/", hs, 5000)
 console.print(b.status, length(hs))
-let c:Response = http.post("`+urlOf(srv)+`/", "x".to_bytes(), 5000, hs)
+let c:Response = http.post("`+urlOf(srv)+`/", "x".to_bytes(), hs, 5000)
 console.print(c.status)
 `)
 	if code != 0 {
@@ -97,7 +97,7 @@ func TestHttpRequestSevenVerbs(t *testing.T) {
 				body = `"甲".to_bytes()`
 			}
 			gotOut, code := run(t, `
-let r:Response = http.request("`+strings.ToLower(verb)+`", "`+urlOf(srv)+`/", [], `+body+`, 5000)
+let r:Response = http.request("`+strings.ToLower(verb)+`", "`+urlOf(srv)+`/", `+body+`, [], 5000)
 console.print(r.status)
 `)
 			if code != 0 || !strings.Contains(gotOut, "200") {
@@ -113,7 +113,7 @@ console.print(r.status)
 // TestHttpRequestUnknownVerb 钉住 10108：不认得的方法当场抛，消息里带着写进去的那个词。
 func TestHttpRequestUnknownVerb(t *testing.T) {
 	got, code := run(t, `
-let r:Response = http.request("GETT", "http://127.0.0.1:9/", [], null, 5000)
+let r:Response = http.request("GETT", "http://127.0.0.1:9/", null, [], 5000)
 console.print(r.status)
 `)
 	if code != 1 || !strings.Contains(got, "出错了（10108）：不认得 GETT 这个方法") {
@@ -142,7 +142,7 @@ func TestHttpRequestHeaderLineChecked(t *testing.T) {
 		t.Run(c.name, func(t *testing.T) {
 			got, code := run(t, `
 let hs:list<string> = `+c.src+`
-let r:Response = http.request("GET", "http://127.0.0.1:9/", hs, null, 5000)
+let r:Response = http.request("GET", "http://127.0.0.1:9/", null, hs, 5000)
 console.print(r.status)
 `)
 			if code != 1 || !strings.Contains(got, c.want) {
@@ -162,7 +162,7 @@ func TestHttpRequestHeaderTrimmed(t *testing.T) {
 	defer srv.Close()
 	gotOut, code := run(t, `
 let hs:list<string> = ["  X-Nef-Trace :  42  "]
-let r:Response = http.request("GET", "`+urlOf(srv)+`/", hs, null, 5000)
+let r:Response = http.request("GET", "`+urlOf(srv)+`/", null, hs, 5000)
 console.print(r.status)
 `)
 	if code != 0 || !strings.Contains(gotOut, "200") || got != "42" {
@@ -175,7 +175,7 @@ func TestHttpRequestNullHeaderElem(t *testing.T) {
 	got, code := run(t, `
 let hs:list<string> = []
 hs.add(null)
-let r:Response = http.request("GET", "http://127.0.0.1:9/", hs, null, 5000)
+let r:Response = http.request("GET", "http://127.0.0.1:9/", null, hs, 5000)
 console.print(r.status)
 `)
 	if code != 1 || !strings.Contains(got, "出错了（10092）：对着空句柄取成员或调用方法") {
@@ -198,7 +198,7 @@ func TestHttpRequestMaxBody(t *testing.T) {
 	u := urlOf(srv)
 
 	got, code := run(t, `
-let r:Response = http.request("GET", "`+u+`/", [], null, 10000, false, 1000)
+let r:Response = http.request("GET", "`+u+`/", null, [], 10000, false, 1000)
 console.print(r.status)
 `)
 	if code != 1 || !strings.Contains(got, "出错了（10106）：应答超过给出的上限（上限 1000，已收 ") {
@@ -206,7 +206,7 @@ console.print(r.status)
 	}
 
 	got, code = run(t, `
-let r:Response = http.request("GET", "`+u+`/", [], null, 10000)
+let r:Response = http.request("GET", "`+u+`/", null, [], 10000)
 console.print(r.status, length(r.body))
 `)
 	if code != 0 || got != "200 "+strconv.Itoa(n)+"\n" {
@@ -214,7 +214,7 @@ console.print(r.status, length(r.body))
 	}
 
 	got, code = run(t, `
-let r:Response = http.request("GET", "`+u+`/", [], null, 10000, false, 0)
+let r:Response = http.request("GET", "`+u+`/", null, [], 10000, false, 0)
 console.print(length(r.body))
 `)
 	if code != 0 || got != strconv.Itoa(n)+"\n" {
@@ -222,7 +222,7 @@ console.print(length(r.body))
 	}
 
 	got, code = run(t, `
-let r:Response = http.request("GET", "`+u+`/", [], null, 10000, false, -1)
+let r:Response = http.request("GET", "`+u+`/", null, [], 10000, false, -1)
 console.print(r.status)
 `)
 	if code != 1 || !strings.Contains(got, "出错了（10107）：给出的应答上限不能是负数") {
@@ -231,7 +231,7 @@ console.print(r.status)
 
 	// 正好等于上限不算超
 	got, code = run(t, `
-let r:Response = http.request("GET", "`+u+`/", [], null, 10000, false, `+strconv.Itoa(n)+`)
+let r:Response = http.request("GET", "`+u+`/", null, [], 10000, false, `+strconv.Itoa(n)+`)
 console.print(length(r.body))
 `)
 	if code != 0 || got != strconv.Itoa(n)+"\n" {
@@ -251,7 +251,7 @@ func TestHttpRequestGzip(t *testing.T) {
 	}))
 	defer srv.Close()
 	got, code := run(t, `
-let r:Response = http.request("GET", "`+urlOf(srv)+`/", [], null, 5000)
+let r:Response = http.request("GET", "`+urlOf(srv)+`/", null, [], 5000)
 console.print(r.status, text.from_bytes(r.body))
 `)
 	if code != 0 || !strings.Contains(got, "200 压缩过的正文 甲") {
@@ -272,7 +272,7 @@ func TestHttpRequestDeflateZlib(t *testing.T) {
 	}))
 	defer srv.Close()
 	got, code := run(t, `
-let r:Response = http.get("`+urlOf(srv)+`/", 5000)
+let r:Response = http.get("`+urlOf(srv)+`/", [], 5000)
 console.print(r.status, text.from_bytes(r.body))
 `)
 	if code != 0 || !strings.Contains(got, "200 zlib 包裹的正文 乙") {
@@ -292,7 +292,7 @@ func TestHttpRequestDeflateRaw(t *testing.T) {
 	}))
 	defer srv.Close()
 	got, code := run(t, `
-let r:Response = http.get("`+urlOf(srv)+`/", 5000)
+let r:Response = http.get("`+urlOf(srv)+`/", [], 5000)
 console.print(r.status, text.from_bytes(r.body))
 `)
 	if code != 0 || !strings.Contains(got, "200 raw deflate 的正文 丙") {
@@ -317,7 +317,7 @@ func TestHttpRequestDeflateBig(t *testing.T) {
 	}))
 	defer srv.Close()
 	got, code := run(t, `
-let r:Response = http.get("`+urlOf(srv)+`/", 8000)
+let r:Response = http.get("`+urlOf(srv)+`/", [], 8000)
 console.print(r.status, length(r.body))
 `)
 	if code != 0 || !strings.Contains(got, "200 "+strconv.Itoa(len(want))) {
@@ -338,7 +338,7 @@ func TestHttpRequestDeflateOverLimit(t *testing.T) {
 	}))
 	defer srv.Close()
 	got, code := run(t, `
-let r:Response = http.request("GET", "`+urlOf(srv)+`/", [], null, 5000, false, 100)
+let r:Response = http.request("GET", "`+urlOf(srv)+`/", null, [], 5000, false, 100)
 console.print(r.status)
 `)
 	if code != 1 || !strings.Contains(got, "出错了（10106）：应答超过给出的上限") {
@@ -354,7 +354,7 @@ func TestHttpRequestDeflateCorrupt(t *testing.T) {
 	}))
 	defer srv.Close()
 	got, code := run(t, `
-let r:Response = http.get("`+urlOf(srv)+`/", 5000)
+let r:Response = http.get("`+urlOf(srv)+`/", [], 5000)
 console.print(r.status)
 `)
 	if code != 1 || !strings.Contains(got, "出错了（10113）：应答的压缩正文解不开") {
@@ -378,7 +378,7 @@ func TestHttpRequestRedirectCredentials(t *testing.T) {
 
 	got, code := run(t, `
 let hs:list<string> = ["Authorization: Bearer 甲"]
-let r:Response = http.request("GET", "`+urlOf(from)+`/start", hs, null, 5000)
+let r:Response = http.request("GET", "`+urlOf(from)+`/start", null, hs, 5000)
 console.print(r.status)
 `)
 	if code != 0 || got != "302\n" {
@@ -389,7 +389,7 @@ console.print(r.status)
 	}
 
 	got, code = run(t, `
-let r:Response = http.request("GET", "`+urlOf(from)+`/start", ["X-Nef: 1"], null, 5000)
+let r:Response = http.request("GET", "`+urlOf(from)+`/start", null, ["X-Nef: 1"], 5000)
 console.print(r.status, text.from_bytes(r.body))
 `)
 	if code != 0 || got != "200 到了\n" {
@@ -408,7 +408,7 @@ func TestHttpRequestIgnoreCert(t *testing.T) {
 	defer srv.Close()
 
 	got, code := run(t, `
-let r:Response = http.request("GET", "`+srv.URL+`/", [], null, 8000, true)
+let r:Response = http.request("GET", "`+srv.URL+`/", null, [], 8000, true)
 console.print(r.status, text.from_bytes(r.body))
 `)
 	if code != 0 || got != "200 加密的\n" {
@@ -416,7 +416,7 @@ console.print(r.status, text.from_bytes(r.body))
 	}
 
 	got, code = run(t, `
-let r:Response = http.request("GET", "`+srv.URL+`/", [], null, 8000)
+let r:Response = http.request("GET", "`+srv.URL+`/", null, [], 8000)
 console.print(r.status)
 `)
 	if code != 1 || !strings.Contains(got, "出错了（10101）：连不上这个地址") {
@@ -438,8 +438,8 @@ func TestHttpRequestPostBody(t *testing.T) {
 	defer srv.Close()
 	got, code := run(t, `
 let msg:Bytes = "甲乙丙".to_bytes()
-let r:Response = http.request("POST", "`+urlOf(srv)+`/echo", ["Content-Type: application/octet-stream"], msg, 5000)
-let s:Response = http.post("`+urlOf(srv)+`/echo", msg, 5000)
+let r:Response = http.request("POST", "`+urlOf(srv)+`/echo", msg, ["Content-Type: application/octet-stream"], 5000)
+let s:Response = http.post("`+urlOf(srv)+`/echo", msg, [], 5000)
 console.print(r.status, text.from_bytes(r.body), length(msg))
 console.print(s.status, text.from_bytes(s.body))
 `)
@@ -460,7 +460,7 @@ func TestHttpRequestUrlPortWithoutPath(t *testing.T) {
 	got, code := run(t, `
 let total:int = 0
 for (i:int from 0 until 3) {
-    let r:Response = http.get("`+urlOf(srv)+`", 5000)
+    let r:Response = http.get("`+urlOf(srv)+`", [], 5000)
     total = total + r.status
     console.print(text.from_bytes(r.body))
 }
@@ -487,17 +487,17 @@ func TestHttpArgTempsReclaimedAtSentenceEnd(t *testing.T) {
 	cases := []struct{ name, src string }{
 		{"封装的正文是当场造的", `
 for (i:int from 0 until @N@) {
-    let r:Response = http.post("@URL@", "甲".to_bytes(), 5000)
+    let r:Response = http.post("@URL@", "甲".to_bytes(), [], 5000)
     total = total + r.status
 }`},
 		{"底层的正文与头都是当场造的", `
 for (i:int from 0 until @N@) {
-    let r:Response = http.request("POST", "@URL@", ["X-Nef: 1"], "甲".to_bytes(), 5000)
+    let r:Response = http.request("POST", "@URL@", "甲".to_bytes(), ["X-Nef: 1"], 5000)
     total = total + r.status
 }`},
 		{"网址是当场拼出来的", `
 for (i:int from 0 until @N@) {
-    let r:Response = http.get("@URL@" + "/", 5000)
+    let r:Response = http.get("@URL@" + "/", [], 5000)
     total = total + r.status
 }`},
 	}
@@ -529,7 +529,7 @@ let msg:Bytes = "甲".to_bytes()
 let total:int = 0
 for (i:int from 0 until @N@) {
     let hs:list<string> = ["X-Nef: 1", "Accept: text/plain"]
-    let r:Response = http.request("POST", "@URL@", hs, msg, 5000)
+    let r:Response = http.request("POST", "@URL@", msg, hs, 5000)
     total = total + r.status + length(r.body) + length(r.headers)
 }
 console.print(total)

@@ -249,8 +249,8 @@ func TestHttpPostJsonBody(t *testing.T) {
 let row:Json = json.empty_object()
 row.set("name", "nef")
 row.set("tags", ["语言", "编译器"])
-let r:Response = http.post("`+urlOf(srv)+`/echo", row, 5000)
-let second:Response = http.request("POST", "`+urlOf(srv)+`/echo", [], row, 5000)
+let r:Response = http.post("`+urlOf(srv)+`/echo", row, [], 5000)
+let second:Response = http.request("POST", "`+urlOf(srv)+`/echo", row, [], 5000)
 console.print(text.from_bytes(r.body))
 console.print(text.from_bytes(second.body))
 console.print(row.to_json())
@@ -279,7 +279,7 @@ let row:Json = json.empty_object()
 row.set("name", "nef")
 let total:int = 0
 for (i:int from 0 until @N@) {
-    let r:Response = http.post("` + urlOf(srv) + `/echo", row, 5000)
+    let r:Response = http.post("` + urlOf(srv) + `/echo", row, [], 5000)
     total = total + length(r.body)
 }
 console.print(total)

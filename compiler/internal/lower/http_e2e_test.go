@@ -37,7 +37,7 @@ func TestHttpGet(t *testing.T) {
 	}))
 	defer srv.Close()
 	got, code := run(t, `
-let r:Response = http.get("`+urlOf(srv)+`/hello", 5000)
+let r:Response = http.get("`+urlOf(srv)+`/hello", [], 5000)
 console.print(r.status, text.from_bytes(r.body), length(r.body))
 console.print(r.headers.index_of("X-Nef-Test: nef") >= 0, length(r.headers) >= 2)
 console.print(r)
@@ -72,7 +72,7 @@ func TestHttpPostEcho(t *testing.T) {
 	defer srv.Close()
 	got, code := run(t, `
 let msg:Bytes = "甲乙丙".to_bytes()
-let r:Response = http.post("`+urlOf(srv)+`/echo", msg, 5000)
+let r:Response = http.post("`+urlOf(srv)+`/echo", msg, [], 5000)
 console.print(r.status, length(msg), length(r.body), text.from_bytes(r.body))
 console.print(r.body[0], r.body[8])
 `)
@@ -100,7 +100,7 @@ func TestHttpBigBody(t *testing.T) {
 	}))
 	defer srv.Close()
 	got, code := run(t, `
-let r:Response = http.get("`+urlOf(srv)+`/big", 10000)
+let r:Response = http.get("`+urlOf(srv)+`/big", [], 10000)
 console.print(r.status, length(r.body), r.body[0], r.body[`+strconv.Itoa(n-1)+`])
 console.print(r.body[4096], r.body[8192])
 `)
@@ -126,8 +126,8 @@ func TestHttpTwoInARow(t *testing.T) {
 	}))
 	defer srv.Close()
 	got, code := run(t, `
-let a:Response = http.get("`+urlOf(srv)+`/一", 5000)
-let b:Response = http.get("`+urlOf(srv)+`/二?x=1", 5000)
+let a:Response = http.get("`+urlOf(srv)+`/一", [], 5000)
+let b:Response = http.get("`+urlOf(srv)+`/二?x=1", [], 5000)
 console.print(a.status, text.from_bytes(a.body))
 console.print(b.status, text.from_bytes(b.body), length(b.headers) >= 1)
 `)
@@ -143,11 +143,11 @@ func TestHttpCodes(t *testing.T) {
 	cases := []struct {
 		name, src, want string
 	}{
-		{"家族不认", `let r:Response = http.get("ftp://nef.invalid/x", 2000)`,
+		{"家族不认", `let r:Response = http.get("ftp://nef.invalid/x", [], 2000)`,
 			"出错了（10104）：这个地址或端口不行"},
-		{"网址是空的", `let r:Response = http.get("", 2000)`,
+		{"网址是空的", `let r:Response = http.get("", [], 2000)`,
 			"出错了（10104）：这个地址或端口不行"},
-		{"主机名解析不到", `let r:Response = http.get("http://nef-没有这个域名.invalid/", 5000)`,
+		{"主机名解析不到", `let r:Response = http.get("http://nef-没有这个域名.invalid/", [], 5000)`,
 			"出错了（10103）：解析不到 http://nef-没有这个域名.invalid/ 这个地址"},
 	}
 	for _, c := range cases {
@@ -185,7 +185,7 @@ func TestHttpTimeout(t *testing.T) {
 		_ = c.Close()
 	}()
 	got, code := run(t, `
-let r:Response = http.get("http://127.0.0.1:`+strconv.Itoa(port)+`/", 500)
+let r:Response = http.get("http://127.0.0.1:`+strconv.Itoa(port)+`/", [], 500)
 console.print(r.status)
 `)
 	if code != 1 || !strings.Contains(got, "出错了（10102）：等回应等超时了") {
@@ -208,7 +208,7 @@ func TestHttpSlope(t *testing.T) {
 	tmpl := `
 let total:int = 0
 for (i:int from 0 until @N@) {
-    let r:Response = http.get("@URL@", 5000)
+    let r:Response = http.get("@URL@", [], 5000)
     total = total + r.status + length(r.body) + length(r.headers)
 }
 console.print(total)
@@ -226,7 +226,7 @@ console.print(total)
 func TestHttpNullUrlIsGuarded(t *testing.T) {
 	got, code := run(t, `
 let u:string = null
-let r:Response = http.get(u, 1000)
+let r:Response = http.get(u, [], 1000)
 console.print(r.status)
 `)
 	if code != 1 || !strings.Contains(got, "出错了（10092）：对着空句柄取成员或调用方法") {

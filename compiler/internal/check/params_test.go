@@ -94,7 +94,7 @@ func TestSignatureShape(t *testing.T) {
 		{"length", "length(value): int"},
 		{"text.to_int", "text.to_int(text: string): int"},
 		{"file.read_bytes_from", "file.read_bytes_from(path: string, at: int, count: int): string"},
-		{"http.post", "http.post(url: string, body: Bytes, timeout_ms: int, headers: list<string> = []): Response"},
+		{"http.post", "http.post(url: string, body: Bytes, headers: list<string> = [], timeout_ms: int = 30000): Response"},
 		{"math.smaller", "math.smaller(a, b)"},
 		{"list.add", "list.add(value: T)"},
 		{"list.slice", "list.slice(start: int, end: int): list<T>"},

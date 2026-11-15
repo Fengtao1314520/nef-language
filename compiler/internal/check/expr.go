@@ -1303,7 +1303,7 @@ func (c *Checker) canBeJson(t Type, seen map[string]bool, allowJson bool) (strin
 // block it also takes a Json, and what goes out is the rendered text while the tree keeps every
 // position as it was. Only those two http members have a body; http.get has none.
 func JSONBodySlot(name string, i int) bool {
-	return (name == "http.post" && i == 1) || (name == "http.request" && i == 3)
+	return (name == "http.post" && i == 1) || (name == "http.request" && i == 2)
 }
 
 // memberRange 把那三条成员的范围钉在检查阶段：哪些类型能排序、keys 与 values 交得回什么，
@@ -2635,12 +2635,24 @@ var stdFuncs = map[string]stdSig{
 	// 末两个位置带默认值，调用时省掉就是"校验证书、不限应答大小"。
 	// 封装那两条也把 `headers` 摊成一个末尾可选位置（默认空表）：旧的两/三参写法照旧，
 	// 要多带几个头就把它补在最后，展开出来的码与直接写 `http.request` 一字不差。
-	"http.get":  {params: []Param{{Typ: typeStr}, {Typ: typeInt}, {Typ: Type{Kind: List, Name: "list", Args: []Type{typeStr}}, Default: &ast.ListLit{}}}, ret: typeResponse},
-	"http.post": {params: []Param{{Typ: typeStr}, {Typ: typeBytes}, {Typ: typeInt}, {Typ: Type{Kind: List, Name: "list", Args: []Type{typeStr}}, Default: &ast.ListLit{}}}, ret: typeResponse},
+	// 参数顺序按"先写最常变的那几个"排：网址之后先正文、再头、最后超时与两个开关，
+	// 三条封装与底层那一条因此可以互相对照。`body` 省掉就是 `null`（没有正文），
+	// 超时省掉是 30000 毫秒，头省掉是空表。省掉的位置只能从末尾连续省（`omitsOnlyDefaults`）。
+	"http.get": {params: []Param{
+		{Typ: typeStr},
+		{Typ: Type{Kind: List, Name: "list", Args: []Type{typeStr}}, Default: &ast.ListLit{}},
+		{Typ: typeInt, Default: &ast.Lit{Kind: "int", Text: "30000"}},
+	}, ret: typeResponse},
+	"http.post": {params: []Param{
+		{Typ: typeStr}, {Typ: typeBytes},
+		{Typ: Type{Kind: List, Name: "list", Args: []Type{typeStr}}, Default: &ast.ListLit{}},
+		{Typ: typeInt, Default: &ast.Lit{Kind: "int", Text: "30000"}},
+	}, ret: typeResponse},
 	"http.request": {params: []Param{
 		{Typ: typeStr}, {Typ: typeStr},
-		{Typ: Type{Kind: List, Name: "list", Args: []Type{typeStr}}},
-		{Typ: typeBytes}, {Typ: typeInt},
+		{Typ: typeBytes, Default: &ast.Lit{Kind: "null"}},
+		{Typ: Type{Kind: List, Name: "list", Args: []Type{typeStr}}, Default: &ast.ListLit{}},
+		{Typ: typeInt, Default: &ast.Lit{Kind: "int", Text: "30000"}},
 		{Typ: typeBool, Default: &ast.Lit{Kind: "false"}},
 		{Typ: typeInt, Default: &ast.Lit{Kind: "int", Text: "0"}},
 	}, ret: typeResponse},

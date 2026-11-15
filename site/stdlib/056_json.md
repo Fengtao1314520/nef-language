@@ -252,7 +252,7 @@ console.print(json.from_value(rows).to_json())
 let body:Json = json.empty_object()
 body.set("name", "nef")
 body.set("tags", ["语言", "编译器"])
-let r:Response = http.post("http://127.0.0.1:8080/api", body, 3000)
+let r:Response = http.post("http://127.0.0.1:8080/api", body)
 console.print(r.status)
 ```
 

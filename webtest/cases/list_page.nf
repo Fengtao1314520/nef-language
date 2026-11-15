@@ -39,7 +39,7 @@ method one_case(which:int) {
 method group_list() {
     let index:int = run.group_begin("列表页", start_url)
     wt.page_at(index).expect_title("列表")
-    for (i:int in 0 until length(titles)) {
+    for (i:int from 0 until length(titles)) {
         let title:string = titles[i]
         if (!run.picked(title)) {
             continue

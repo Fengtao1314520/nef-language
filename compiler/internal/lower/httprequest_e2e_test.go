@@ -459,7 +459,7 @@ func TestHttpRequestUrlPortWithoutPath(t *testing.T) {
 	defer srv.Close()
 	got, code := run(t, `
 let total:int = 0
-for (i:int in 0 until 3) {
+for (i:int from 0 until 3) {
     let r:Response = http.get("`+urlOf(srv)+`", 5000)
     total = total + r.status
     console.print(text.from_bytes(r.body))
@@ -486,17 +486,17 @@ func TestHttpArgTempsReclaimedAtSentenceEnd(t *testing.T) {
 	defer srv.Close()
 	cases := []struct{ name, src string }{
 		{"封装的正文是当场造的", `
-for (i:int in 0 until @N@) {
+for (i:int from 0 until @N@) {
     let r:Response = http.post("@URL@", "甲".to_bytes(), 5000)
     total = total + r.status
 }`},
 		{"底层的正文与头都是当场造的", `
-for (i:int in 0 until @N@) {
+for (i:int from 0 until @N@) {
     let r:Response = http.request("POST", "@URL@", ["X-Nef: 1"], "甲".to_bytes(), 5000)
     total = total + r.status
 }`},
 		{"网址是当场拼出来的", `
-for (i:int in 0 until @N@) {
+for (i:int from 0 until @N@) {
     let r:Response = http.get("@URL@" + "/", 5000)
     total = total + r.status
 }`},
@@ -527,7 +527,7 @@ func TestHttpRequestSlope(t *testing.T) {
 	tmpl := `
 let msg:bytes = "甲".to_bytes()
 let total:int = 0
-for (i:int in 0 until @N@) {
+for (i:int from 0 until @N@) {
     let hs:list<string> = ["X-Nef: 1", "Accept: text/plain"]
     let r:Response = http.request("POST", "@URL@", hs, msg, 5000)
     total = total + r.status + length(r.body) + length(r.headers)

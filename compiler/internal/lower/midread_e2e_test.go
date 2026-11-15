@@ -100,7 +100,7 @@ console.print(length(xs))
 
 	got, code = run(t, `let xs:list<list<int>> = [[3, 4], [1, 2]]
 let sum:int = 0
-for (j:int in 0 until xs[1][0]) {
+for (j:int from 0 until xs[1][0]) {
     sum = sum + j + 10
 }
 console.print(sum, length(xs))
@@ -204,7 +204,7 @@ console.print(d.get("乙", [7, 8])[0], d.get("乙", [7, 8])[1], length(d))
 // 一个 list<int> 连头带那两个位置是 88 字节，一个 class 对象是 16 字节——修复之前每轮就留下这么多。
 func TestMidReadSweep(t *testing.T) {
 	const stmt = `let total:int = 0
-for (i:int in 0 until @N@) {
+for (i:int from 0 until @N@) {
     let xs:list<list<int>> = [[i, i], [i, i]]
     xs[0][0];
     total = total + 1
@@ -212,7 +212,7 @@ for (i:int in 0 until @N@) {
 console.print(total)
 `
 	const decl = `let total:int = 0
-for (i:int in 0 until @N@) {
+for (i:int from 0 until @N@) {
     let xs:list<list<int>> = [[i, i], [i, i]]
     let t:int = xs[0][0];
     total = total + t
@@ -223,7 +223,7 @@ console.print(total)
 	// 写入不支持）。读一个位置现在也不交出来，所以要改内层那一条就把它摘下来再改：`remove_at` 交出的
 	// 那一条归这个名字，改完要么放回去，要么就让它出作用域。
 	const assign = `let total:int = 0
-for (i:int in 0 until @N@) {
+for (i:int from 0 until @N@) {
     let xs:list<list<int>> = [[1, 1], [1, 1]]
     let row:list<int> = xs.remove_at(0)
     row[0] = 7
@@ -239,7 +239,7 @@ console.print(total)
     }
 }
 let total:int = 0
-for (i:int in 0 until @N@) {
+for (i:int from 0 until @N@) {
     let xs:list<Node> = [new Node(v: 7), new Node(v: 8)]
     xs[0].ping()
     total = total + 1
@@ -293,7 +293,7 @@ console.print(length(box), box[1] is Circle)
     }
 }
 let total:int = 0
-for (i:int in 0 until @N@) {
+for (i:int from 0 until @N@) {
     let box:list<object> = [new Circle(r: 2.0) as object]
     for (one:object in box) {
         total = total + (one as Circle).kind()

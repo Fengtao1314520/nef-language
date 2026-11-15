@@ -65,7 +65,7 @@ export shared kept:list<string> = ["甲"]
 let xs:list<int> = [1, 2]
 let given:Bag = new Bag(n: 3)
 take(given)
-for (i:int in 0 until 2) {
+for (i:int from 0 until 2) {
     let perLoop:list<int> = [i]
 }
 console.print(length(xs), length(kept))

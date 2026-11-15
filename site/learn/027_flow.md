@@ -59,7 +59,7 @@ if (n > 9) {
 ```nf
 let total:int = 0
 
-for (i:int in 0 until 5) {
+for (i:int from 0 until 5) {
     total = total + i
 }
 
@@ -192,7 +192,7 @@ if (x > 0) {
 
 ## 练习
 
-把上文 `while` 一节里的那段示例改写成 `for (i:int in 1 until 7)`，`continue` 与 `break` 的条件保持不变。
+把上文 `while` 一节里的那段示例改写成 `for (i:int from 1 until 7)`，`continue` 与 `break` 的条件保持不变。
 
 先推算最后输出的两个数值是否改变，再修改代码。
 

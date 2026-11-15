@@ -49,7 +49,7 @@ console.print(d["甲"])
 }
 let d:dict<string, Rec> = {"甲": Rec { n: 1 }}
 let total:int = 0
-for (i:int in 0 until @N@) {
+for (i:int from 0 until @N@) {
     d["甲"].n = i
     total = total + d["甲"].n
 }

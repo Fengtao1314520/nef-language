@@ -48,7 +48,7 @@ try {
 // 所以每一圈拿同一个名字去删，多跑一圈不多要一个字节。
 func TestUnsetBorrowsItsName(t *testing.T) {
 	per := heapSlope(t, `
-for (i:int in 0 until @N@) {
+for (i:int from 0 until @N@) {
     environment.unset("NF_UNSET0")
 }
 console.print("跑完了")
@@ -64,7 +64,7 @@ console.print("跑完了")
 // 分别归谁、按什么顺序析构"。这里固定量级：那一族收掉的时候这条测试会失败，届时同步更新。
 func TestUnsetKeepsTheMidExpressionLeak(t *testing.T) {
 	per := heapSlope(t, `
-for (i:int in 0 until @N@) {
+for (i:int from 0 until @N@) {
     environment.unset("NF_UNSET" + number.to_string(i % 2))
 }
 console.print("跑完了")

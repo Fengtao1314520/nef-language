@@ -65,7 +65,7 @@ method cover(v:int):int {
             break
         }
     }
-    for (i:int in 0 until 3) {
+    for (i:int from 0 until 3) {
         v = v + i
     }
     for (one:string in s.split(" ")) {
@@ -148,7 +148,7 @@ func TestCloneNilMeansNil(t *testing.T) {
     let a:int = 0
     if (a < 1) {
     }
-    for (i:int in 0 until 2) {
+    for (i:int from 0 until 2) {
         a = a + i
     }
     for (one:string in "甲,乙".split(",")) {

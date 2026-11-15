@@ -30,7 +30,7 @@ let back:Circle = own as Circle            // 第二步：拆箱
 console.print("拆回来:", back.perim())
 
 // 接口名不能当类型用，混装时只能逐个判断盒子里的值
-for (i:int in 0 until length(box)) {
+for (i:int from 0 until length(box)) {
     if (box[i] is Circle) {
         console.print("是个圆，周长:", (box[i] as Circle).perim())
     } else if (box[i] is Square) {

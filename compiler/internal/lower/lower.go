@@ -6201,10 +6201,10 @@ func (c *fc) while(x *ast.While) error {
 	return nil
 }
 
-// forStmt 只接计数循环：`for (i:int in a until b)`。
+// forStmt 只接计数循环：`for (i:int from a until b)`。
 // 遍历容器要等容器实现，文本遍历要等下标实现。
 //
-// en: forStmt accepts only the counting loop `for (i:int in a until b)`. Iterating a container
+// en: forStmt accepts only the counting loop `for (i:int from a until b)`. Iterating a container
 // waits for the container implementation, and iterating text waits for subscripting.
 func (c *fc) forStmt(x *ast.For) error {
 	if x.Ranged {

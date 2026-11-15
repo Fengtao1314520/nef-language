@@ -36,7 +36,7 @@ func TestOutOfMemoryTwiceThrowsTwice(t *testing.T) {
 	got, code := run(t, `
 let big:int = 4294967296
 let hits:list<int> = []
-for (i:int in 0 until 2) {
+for (i:int from 0 until 2) {
     try {
         let b:bytes = bytes.allocate(big)
         console.print(b)

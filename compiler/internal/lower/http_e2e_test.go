@@ -207,7 +207,7 @@ func TestHttpSlope(t *testing.T) {
 	defer srv.Close()
 	tmpl := `
 let total:int = 0
-for (i:int in 0 until @N@) {
+for (i:int from 0 until @N@) {
     let r:Response = http.get("@URL@", 5000)
     total = total + r.status + length(r.body) + length(r.headers)
 }

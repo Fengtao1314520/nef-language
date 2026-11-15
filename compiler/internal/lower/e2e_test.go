@@ -75,7 +75,7 @@ func TestPrintSeveralValues(t *testing.T) {
 func TestLetAndLoop(t *testing.T) {
 	got, _ := run(t, `
 let total:int = 0
-for (i:int in 0 until 10) {
+for (i:int from 0 until 10) {
     total = total + i
 }
 console.print(total)

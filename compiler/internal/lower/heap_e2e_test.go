@@ -54,7 +54,7 @@ class Row {
 
 let total:int = 0
 @DECLS@
-for (i:int in 0 until 20000) {
+for (i:int from 0 until 20000) {
     let acc:list<int> = [i]
     let d:dict<string, int> = {"甲": i}
     let r:Row = new Row(n: i, kids: [i, i])
@@ -144,7 +144,7 @@ func TestHeapSlopeByKind(t *testing.T) {
 	}{
 		{"list：块尾释放", true, `
 let total:int = 0
-for (i:int in 0 until @N@) {
+for (i:int from 0 until @N@) {
     let acc:list<int> = [i]
     total = total + acc[0]
 }
@@ -156,7 +156,7 @@ class Row {
     kids:list<int>
 }
 let total:int = 0
-for (i:int in 0 until @N@) {
+for (i:int from 0 until @N@) {
     let r:Row = new Row(n: i, kids: [i, i])
     total = total + r.kids[1]
 }
@@ -164,7 +164,7 @@ console.print(total)
 `},
 		{"字典与集合（桶数组那一块）", true, `
 let total:int = 0
-for (i:int in 0 until @N@) {
+for (i:int from 0 until @N@) {
     let d:dict<string, int> = {"甲": i}
     let s:hashset<int> = {i}
     total = total + d["甲"] + length(s)
@@ -173,7 +173,7 @@ console.print(total)
 `},
 		{"continue 走的那一轮", true, `
 let total:int = 0
-for (i:int in 0 until @N@) {
+for (i:int from 0 until @N@) {
     let acc:list<int> = [i]
     if (i >= 0) {
         total = total + acc[0]
@@ -191,7 +191,7 @@ method use(xs:list<int>):int {
     return length(xs)
 }
 let total:int = 0
-for (i:int in 0 until @N@) {
+for (i:int from 0 until @N@) {
     let acc:list<int> = [i]
     total = total + use(acc)
 }
@@ -205,7 +205,7 @@ class Holder {
     data:list<int>
 }
 let total:int = 0
-for (i:int in 0 until @N@) {
+for (i:int from 0 until @N@) {
     let acc:list<int> = [i]
     let h:Holder = new Holder(data: [])
     h.data = acc
@@ -215,7 +215,7 @@ console.print(total)
 `},
 		{"拼出来的文本（文本也按同一规则释放）", true, `
 let total:int = 0
-for (i:int in 0 until @N@) {
+for (i:int from 0 until @N@) {
     let s:string = "甲" + "乙"
     total = total + length(s)
 }
@@ -223,7 +223,7 @@ console.print(total)
 `},
 		{"split 交回的 list 里那三段新文本（位置里的串归位置）", true, `
 let total:int = 0
-for (i:int in 0 until @N@) {
+for (i:int from 0 until @N@) {
     let parts:list<string> = "甲,乙,丙".split(",")
     total = total + length(parts)
 }
@@ -240,7 +240,7 @@ class Row {
     n:int
 }
 let total:int = 0
-for (i:int in 0 until @N@) {
+for (i:int from 0 until @N@) {
     let d:dict<string, Row> = {}
     d.set("甲".slice(0, 1), new Row(n: i))
     d["甲".slice(0, 1)] = new Row(n: i + 1)
@@ -250,7 +250,7 @@ console.print(total)
 `},
 		{"覆盖 list 的那个位置（换下来的文本）", true, `
 let total:int = 0
-for (i:int in 0 until @N@) {
+for (i:int from 0 until @N@) {
     let xs:list<string> = ["甲"]
     xs[0] = "乙乙".slice(0, 2)
     total = total + length(xs)
@@ -259,7 +259,7 @@ console.print(total)
 `},
 		{"add 命中已有键（没收下的那个键）", true, `
 let total:int = 0
-for (i:int in 0 until @N@) {
+for (i:int from 0 until @N@) {
     let d:dict<string, int> = {"甲": 1}
     d.set("甲".slice(0, 1), 2)
     total = total + length(d)
@@ -270,7 +270,7 @@ console.print(total)
 		// 专门验证"容器是该位置里那块内存唯一的持有者"。
 		{"装进去的文本键与文本值（再散列时一起走）", true, `
 let total:int = 0
-for (i:int in 0 until @N@) {
+for (i:int from 0 until @N@) {
     let d:dict<string, string> = {}
     d.set("甲".slice(0, 1), "旧旧".slice(0, 2))
     total = total + length(d)
@@ -282,7 +282,7 @@ console.print(total)
 		// 这一条钉的是共享那一步的代价：文本不可变，宁可留一块内存，也不多拆一次。
 		{"共用过的文本键（名字与位置各拿一份，两块都不还）", false, `
 let total:int = 0
-for (i:int in 0 until @N@) {
+for (i:int from 0 until @N@) {
     let d:dict<string, int> = {}
     let k:string = "甲".slice(0, 1)
     d.set(k, i)
@@ -295,9 +295,9 @@ console.print(total)
 		// list 每轮增长到 20 格（`@list_add` 一路翻倍、搬完把旧的几块释放）⇒ 应当释放。
 		{"list 每轮长到 20 个位置再整条释放", true, `
 let total:int = 0
-for (i:int in 0 until @N@) {
+for (i:int from 0 until @N@) {
     let xs:list<int> = []
-    for (j:int in 0 until 20) {
+    for (j:int from 0 until 20) {
         xs.add(j)
     }
     total = total + length(xs)
@@ -309,7 +309,7 @@ console.print(total)
 		// 但这本 dict 到程序结束才散，中间每一圈的键都还在它手里）。
 		{"算出来的三段文本存进顶层 dict（键还活着，该涨）", false, `
 let d:dict<string, int> = {}
-for (i:int in 0 until @N@) {
+for (i:int from 0 until @N@) {
     let seed:string = number.to_string(i) + "abcdefghi"
     d.set(seed.slice(0, 3), i)
     d.set(seed.slice(3, 6), i)
@@ -336,7 +336,7 @@ class Row2 {
     m:int
 }
 let total:int = 0
-for (i:int in 0 until @N@) {
+for (i:int from 0 until @N@) {
     let d:dict<string, Row2> = {}
     d.set("甲".slice(0, 1), new Row2(n: i, m: i))
     total = total + length(d)
@@ -354,7 +354,7 @@ class Row {
     kids:list<int>
 }
 let total:int = 0
-for (i:int in 0 until @N@) {
+for (i:int from 0 until @N@) {
     let d:dict<string, Row> = {}
     d.set("甲".slice(0, 1), new Row(n: i, kids: [i, i]))
     d["甲".slice(0, 1)] = new Row(n: i + 1, kids: [i])
@@ -368,7 +368,7 @@ console.print(total)
 		// 读一个位置不再交出值，那个位置上还留着，标准库读完谁都不必释放它，量出来还是 0。
 		{"按下标读出来交给标准库的那一步", true, `
 let total:int = 0
-for (i:int in 0 until @N@) {
+for (i:int from 0 until @N@) {
     let xs:list<string> = ["甲乙".slice(0, 2)]
     total = total + length(xs[0])
 }
@@ -386,7 +386,7 @@ class Box {
     inner:Row
 }
 let total:int = 0
-for (i:int in 0 until @N@) {
+for (i:int from 0 until @N@) {
     let b:Box = new Box(inner: new Row(n: i))
     b.inner = new Row(n: i + 1)
     total = total + b.inner.n
@@ -402,7 +402,7 @@ method make(n:int):int {
     return length(xs)
 }
 let total:int = 0
-for (i:int in 0 until @N@) {
+for (i:int from 0 until @N@) {
     total = total + make(i)
 }
 console.print(total)
@@ -413,7 +413,7 @@ method risky(n:int) {
     throw (120, "每圈都抛")
 }
 let total:int = 0
-for (i:int in 0 until @N@) {
+for (i:int from 0 until @N@) {
     try {
         risky(i)
     } catch (code, msg, at) {
@@ -429,7 +429,7 @@ method risky(n:int) {
     throw (120, "每圈都抛")
 }
 let total:int = 0
-for (i:int in 0 until @N@) {
+for (i:int from 0 until @N@) {
     try {
         risky(i)
     } catch (code, msg, at, trace) {
@@ -440,8 +440,8 @@ console.print(total)
 `},
 		{"内层每轮 break 出去", true, `
 let total:int = 0
-for (i:int in 0 until @N@) {
-    for (j:int in 0 until 2) {
+for (i:int from 0 until @N@) {
+    for (j:int from 0 until 2) {
         let inner:list<int> = [j]
         break
     }
@@ -461,7 +461,7 @@ method middle(n:int):int {
     return length(mid)
 }
 let total:int = 0
-for (i:int in 0 until @N@) {
+for (i:int from 0 until @N@) {
     try {
         let held:list<int> = [i]
         total = total + middle(i) + length(held)
@@ -477,7 +477,7 @@ method use(xs:list<int>):int {
     return length(xs)
 }
 let total:int = 0
-for (i:int in 0 until @N@) {
+for (i:int from 0 until @N@) {
     total = total + use([i, i])
 }
 console.print(total)
@@ -487,7 +487,7 @@ method count(s:string):int {
     return length(s)
 }
 let total:int = 0
-for (i:int in 0 until @N@) {
+for (i:int from 0 until @N@) {
     total = total + count("甲" + "乙")
 }
 console.print(total)
@@ -496,7 +496,7 @@ console.print(total)
 		// 旧规则里"被调方把参数原样 return 出来"那一行写不出来了（实参是只读借用）。
 		{"当场新造的一块交给容器那个位置", true, `
 let total:int = 0
-for (i:int in 0 until @N@) {
+for (i:int from 0 until @N@) {
     let bag:list<list<int>> = []
     bag.set([i, i])
     total = total + length(bag[0])
@@ -512,7 +512,7 @@ method build(n:int):list<int> {
     return [n]
 }
 let total:int = 0
-for (i:int in 0 until @N@) {
+for (i:int from 0 until @N@) {
     let got:list<int> = build(i)
     total = total + length(got)
 }
@@ -531,7 +531,7 @@ method hand(n:int):list<int> {
     return d.take("甲")
 }
 let total:int = 0
-for (i:int in 0 until @N@) {
+for (i:int from 0 until @N@) {
     let got:list<int> = hand(i)
     total = total + got[0]
 }
@@ -542,7 +542,7 @@ console.print(total)
 		// 拼出来的那一段交给外层那一步（`length(...)`）用完再释放。该规则实现后量回 0。
 		{"读出来的文本进加法", true, `
 let total:int = 0
-for (i:int in 0 until @N@) {
+for (i:int from 0 until @N@) {
     let xs:list<string> = ["甲乙".slice(0, 2)]
     total = total + length(xs[0] + "丙丁")
 }
@@ -557,7 +557,7 @@ class Note {
     n:int
 }
 let total:int = 0
-for (i:int in 0 until @N@) {
+for (i:int from 0 until @N@) {
     let cs:list<Note> = [new Note(n: i)]
     console.print(cs[0] as object)
     total = total + length(cs)
@@ -570,7 +570,7 @@ class Note {
     n:int
 }
 let total:int = 0
-for (i:int in 0 until @N@) {
+for (i:int from 0 until @N@) {
     let cs:list<Note> = [new Note(n: i)]
     console.print(cs[0].n)
     total = total + length(cs)
@@ -583,7 +583,7 @@ class Note {
     n:int
 }
 let total:int = 0
-for (i:int in 0 until @N@) {
+for (i:int from 0 until @N@) {
     let cs:list<Note> = [new Note(n: i)]
     console.print(cs)
     total = total + length(cs)
@@ -599,7 +599,7 @@ method onlyRead(n:Note):int {
     return n.n
 }
 let total:int = 0
-for (i:int in 0 until @N@) {
+for (i:int from 0 until @N@) {
     let cs:list<Note> = [new Note(n: i)]
     total = total + onlyRead(cs[0])
 }
@@ -614,7 +614,7 @@ method passOn(cs:list<Note>):Note {
     return cs.remove_at(0)
 }
 let total:int = 0
-for (i:int in 0 until @N@) {
+for (i:int from 0 until @N@) {
     let cs:list<Note> = [new Note(n: i)]
     let got:Note = passOn(cs)
     total = total + got.n
@@ -629,7 +629,7 @@ class Box {
     v:string
 }
 let total:int = 0
-for (i:int in 0 until @N@) {
+for (i:int from 0 until @N@) {
     let b:Box = new Box(v: "甲乙" + "丙丁")
     total = total + i
 }
@@ -648,7 +648,7 @@ method count(p:P):int {
 }
 let q:P = P { t: "甲" + "乙" }
 let total:int = 0
-for (i:int in 0 until @N@) {
+for (i:int from 0 until @N@) {
     total = total + count(q)
 }
 console.print(total)
@@ -659,7 +659,7 @@ console.print(total)
 		// 计数边界、读出来作方法接收者、字典位置的下标访问。
 		{"这一句没人接住、中间那一步读出来的那一条（xs[0][0]）", true, `
 let total:int = 0
-for (i:int in 0 until @N@) {
+for (i:int from 0 until @N@) {
     let xs:list<list<int>> = [[i, i], [i, i]]
     xs[0][0];
     total = total + 1
@@ -668,7 +668,7 @@ console.print(total)
 `},
 		{"声明的初值里中间那一步读出来的那一条", true, `
 let total:int = 0
-for (i:int in 0 until @N@) {
+for (i:int from 0 until @N@) {
     let xs:list<list<int>> = [[i, i], [i, i]]
     let t:int = xs[0][0];
     total = total + t
@@ -677,7 +677,7 @@ console.print(total)
 `},
 		{"等号右边中间那一步读出来的那一条", true, `
 let total:int = 0
-for (i:int in 0 until @N@) {
+for (i:int from 0 until @N@) {
     let xs:list<list<int>> = [[i, i], [i, i]]
     let k:int = 0
     k = xs[0][0];
@@ -687,7 +687,7 @@ console.print(total)
 `},
 		{"等号左边先把那个位置摘出来再写", true, `
 let total:int = 0
-for (i:int in 0 until @N@) {
+for (i:int from 0 until @N@) {
     let xs:list<list<int>> = [[1, 1], [1, 1]]
     let row:list<int> = xs.remove_at(0)
     row[0] = 7;
@@ -700,7 +700,7 @@ method head(xs:list<list<int>>):int {
     return xs[0][0];
 }
 let total:int = 0
-for (i:int in 0 until @N@) {
+for (i:int from 0 until @N@) {
     let xs:list<list<int>> = [[i, i], [i, i]]
     total = total + head(xs)
 }
@@ -708,7 +708,7 @@ console.print(total)
 `},
 		{"遍历用的那一条是读出来的", true, `
 let total:int = 0
-for (i:int in 0 until @N@) {
+for (i:int from 0 until @N@) {
     let xs:list<list<int>> = [[i, i], [i, i]]
     for (v:int in xs[0]) {
         total = total + v
@@ -718,9 +718,9 @@ console.print(total)
 `},
 		{"计数循环的边界里中间那一步读出来的那一条", true, `
 let total:int = 0
-for (i:int in 0 until @N@) {
+for (i:int from 0 until @N@) {
     let xs:list<list<int>> = [[2, 2], [2, 2]]
-    for (j:int in 0 until xs[0][0]) {
+    for (j:int from 0 until xs[0][0]) {
         total = total + j
     }
 }
@@ -734,7 +734,7 @@ class Node {
     }
 }
 let total:int = 0
-for (i:int in 0 until @N@) {
+for (i:int from 0 until @N@) {
     let xs:list<Node> = [new Node(v: 7), new Node(v: 8)]
     xs[0].ping()
     total = total + 1
@@ -743,7 +743,7 @@ console.print(total)
 `},
 		{"字典里那个位置再点一下", true, `
 let total:int = 0
-for (i:int in 0 until @N@) {
+for (i:int from 0 until @N@) {
     let d:dict<string, list<int>> = {"甲": [1, 2], "乙": [3, 4]}
     d["甲"][0];
     total = total + 1
@@ -754,7 +754,7 @@ console.print(total)
 		// 这四行各覆盖一处"谁持有这一块"：名字作废、容器的那个位置、字段被换下、slice 造出的那一片。
 		{"每一轮造一块 bytes，名字到尽头就散", true, `
 let total:int = 0
-for (i:int in 0 until @N@) {
+for (i:int from 0 until @N@) {
     let b:bytes = bytes.allocate(24)
     total = total + length(b)
 }
@@ -762,7 +762,7 @@ console.print(total)
 `},
 		{"每一轮把一块 bytes 放进容器那个位置", true, `
 let total:int = 0
-for (i:int in 0 until @N@) {
+for (i:int from 0 until @N@) {
     let xs:list<bytes> = [bytes.allocate(24)]
     total = total + length(xs)
 }
@@ -773,7 +773,7 @@ class Holder {
     data:bytes
 }
 let total:int = 0
-for (i:int in 0 until @N@) {
+for (i:int from 0 until @N@) {
     let h:Holder = new Holder(data: bytes.allocate(16))
     h.data = bytes.allocate(8)
     total = total + length(h.data)
@@ -783,7 +783,7 @@ console.print(total)
 		{"每一轮从一块 bytes 里 slice 出那一片（顶层那一块留着，slice 的每一片散）", true, `
 let head:bytes = bytes.allocate(64)
 let total:int = 0
-for (i:int in 0 until @N@) {
+for (i:int from 0 until @N@) {
     let cut:bytes = head.slice(0, 8)
     total = total + length(cut)
 }
@@ -818,7 +818,7 @@ func TestHeapSlopeHandles(t *testing.T) {
 	}{
 		{"每一轮连一次、送一段、再收回来", echo, `
 let total:int = 0
-for (i:int in 0 until @N@) {
+for (i:int from 0 until @N@) {
     let s:Socket = net.connect("127.0.0.1", @P@, 3000)
     let msg:bytes = "ping".to_bytes()
     s.send(msg)
@@ -829,7 +829,7 @@ console.print(total)
 `},
 		{"每一轮连一次（不设超时那一条路）", echo, `
 let total:int = 0
-for (i:int in 0 until @N@) {
+for (i:int from 0 until @N@) {
     let s:Socket = net.connect("127.0.0.1", @P@, 0)
     total = total + 1
 }
@@ -837,7 +837,7 @@ console.print(total)
 `},
 		{"每一轮 listen 一次", bind, `
 let total:int = 0
-for (i:int in 0 until @N@) {
+for (i:int from 0 until @N@) {
     let l:Listener = net.listen(@P@)
     total = total + 1
 }

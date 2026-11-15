@@ -20,7 +20,7 @@ func TestReturnOfFreshValueIsFreedByCaller(t *testing.T) {
 	const text = `method make():string {
     return "甲" + "乙"
 }
-for (i:int in 0 until @N@) {
+for (i:int from 0 until @N@) {
     make();
 }
 console.print(length(make()))
@@ -28,7 +28,7 @@ console.print(length(make()))
 	const list = `method mk():list<int> {
     return [1, 2]
 }
-for (i:int in 0 until @N@) {
+for (i:int from 0 until @N@) {
     mk();
 }
 console.print(length(mk()))
@@ -96,7 +96,7 @@ func TestReturnOfStaticLiteralIsHarmless(t *testing.T) {
 	const tmpl = `method keep():string {
     return "共"
 }
-for (i:int in 0 until @N@) {
+for (i:int from 0 until @N@) {
     let s:string = keep()
     console.print(length(s))
 }
@@ -121,7 +121,7 @@ method peek(p:P):string {
     return p.t
 }
 let q:P = P { t: "甲" + "乙" }
-for (i:int in 0 until 20) {
+for (i:int from 0 until 20) {
     console.print(length(peek(q)))
 }
 console.print(length(q.t))
@@ -143,7 +143,7 @@ method bump(p:P):int {
     return p.n
 }
 let q:P = P { n: 1 }
-for (i:int in 0 until @N@) {
+for (i:int from 0 until @N@) {
     console.print(bump(q), q.n)
 }
 `
@@ -163,7 +163,7 @@ func TestRecursiveReturnStaysUnproven(t *testing.T) {
     }
     return [1, 2, 3]
 }
-for (i:int in 0 until @N@) {
+for (i:int from 0 until @N@) {
     console.print(length(down(4)))
 }
 `

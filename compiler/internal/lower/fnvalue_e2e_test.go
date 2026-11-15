@@ -129,7 +129,7 @@ method twice(v:int):int {
 
 __DECL__
 let sum:int = 0
-for (i:int in 0 until 20000) {
+for (i:int from 0 until 20000) {
     sum = sum + __CALL__
 }
 console.print(sum)

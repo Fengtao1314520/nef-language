@@ -235,7 +235,7 @@ method shout(t:string) {
 }
 
 method shout_all(items:list<string>) {
-    for (i:int in 0 until length(items)) {
+    for (i:int from 0 until length(items)) {
         shout(items[i])          // 读一个位置不拿走值，shout 的参数也是只读借用
     }
 }

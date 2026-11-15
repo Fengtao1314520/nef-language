@@ -22,7 +22,7 @@ func TestOverwrittenNameFreesTheOldBlock(t *testing.T) {
     b:float
 }
 let r:Row = Row { a: 0, b: 0.0 }
-for (i:int in 0 until @N@) {
+for (i:int from 0 until @N@) {
     r = Row { a: i, b: 1.5 }
 }
 console.print(r.a)
@@ -31,19 +31,19 @@ console.print(r.a)
     n:int
 }
 let c:C = new C()
-for (i:int in 0 until @N@) {
+for (i:int from 0 until @N@) {
     c = new C()
 }
 console.print(c.n)
 `},
 		{"list 名字被覆盖", `let xs:list<int> = []
-for (i:int in 0 until @N@) {
+for (i:int from 0 until @N@) {
     xs = [1, 2]
 }
 console.print(length(xs))
 `},
 		{"dict 名字被覆盖", `let d:dict<string, int> = {}
-for (i:int in 0 until @N@) {
+for (i:int from 0 until @N@) {
     d = {"甲": i}
 }
 console.print(d["甲"])
@@ -68,7 +68,7 @@ console.print(d["甲"])
 // 量堆的两步放在实际运行之后：heapAt 会设 NEF_HEAP，之后的 run() 输出会多一行 `heap …`。
 func TestStaticLiteralNameIsAHolder(t *testing.T) {
 	const tmpl = `let s:string = "甲"
-for (i:int in 0 until @N@) {
+for (i:int from 0 until @N@) {
     s = "丙" + "丁"
 }
 console.print(length(s))
@@ -79,7 +79,7 @@ console.print(length(s))
 	}
 	// 那段字面量无法析构、堆上那块要在圈尾释放：两条路径在同一段代码里各跑一千多圈，数值必须正确且不得报错
 	kept, keptCode := run(t, `
-for (i:int in 0 until 2000) {
+for (i:int from 0 until 2000) {
     let s:string = "甲"
     if (i > 900) {
         s = "丙" + "丁"

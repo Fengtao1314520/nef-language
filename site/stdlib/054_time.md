@@ -14,7 +14,7 @@
 let start:float = time.elapsed()
 let total:int = 0
 
-for (i:int in 0 until 100) {
+for (i:int from 0 until 100) {
     total = total + i
 }
 

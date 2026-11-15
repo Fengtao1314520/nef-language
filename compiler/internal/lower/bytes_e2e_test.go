@@ -78,13 +78,13 @@ func TestFileBytesRoundTrip(t *testing.T) {
 	got, code := run(t, `
 let p:string = "`+p+`"
 let buf:bytes = bytes.allocate(256)
-for (i:int in 0 until 256) {
+for (i:int from 0 until 256) {
     buf[i] = i as byte
 }
 file.write_bytes(p, buf)
 let back:bytes = file.read_bytes(p)
 let sum:int = 0
-for (i:int in 0 until length(back)) {
+for (i:int from 0 until length(back)) {
     sum = sum + (back[i] as int)
 }
 console.print(length(buf), length(back))
@@ -358,34 +358,34 @@ func TestBytesReleases(t *testing.T) {
 		name, src string
 	}{
 		{"每一圈造一块，句柄到名字作废那一处就散", `
-for (i:int in 0 until 20000) {
+for (i:int from 0 until 20000) {
     let b:bytes = bytes.allocate(24)
     b[0] = 200
 }`},
 		{"每一圈造一块放进容器，容器自己散", `
 let total:int = 0
-for (i:int in 0 until 20000) {
+for (i:int from 0 until 20000) {
     let xs:list<bytes> = [bytes.allocate(24)]
     total = total + length(xs[0])
 }`},
 		{"每一圈读一个小文件进来", `
 let p:string = "` + p + `"
 let total:int = 0
-for (i:int in 0 until 20000) {
+for (i:int from 0 until 20000) {
     let b:bytes = file.read_bytes(p)
     total = total + length(b)
 }
 console.print(total)`},
 		{"每一圈把一块交给标准库（只读借用，不还别人的）", `
 let p:string = "` + p + `"
-for (i:int in 0 until 20000) {
+for (i:int from 0 until 20000) {
     let b:bytes = bytes.allocate(8)
     file.write_bytes(p, b)
 }`},
 		{"slice 造出来的那一片归接住它的名字", `
 let head:bytes = bytes.allocate(64)
 let total:int = 0
-for (i:int in 0 until 20000) {
+for (i:int from 0 until 20000) {
     let cut:bytes = head.slice(0, 8)
     total = total + length(cut)
 }
@@ -407,7 +407,7 @@ console.print(total)`},
 func TestBytesKeptGrows(t *testing.T) {
 	used := heapAt(t, `
 let keep:list<bytes> = []
-for (i:int in 0 until 20000) {
+for (i:int from 0 until 20000) {
     keep.add(bytes.allocate(24))
 }
 console.print(length(keep))
@@ -503,7 +503,7 @@ console.print(length(b), b[0])`)
 	if used := heapAt(t, `
 let b:bytes = "甲a".to_bytes()
 let t:string = b.to_base64()
-for (i:int in 0 until 20000) {
+for (i:int from 0 until 20000) {
     let s:string = b.to_base64()
     let back:bytes = bytes.from_base64(t)
     console.print(length(s), length(back))
@@ -554,7 +554,7 @@ console.print(bytes.join(xs))`)
 	// 二百五十块并起来：长度是各块之和，头一个位置与末一个位置各落在头一块与末一块上
 	var many strings.Builder
 	many.WriteString("let parts:list<bytes> = []\n")
-	many.WriteString("for (i:int in 0 until 250) {\n    let one:bytes = bytes.allocate(3)\n    one[0] = 7\n    one[2] = i as byte\n    parts.add(one)\n}\n")
+	many.WriteString("for (i:int from 0 until 250) {\n    let one:bytes = bytes.allocate(3)\n    one[0] = 7\n    one[2] = i as byte\n    parts.add(one)\n}\n")
 	many.WriteString("let all:bytes = bytes.join(parts)\nconsole.print(length(parts), length(all), all[0], all[747], all[749])\n")
 	got, code = run(t, many.String())
 	if got != "250 750 7 7 249\n" || code != 0 {
@@ -565,7 +565,7 @@ console.print(bytes.join(xs))`)
 	// 接结果的名字要写在圈里——无名中转值眼下是"释放后同一槽位无法取回"，每轮都算进累计
 	if used := heapAt(t, `
 let parts:list<bytes> = ["甲".to_bytes(), "a".to_bytes()]
-for (i:int in 0 until 20000) {
+for (i:int from 0 until 20000) {
     let all:bytes = bytes.join(parts)
     console.print(length(all))
 }`); used > 4000 {
@@ -604,7 +604,7 @@ class Holder {
     data:bytes
 }
 let total:int = 0
-for (i:int in 0 until 20000) {
+for (i:int from 0 until 20000) {
     let h:Holder = new Holder(data: bytes.allocate(16))
     h.data = bytes.allocate(8)
     total = total + length(h.data)

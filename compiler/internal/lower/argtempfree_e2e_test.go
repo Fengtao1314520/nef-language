@@ -37,14 +37,14 @@ func TestHeapSlopeArgTempFree(t *testing.T) {
 		{"文本动作的实参位置现造一段文本", true, `
 let s:string = "  甲乙丙  "
 let total:int = 0
-for (i:int in 0 until @N@) {
+for (i:int from 0 until @N@) {
     total = total + length(s.trim())
 }
 console.print(total)
 `},
 		{"接收者位置现造的一段字节（链式两步）", true, `
 let total:int = 0
-for (i:int in 0 until @N@) {
+for (i:int from 0 until @N@) {
     total = total + length("甲乙".to_bytes().to_base64())
 }
 console.print(total)
@@ -52,14 +52,14 @@ console.print(total)
 		{"拼接动作的实参位置现造一只清单", true, `
 let parts:list<string> = ["甲", "乙", "丙"]
 let total:int = 0
-for (i:int in 0 until @N@) {
+for (i:int from 0 until @N@) {
     total = total + length(text.join(parts, ","))
 }
 console.print(total)
 `},
 		{"字节清单动作现造的那一块", true, `
 let total:int = 0
-for (i:int in 0 until @N@) {
+for (i:int from 0 until @N@) {
     total = total + length(bytes.join(["甲".to_bytes(), "乙".to_bytes()]))
 }
 console.print(total)
@@ -67,7 +67,7 @@ console.print(total)
 		{"解析出的树交进计数那一步", true, `
 let doc:string = "[1, 2, 3]"
 let total:int = 0
-for (i:int in 0 until @N@) {
+for (i:int from 0 until @N@) {
     total = total + length(json.parse(doc))
 }
 console.print(total)
@@ -77,7 +77,7 @@ method build(n:int):list<int> {
     return [n, n]
 }
 let total:int = 0
-for (i:int in 0 until @N@) {
+for (i:int from 0 until @N@) {
     total = total + length(build(i))
 }
 console.print(total)
@@ -88,7 +88,7 @@ console.print(total)
 		{"切片切出来的一小段交进只读借用", true, `
 let xs:list<string> = ["甲乙", "丙丁", "戊己"]
 let total:int = 0
-for (i:int in 0 until @N@) {
+for (i:int from 0 until @N@) {
     total = total + length(xs.slice(0, 2))
 }
 console.print(total)
@@ -96,7 +96,7 @@ console.print(total)
 		{"转成集合那一步的新表", true, `
 let xs:list<string> = ["甲乙", "丙丁"]
 let total:int = 0
-for (i:int in 0 until @N@) {
+for (i:int from 0 until @N@) {
     total = total + length(xs.to_set())
 }
 console.print(total)
@@ -104,7 +104,7 @@ console.print(total)
 		{"问出的键那一串", true, `
 let d:dict<string, int> = {"甲": 1, "乙": 2}
 let total:int = 0
-for (i:int in 0 until @N@) {
+for (i:int from 0 until @N@) {
     total = total + length(d.keys())
 }
 console.print(total)
@@ -112,7 +112,7 @@ console.print(total)
 		{"问出的值那一串", true, `
 let d:dict<string, string> = {"甲": "甲乙", "乙": "丙丁"}
 let total:int = 0
-for (i:int in 0 until @N@) {
+for (i:int from 0 until @N@) {
     total = total + length(d.values())
 }
 console.print(total)
@@ -121,7 +121,7 @@ console.print(total)
 let a:hashset<string> = {"甲", "乙"}
 let b:hashset<string> = {"丙"}
 let total:int = 0
-for (i:int in 0 until @N@) {
+for (i:int from 0 until @N@) {
     total = total + length(a.union(b))
 }
 console.print(total)
@@ -130,7 +130,7 @@ console.print(total)
 let a:hashset<string> = {"甲", "乙"}
 let b:hashset<string> = {"乙", "丙"}
 let total:int = 0
-for (i:int in 0 until @N@) {
+for (i:int from 0 until @N@) {
     total = total + length(a.intersect(b))
 }
 console.print(total)
@@ -139,7 +139,7 @@ console.print(total)
 let a:hashset<string> = {"甲", "乙"}
 let b:hashset<string> = {"乙", "丙"}
 let total:int = 0
-for (i:int in 0 until @N@) {
+for (i:int from 0 until @N@) {
     total = total + length(a.difference(b))
 }
 console.print(total)
@@ -150,7 +150,7 @@ console.print(total)
 		{"名字接住现造的那一段（对照：该由名字还）", true, `
 let s:string = "  甲乙丙  "
 let total:int = 0
-for (i:int in 0 until @N@) {
+for (i:int from 0 until @N@) {
     let t:string = s.trim()
     total = total + length(t)
 }
@@ -158,7 +158,7 @@ console.print(total)
 `},
 		{"读容器槽位那一份交进实参（对照：本来就不交出）", true, `
 let total:int = 0
-for (i:int in 0 until @N@) {
+for (i:int from 0 until @N@) {
     let xs:list<string> = ["甲乙".slice(0, 2)]
     total = total + length(xs[0])
 }
@@ -166,7 +166,7 @@ console.print(total)
 `},
 		{"拼出来的一段是最外层的值（对照：早就是 0）", true, `
 let total:int = 0
-for (i:int in 0 until @N@) {
+for (i:int from 0 until @N@) {
     total = total + length("甲" + "乙")
 }
 console.print(total)
@@ -195,13 +195,13 @@ console.print(total)
 func TestArgTempFreeKeepsContainerValues(t *testing.T) {
 	out, code := run(t, `
 let xs:list<string> = []
-for (i:int in 0 until 300) {
+for (i:int from 0 until 300) {
     let seed:string = "abcdefghij"
     xs.add(seed.slice(0, 3))
     xs.add(seed.to_bytes().to_base64())
 }
 let total:int = 0
-for (i:int in 0 until length(xs)) {
+for (i:int from 0 until length(xs)) {
     total = total + length(xs[i])
 }
 console.print(total, length(xs))
@@ -225,7 +225,7 @@ func TestArgTempFreeAcrossRounds(t *testing.T) {
 	out, code := run(t, `
 let d:dict<string, string> = {}
 let wrong:int = 0
-for (i:int in 0 until 2000) {
+for (i:int from 0 until 2000) {
     let key:string = ("k" + number.to_string(i)).trim()
     d.set(key, "v" + number.to_string(i))
     if (i > 0) {
@@ -254,7 +254,7 @@ console.print(wrong, length(d))
 func TestArgTempFreePrintsRight(t *testing.T) {
 	out, code := run(t, `
 let total:int = 0
-for (i:int in 0 until 50) {
+for (i:int from 0 until 50) {
     console.print("甲乙丙丁".trim().slice(0, 2))
     total = total + 1
 }
@@ -283,13 +283,13 @@ class Holder {
 }
 let keep:list<string> = []
 let held:list<Holder> = []
-for (i:int in 0 until `+strconv.Itoa(rounds)+`) {
+for (i:int from 0 until `+strconv.Itoa(rounds)+`) {
     let seed:string = "  甲乙丙  "
     keep.add(seed.trim())
     held.add(new Holder(s: seed.trim()))
 }
 let total:int = 0
-for (i:int in 0 until length(keep)) {
+for (i:int from 0 until length(keep)) {
     total = total + length(keep[i]) + length(held[i].s)
 }
 console.print(total)
@@ -318,7 +318,7 @@ let xs:list<string> = ["甲乙", "丙丁", "戊己"]
 let d:dict<string, string> = {"甲": "甲乙丙", "乙": "丁戊己"}
 let s:hashset<string> = {"甲乙", "丙丁"}
 let total:int = 0
-for (i:int in 0 until 2000) {
+for (i:int from 0 until 2000) {
     total = total + length(xs.slice(0, 2)) + length(xs.to_set())
     total = total + length(d.keys()) + length(d.values())
     total = total + length(s.union({"丁戊"})) + length(s.intersect({"甲乙"})) + length(s.difference({"甲乙"}))

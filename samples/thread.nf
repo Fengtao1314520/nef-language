@@ -10,7 +10,7 @@ class Score {
 // add_up 只收一个整数：值类型过去的是拷贝，外面的名字不受影响。
 method add_up(limit:int):int {
     let sum:int = 0
-    for (i:int in 1 until limit) {
+    for (i:int from 1 until limit) {
         sum = sum + i
     }
     return sum
@@ -32,7 +32,7 @@ method double(box:Score):int {
 // 因为主线程等到它跑完才往下走；这里只让一条线程写屏幕，为的是这一份示例的输出每回相同。
 method report(lines:int):int {
     let n:int = 0
-    for (i:int in 1 until lines) {
+    for (i:int from 1 until lines) {
         console.print("线程写的第", i, "行")
         n = n + 1
     }

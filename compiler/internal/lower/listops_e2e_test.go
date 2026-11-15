@@ -74,7 +74,7 @@ xs.insert_at(`+which+`, 9)
 
 	// 插进去的元素归那只 list：两万圈各插一头一尾峰值不增长，才能说明容量翻倍搬走的旧块也被释放
 	if used := heapAt(t, `
-for (i:int in 0 until 20000) {
+for (i:int from 0 until 20000) {
     let xs:list<string> = []
     xs.insert_at(0, "甲" + "乙")
     xs.insert_at(1, "丙" + "丁")
@@ -112,7 +112,7 @@ console.print(xs.remove_at(`+which+`))
 
 	// 删走的那个位置归调用方、后面的元素前移；两万圈峰值不涨才说明前移这一步没有丢失归属
 	if used := heapAt(t, `
-for (i:int in 0 until 20000) {
+for (i:int from 0 until 20000) {
     let xs:list<string> = []
     xs.add("甲" + "乙")
     xs.add("丙" + "丁")
@@ -147,7 +147,7 @@ console.print(xs[0])
 	if used := heapAt(t, `
 let src:list<string> = []
 src.add("甲" + "乙")
-for (i:int in 0 until 20000) {
+for (i:int from 0 until 20000) {
     let xs:list<string> = []
     xs.add_all(src)
 }
@@ -183,7 +183,7 @@ console.print(xs.slice(`+pair[0]+`, `+pair[1]+`))
 
 	// 切出来的每个位置是自己的拷贝：源与结果各析构一次，两万圈峰值不增长
 	if used := heapAt(t, `
-for (i:int in 0 until 20000) {
+for (i:int from 0 until 20000) {
     let xs:list<string> = []
     xs.add("甲" + "乙")
     xs.add("丙" + "丁")
@@ -212,7 +212,7 @@ console.print(length(es.to_set()))
 
 	// 重复的键检测到一次就跳过：那个位置不必拷出来；两万圈自己拷自己峰值不增长
 	if used := heapAt(t, `
-for (i:int in 0 until 20000) {
+for (i:int from 0 until 20000) {
     let xs:list<string> = []
     xs.add("甲" + "乙")
     xs.add("甲" + "乙")

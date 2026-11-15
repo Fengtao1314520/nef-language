@@ -18,9 +18,9 @@ import "testing"
 func TestFinallyRefusals(t *testing.T) {
 	expectErr(t, "method pick():int {\n    try {\n        return 1\n    } finally {\n        return 2\n    }\n}\n",
 		"finally 那一段里不能 return：要改变出口就写在 try 或 catch 里")
-	expectErr(t, "for (i:int in 0 until 3) {\n    try {\n        console.print(i)\n    } finally {\n        break\n    }\n}\n",
+	expectErr(t, "for (i:int from 0 until 3) {\n    try {\n        console.print(i)\n    } finally {\n        break\n    }\n}\n",
 		"finally 那一段里不能 break：要跳出循环就写在 try 或 catch 里")
-	expectErr(t, "for (i:int in 0 until 3) {\n    try {\n        console.print(i)\n    } finally {\n        continue\n    }\n}\n",
+	expectErr(t, "for (i:int from 0 until 3) {\n    try {\n        console.print(i)\n    } finally {\n        continue\n    }\n}\n",
 		"finally 那一段里不能 continue：要换下一轮就写在 try 或 catch 里")
 	expectErr(t, "try {\n    throw (120, \"甲\")\n} catch (code, msg, at) {\n    console.print(code)\n} finally {\n    console.print(msg)\n}\n",
 		"没有 msg 这个名字")

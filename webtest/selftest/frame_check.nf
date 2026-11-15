@@ -13,7 +13,7 @@ import wt from "libs/web_test"
 
 method from_numbers(xs:list<int>):bytes {
     let out:bytes = bytes.allocate(length(xs))
-    for (i:int in 0 until length(xs)) {
+    for (i:int from 0 until length(xs)) {
         out[i] = xs[i] as byte
     }
     return out
@@ -26,7 +26,7 @@ method check_bytes(name:string, got:bytes, want:bytes):boolean {
         console.print("  要", want)
         return false
     }
-    for (i:int in 0 until length(want)) {
+    for (i:int from 0 until length(want)) {
         if (got[i] != want[i]) {
             console.print("失败  " + name, "第", i, "格", got[i], "要", want[i])
             return false
@@ -113,7 +113,7 @@ if (!ok8) {
     bad = bad + 1
 }
 let wide:int = 0
-for (i:int in 0 until 8) {
+for (i:int from 0 until 8) {
     wide = (wide << 8) | (big[2 + i] as int)
 }
 let ok9:boolean = check_int("三、八格读出 70000", wide, 70000)

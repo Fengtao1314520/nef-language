@@ -72,7 +72,7 @@ method open_door():Door {
 
 method from_numbers(xs:list<int>):bytes {
     let out:bytes = bytes.allocate(length(xs))
-    for (i:int in 0 until length(xs)) {
+    for (i:int from 0 until length(xs)) {
         out[i] = xs[i] as byte
     }
     return out

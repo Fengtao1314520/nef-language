@@ -70,7 +70,7 @@ method one_case(which:int) {
 method group_login() {
     let home_index:int = run.group_begin("表单登录", start_url)
     wt.page_at(home_index).expect_title("登录")
-    for (i:int in 0 until length(titles)) {
+    for (i:int from 0 until length(titles)) {
         let title:string = titles[i]
         if (!run.picked(title)) {
             continue
@@ -83,7 +83,7 @@ method group_login() {
         if (i == 4) {
             passes = 2
         }
-        for (pass:int in 0 until passes) {
+        for (pass:int from 0 until passes) {
             tries = pass + 1
             page = wt.page_at(run.case_begin(title))
             try {

@@ -108,11 +108,11 @@ console.print(length(seen), seen.contains("紫"), seen.contains("灰"))
 func TestDictIndexStoreKeyOwnership(t *testing.T) {
 	got, code := run(t, `
 let by:dict<string, int> = {}
-for (i:int in 0 until 5) {
+for (i:int from 0 until 5) {
     let k:string = "key" + number.to_string(i)
     by[k] = 1
 }
-for (i:int in 0 until 5) {
+for (i:int from 0 until 5) {
     let k:string = "key" + number.to_string(i)
     by[k] = 2
 }

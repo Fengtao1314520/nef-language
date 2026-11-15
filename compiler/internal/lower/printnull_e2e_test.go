@@ -103,7 +103,7 @@ console.print(xs[0], "甲")
 // 圈数取 200 与 5000 之差；`console.print` 现造的那一整段由释放窗口那一层归还。
 func TestPrintEmptyHandleKeepsHeap(t *testing.T) {
 	const tmpl = `let total:int = 0
-for (i:int in 0 until @N@) {
+for (i:int from 0 until @N@) {
     let xs:list<list<int>> = [[i]]
     let one:list<int> = null
     console.print(one)

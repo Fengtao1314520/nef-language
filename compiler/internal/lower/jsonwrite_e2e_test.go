@@ -173,7 +173,7 @@ console.print(inner.to_json())
 	}{
 		{"写进树里再渲染", `
 let total:int = 0
-for (i:int in 0 until @N@) {
+for (i:int from 0 until @N@) {
     let body:Json = json.empty_object()
     body.set("list", [1, 2, 3])
     body.set("name", "甲")
@@ -184,7 +184,7 @@ for (i:int in 0 until @N@) {
 `},
 		{"拿掉与清空", `
 let total:int = 0
-for (i:int in 0 until @N@) {
+for (i:int from 0 until @N@) {
     let body:Json = json.empty_object()
     body.set("a", [1, 2, 3])
     body.set("b", {"c": "丁"})
@@ -197,7 +197,7 @@ for (i:int in 0 until @N@) {
 		{"原生容器变成树", `
 let total:int = 0
 let deep:dict<string, list<int>> = {"a": [1, 2, 3], "b": [4]}
-for (i:int in 0 until @N@) {
+for (i:int from 0 until @N@) {
     let out:string = json.from_value(deep).to_json()
     total = total + 1
 }
@@ -278,7 +278,7 @@ func TestHttpJsonBodySlope(t *testing.T) {
 let row:Json = json.empty_object()
 row.set("name", "nef")
 let total:int = 0
-for (i:int in 0 until @N@) {
+for (i:int from 0 until @N@) {
     let r:Response = http.post("` + urlOf(srv) + `/echo", row, 5000)
     total = total + length(r.body)
 }

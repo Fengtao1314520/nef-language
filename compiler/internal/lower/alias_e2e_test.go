@@ -57,7 +57,7 @@ method make():Row {
 }
 
 let total:int = 0
-for (i:int in 0 until 2000) {
+for (i:int from 0 until 2000) {
     let r:Row = make()
     total = total + r.x
 }
@@ -77,7 +77,7 @@ method make():Row2 {
 }
 
 let total:int = 0
-for (i:int in 0 until 2000) {
+for (i:int from 0 until 2000) {
     let r:Row2 = make()
     total = total + r.x
 }

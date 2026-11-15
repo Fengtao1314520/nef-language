@@ -33,12 +33,12 @@ let us:list<unicode> = "丙甲乙".to_list()
 us.sort()
 console.print(us)
 let many:list<int> = []
-for (i:int in 0 until 20) {
+for (i:int from 0 until 20) {
     many.add(19 - i)
 }
 many.sort()
 let back:list<int> = []
-for (i:int in 0 until 20) {
+for (i:int from 0 until 20) {
     back.add(i)
 }
 back.sort()
@@ -72,7 +72,7 @@ func TestListSortNonDecreasing(t *testing.T) {
 let xs:list<int> = [3, -1, 3, 0, -7, 12, -1, 0]
 xs.sort()
 let bad:int = 0
-for (i:int in 1 until length(xs)) {
+for (i:int from 1 until length(xs)) {
     if (xs[i] < xs[i - 1]) {
         bad = bad + 1
     }

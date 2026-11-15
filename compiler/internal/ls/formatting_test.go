@@ -88,7 +88,7 @@ func TestFormattingCRLFAndTabs(t *testing.T) {
 }
 
 func TestFormattingIdempotent(t *testing.T) {
-	const text = "method run(n:int):int {\nlet sum:int=0\nfor(i:int in 0 until n) {\nsum = sum+i\n}\nreturn sum\n}\n"
+	const text = "method run(n:int):int {\nlet sum:int=0\nfor (i:int from 0 until n) {\nsum = sum+i\n}\nreturn sum\n}\n"
 	once := formatOnce(t, text)
 	if edits := Formatting("p.nf", once, FormattingOptions{TabSize: 4, InsertSpaces: true}); edits != nil {
 		t.Fatalf("排过一遍再排该没有改动：%v", edits)

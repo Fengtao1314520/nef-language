@@ -46,7 +46,7 @@ let root:string = "`+d+`/"
 let xs:list<string> = file.list_names_tree(root)
 xs.sort()
 console.print(length(xs))
-for (i:int in 0 until length(xs)) {
+for (i:int from 0 until length(xs)) {
     console.print(xs[i])
 }
 `)
@@ -144,7 +144,7 @@ func TestEnumerationPatternNotSticky(t *testing.T) {
 	d := buildTree(t)
 	got, code := run(t, `
 let root:string = "`+d+`"
-for (round:int in 0 until 3) {
+for (round:int from 0 until 3) {
     let p:list<string> = file.list_names_paths(root)
     p.sort()
     console.print(round, length(p))
@@ -183,7 +183,7 @@ func TestWalkHeap(t *testing.T) {
 	d := buildTree(t)
 	if used := heapAt(t, `
 let root:string = "`+d+`/"
-for (i:int in 0 until 20000) {
+for (i:int from 0 until 20000) {
     let xs:list<string> = file.list_names_tree(root)
 }
 `); used > 4000 {

@@ -46,7 +46,7 @@ const jsonSigProg = `method signature(x:Json):string {
     let out:string = ""
     if (k == "array") {
         out = "a["
-        for (i:int in 0 until n) {
+        for (i:int from 0 until n) {
             if (i > 0) {
                 out = out + ","
             }
@@ -56,7 +56,7 @@ const jsonSigProg = `method signature(x:Json):string {
     }
     let keys:list<string> = x.keys()
     out = "o{"
-    for (i:int in 0 until n) {
+    for (i:int from 0 until n) {
         if (i > 0) {
             out = out + ","
         }
@@ -68,7 +68,7 @@ const jsonSigProg = `method signature(x:Json):string {
 
 let body:string = file.read("@PATH@")
 let lines:list<string> = body.split("\n")
-for (i:int in 0 until length(lines)) {
+for (i:int from 0 until length(lines)) {
     let line:string = lines[i] + ""
     let tree:Json = json.parse(line)
     if (tree == null) {
@@ -174,7 +174,7 @@ func TestJSONHeapSlope(t *testing.T) {
 	}{
 		{"拆一片没人接", `
 let total:int = 0
-for (i:int in 0 until @N@) {
+for (i:int from 0 until @N@) {
     json.parse("{ \"甲\": [1, 2, 3], \"乙\": \"丙\", \"丁\": true }")
     total = total + 1
 }
@@ -182,7 +182,7 @@ console.print(total)
 `, 0},
 		{"接住它的那个名字走完就还", `
 let total:int = 0
-for (i:int in 0 until @N@) {
+for (i:int from 0 until @N@) {
     let j:Json = json.parse("[1, \"甲\", { \"k\": 2 }]")
     total = total + length(j)
 }
@@ -190,7 +190,7 @@ console.print(total)
 `, 0},
 		{"一层层取出来也照还", `
 let total:int = 0
-for (i:int in 0 until @N@) {
+for (i:int from 0 until @N@) {
     let j:Json = json.parse("{ \"a\": { \"b\": [1, 2] } }")
     let one:Json = j.take("a")
     let two:Json = one.take("b")
@@ -200,7 +200,7 @@ console.print(total)
 `, 0},
 		{"拆坏了的那一片也不留东西", `
 let total:int = 0
-for (i:int in 0 until @N@) {
+for (i:int from 0 until @N@) {
     json.parse("{ \"a\": [1, 2, x")
     total = total + 1
 }
@@ -218,10 +218,10 @@ console.print(total)
 func TestJSONParseDeep(t *testing.T) {
 	got, code := run(t, `
 let deep:string = ""
-for (i:int in 0 until 500) {
+for (i:int from 0 until 500) {
     deep = deep + "["
 }
-for (i:int in 0 until 500) {
+for (i:int from 0 until 500) {
     deep = deep + "]"
 }
 let j:Json = json.parse(deep)

@@ -145,7 +145,7 @@ let p:string = "字节.bin"
 
 let buf:bytes = bytes.allocate(4)
 
-for (i:int in 0 until 4) {
+for (i:int from 0 until 4) {
     buf[i] = i as byte
 }
 file.write_bytes(p, buf)

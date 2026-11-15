@@ -84,7 +84,7 @@ console.print(ns)
 
 	// heapAt 会把 NEF_HEAP 设进这一条测试的子进程，跑完再比对别的输出就会多出一行，所以放最后
 	if used := heapAt(t, `
-for (i:int in 0 until 20000) {
+for (i:int from 0 until 20000) {
     let xs:list<string> = ["甲乙" + "丙丁", "尾"]
     xs.remove("甲乙丙丁")
 }

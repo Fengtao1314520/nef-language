@@ -129,7 +129,7 @@ method send_text_line(body:string) {
 
 method random_key():bytes {
     let k:bytes = bytes.allocate(4)
-    for (i:int in 0 until 4) {
+    for (i:int from 0 until 4) {
         k[i] = math.random(0, 256) as byte
     }
     return k
@@ -543,7 +543,7 @@ export class Browser {
         if (result != null) {
             let items:Json = result.take("targetInfos")
             if (items != null) {
-                for (i:int in 0 until length(items)) {
+                for (i:int from 0 until length(items)) {
                     let one_info:Json = items.take_at(i)
                     if (one_info != null) {
                         let kind_slot:Json = one_info.take("type")
@@ -1015,7 +1015,7 @@ export class Page {
     method find_many(kind:int, selector:string):list<Element> {
         let out:list<Element> = []
         let total:int = count_in(this.index, kind, selector)
-        for (i:int in 0 until total) {
+        for (i:int from 0 until total) {
             out.add(new Element(page_index: this.index, kind: kind, selector: selector, position: i))
         }
         return out
@@ -1135,7 +1135,7 @@ export class Element {
         let box:string = run_js_in(this.page_index, box_script(this.expression()))
         if (box != null) {
             let parts:list<string> = box.split(",")
-            for (i:int in 0 until length(parts)) {
+            for (i:int from 0 until length(parts)) {
                 out.add(text.to_float(parts[i]))
             }
         }
@@ -1304,7 +1304,7 @@ method find_header_end():int {
     let buf:bytes = link.pending
     let n:int = length(buf)
     let at:int = -1
-    for (i:int in 0 until n - 3) {
+    for (i:int from 0 until n - 3) {
         let head_ok:boolean = (buf[i] as int) == 13 && (buf[i + 1] as int) == 10
         let tail_ok:boolean = (buf[i + 2] as int) == 13 && (buf[i + 3] as int) == 10
         if (head_ok && tail_ok) {

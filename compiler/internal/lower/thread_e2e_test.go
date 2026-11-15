@@ -179,7 +179,7 @@ func TestThreadConcurrentSameListPush(t *testing.T) {
 	got, code := run(t, `
 method fill(n:int):int {
     let xs:list<int> = []
-    for (i:int in 0 until n) {
+    for (i:int from 0 until n) {
         xs.add(i)
     }
     return length(xs)
@@ -200,7 +200,7 @@ func TestThreadConcurrentVersionCounter(t *testing.T) {
 	got, code := run(t, `
 method churn(n:int):int {
     let xs:list<int> = []
-    for (i:int in 0 until n) {
+    for (i:int from 0 until n) {
         xs.add(i)
         xs[0] = i
     }
@@ -220,7 +220,7 @@ console.print(a.wait() + b.wait())
 func TestThreadPrintLinesNotSplit(t *testing.T) {
 	got, code := run(t, `
 method say(n:int):int {
-    for (i:int in 0 until 50) {
+    for (i:int from 0 until 50) {
         console.print("线程", n, "的第", i, "行")
     }
     return n
@@ -255,7 +255,7 @@ func TestThreadTableFullThrows(t *testing.T) {
 	src.WriteString(`
 method busy(n:int):int {
     let sum:int = 0
-    for (i:int in 0 until n) {
+    for (i:int from 0 until n) {
         sum = sum + i
     }
     return sum
@@ -301,7 +301,7 @@ func TestTwoThreadsHeapAlone(t *testing.T) {
 	out, code, _ := runHeapAny(t, `
 method build(n:int):int {
     let xs:list<int> = []
-    for (i:int in 0 until n) {
+    for (i:int from 0 until n) {
         xs.add(i * 2)
     }
     let sum:int = 0
@@ -336,11 +336,11 @@ func TestTwoThreadsContainerTouch(t *testing.T) {
 	got, code := run(t, `
 method churn(n:int):int {
     let xs:list<int> = []
-    for (i:int in 0 until n) {
+    for (i:int from 0 until n) {
         xs.add(i)
     }
     let last:int = 0
-    for (i:int in 0 until n) {
+    for (i:int from 0 until n) {
         xs[0] = i
         last = xs[0]
     }

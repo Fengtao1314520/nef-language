@@ -40,7 +40,7 @@ console.print(hi.repeat(2), length(hi.repeat(2)))
 // repeat 翻倍过程的中间产物与 trim 返回的结果都被析构了。
 func TestTextFindTrimHeap(t *testing.T) {
 	if used := heapAt(t, `
-for (i:int in 0 until 20000) {
+for (i:int from 0 until 20000) {
     let a:string = ("甲乙" + "丙丁").repeat(4)
     let b:string = ("  " + a + "  ").trim_start()
     let c:string = b.trim_end()
@@ -130,7 +130,7 @@ console.print(s)
 		t.Fatalf("非法字节表得到 %q 码 %d，要 10044 那一句", got, code)
 	}
 	if used := heapAt(t, `
-for (i:int in 0 until 20000) {
+for (i:int from 0 until 20000) {
     let bs:bytes = ("甲" + "乙").to_bytes()
     let t:string = text.from_bytes(bs)
 }
@@ -213,7 +213,7 @@ console.print(math.exponential(big) > 1.0, math.exponential(tiny) == 0.0)
 console.print(math.exponential(math.natural_log(5.0)) > 4.9999999, math.exponential(math.natural_log(5.0)) < 5.0000001)
 // 连续调用二十次：fscale 压在寄存器栈上的 k 值必须当场取回，否则 x87 栈八次就满，后续全部算成 NaN
 let acc:float = 0.0
-for (i:int in 0 until 20) {
+for (i:int from 0 until 20) {
     acc = acc + math.exponential(0.1)
 }
 console.print(acc > 22.0, acc < 22.2)

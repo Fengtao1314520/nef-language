@@ -119,7 +119,7 @@ console.print(one.w * one.h)       // 6
 
 写成别的类型是编译错误，报出的仍是“类型之间不自动转换”。
 
-计数循环 `for (i:int in 0 until n)` 交出的是 `int`，遵循同一条规则。
+计数循环 `for (i:int from 0 until n)` 交出的是 `int`，遵循同一条规则。
 
 `dict` 和 `hashset` 的遍历不保证任何顺序。需要固定顺序时，另用一个 `list` 保存这些键。
 

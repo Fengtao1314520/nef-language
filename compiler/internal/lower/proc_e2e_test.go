@@ -157,7 +157,7 @@ console.print("没撞")
 func TestProcessNothingOnHeap(t *testing.T) {
 	if used := heapAt(t, `
 let total:int = 0
-for (i:int in 0 until 200) {
+for (i:int from 0 until 200) {
     let p:Process = process.start("cmd.exe /c exit 0")
     total = total + p.wait()
 }

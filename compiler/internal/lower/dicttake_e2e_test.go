@@ -72,7 +72,7 @@ func TestDictTakeEndsNoDoubleRelease(t *testing.T) {
 }
 
 let d:dict<string, Note> = {}
-for (i:int in 0 until @N@) {
+for (i:int from 0 until @N@) {
     d.set("甲", new Note(body: "第一段"))
     let one:Note = d.take("甲")
     if (one.body == null) {

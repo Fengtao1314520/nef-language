@@ -128,7 +128,7 @@ console.print(b)
 // (200 rounds against 5000).
 func TestGenericInstanceFreesItsBlock(t *testing.T) {
 	tmpl := boxHead + `let total:int = 0
-for (i:int in 0 until @N@) {
+for (i:int from 0 until @N@) {
     let b:Box<string> = new Box<string>(v: "甲乙丙丁戊")
     total = total + length(b.v) + i
 }
@@ -362,7 +362,7 @@ func TestGenericInstanceMethodReleasesItsBlock(t *testing.T) {
 }
 
 let total:int = 0
-for (i:int in 0 until @N@) {
+for (i:int from 0 until @N@) {
     let b:Box<string> = new Box<string>(v: "甲乙丙丁戊")
     total = total + length(b.get())
 }
@@ -458,7 +458,7 @@ func TestGenericFunctionKeepsOwnership(t *testing.T) {
 }
 
 let total:int = 0
-for (i:int in 0 until @N@) {
+for (i:int from 0 until @N@) {
     let s:string = echoOf("甲乙丙丁戊")
     total = total + length(s)
 }

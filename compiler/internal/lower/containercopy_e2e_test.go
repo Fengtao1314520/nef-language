@@ -66,7 +66,7 @@ console.print(length(d), d["甲"].n, d["乙"].n)
 	progs := make([]string, len(cases))
 	for i, one := range cases {
 		progs[i] = recDecl + `let total:int = 0
-for (i:int in 0 until @N@) {
+for (i:int from 0 until @N@) {
 ` + one.body + `}
 console.print(total)
 `
@@ -91,7 +91,7 @@ console.print(total)
 func TestDictAddOverwriteFreesTheOldBlock(t *testing.T) {
 	const prog = recDecl + `let d:dict<string, Rec> = {"甲": Rec { n: 0 }}
 let total:int = 0
-for (i:int in 0 until @N@) {
+for (i:int from 0 until @N@) {
     d.set("甲", Rec { n: i })
     total = total + d["甲"].n
 }
@@ -132,7 +132,7 @@ console.print(one.n, g.p.n, xs[0].n, xs[1].n)
 // 名字那块每轮留 16 字节无人析构。
 func TestNameIntoContainerLiteralKeepsItsOwnBlock(t *testing.T) {
 	const list = recDecl + `let total:int = 0
-for (i:int in 0 until @N@) {
+for (i:int from 0 until @N@) {
     let one:Rec = Rec { n: i }
     let xs:list<Rec> = [one]
     total = total + one.n + xs[0].n
@@ -140,7 +140,7 @@ for (i:int in 0 until @N@) {
 console.print(total)
 `
 	const dict = recDecl + `let total:int = 0
-for (i:int in 0 until @N@) {
+for (i:int from 0 until @N@) {
     let one:Rec = Rec { n: i }
     let d:dict<string, Rec> = {"甲": one}
     total = total + one.n + d["甲"].n
@@ -175,7 +175,7 @@ func TestStructFieldInitIntoNewIsNotCopiedTwice(t *testing.T) {
     p:Rec
 }
 let total:int = 0
-for (i:int in 0 until @N@) {
+for (i:int from 0 until @N@) {
     let g:Holder = new Holder(p: Rec { n: i })
     total = total + g.p.n
 }
@@ -185,7 +185,7 @@ console.print(total)
     p:Rec
 }
 let total:int = 0
-for (i:int in 0 until @N@) {
+for (i:int from 0 until @N@) {
     let one:Rec = Rec { n: i }
     let g:Holder = new Holder(p: one)
     total = total + g.p.n + one.n
@@ -313,7 +313,7 @@ method wear(v:Rec):int {
 }
 let held:Rec = Rec { n: 0 }
 let total:int = 0
-for (i:int in 0 until @N@) {
+for (i:int from 0 until @N@) {
 @BODY@}
 console.print(total)
 `

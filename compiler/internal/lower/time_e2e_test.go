@@ -13,7 +13,7 @@ func TestTimeGroupRun(t *testing.T) {
 	got, code := run(t, `let start:float = time.elapsed()
 let total:int = 0
 
-for (i:int in 0 until 100) {
+for (i:int from 0 until 100) {
     total = total + i
 }
 
@@ -72,12 +72,12 @@ console.print(time.calendar(1762867925))
 func TestTimeCalendarFreesIt(t *testing.T) {
 	for _, one := range []struct{ name, src string }{
 		{"名字接住", `
-for (i:int in 0 until 20000) {
+for (i:int from 0 until 20000) {
     let c:Calendar = time.calendar(1762867925)
 }
 `},
 		{"一句丢掉", `
-for (i:int in 0 until 20000) {
+for (i:int from 0 until 20000) {
     time.calendar(1762867925);
 }
 `},

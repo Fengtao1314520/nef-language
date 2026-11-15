@@ -319,9 +319,9 @@ type While struct {
 func (s *While) stmtNode()  {}
 func (s *While) Where() Pos { return s.Pos }
 
-// For 有两种：`for (i:int in 0 until 10)` 遍历整数区间，`for (v:T in 容器)` 遍历容器。
+// For 有两种：`for (i:int from 0 until 10)` 遍历整数区间，`for (v:T in 容器)` 遍历容器。
 //
-// en: For has two forms: `for (i:int in 0 until 10)` iterates an integer range,
+// en: For has two forms: `for (i:int from 0 until 10)` iterates an integer range,
 // `for (v:T in container)` iterates a container.
 type For struct {
 	Pos    Pos

@@ -101,7 +101,7 @@ func TestRandomRun(t *testing.T) {
 let ok:boolean = true
 let spread:boolean = false
 let seen:int = math.random(0, 1000000)
-for (i:int in 0 until 200) {
+for (i:int from 0 until 200) {
     let v:int = math.random(0, 1000000)
     if (v < 0 || v >= 1000000) {
         ok = false
@@ -111,7 +111,7 @@ for (i:int in 0 until 200) {
     }
 }
 let around:boolean = true
-for (i:int in 0 until 60) {
+for (i:int from 0 until 60) {
     let w:int = math.random(-5, 5)
     if (w < -5 || w >= 5) {
         around = false

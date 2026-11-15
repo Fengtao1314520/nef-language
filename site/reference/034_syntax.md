@@ -60,7 +60,7 @@ title: 语法速查
 | --- | --- |
 | `if (x > 0) { } else if (x == 0) { } else { }` | 分支，条件位置只接受 `boolean` |
 | `while (n > 0) { }` | 条件循环 |
-| `for (i:int in 0 until 10) { }` | 计数：从 0 到 9，一共十次，右端不包含 |
+| `for (i:int from 0 until 10) { }` | 计数：从 0 到 9，一共十次，右端不包含 |
 | `for (name:string in items) { }` | 遍历：`list` 交出元素、`dict` 交出键、`string` 交出码点 |
 | `switch (d) { Day.mon { } Day.tue, Day.wed { } default { } }` | 按值分派，一个分支可以并列书写几个标签 |
 | `break`、`continue` | 只能出现在循环里 |
@@ -200,7 +200,7 @@ console.print(
 | `main` 函数 | 文件顶层就是入口 |
 | `+=`、`-=` 等复合赋值 | 写完整的 `x = x + 1` |
 | 三元 `? :` | 写完整的 `if` 与 `else`，或者把判断放进一个函数 |
-| 区间 `0..10` | `for (i:int in 0 until 10)` |
+| 区间 `0..10` | `for (i:int from 0 until 10)` |
 | 科学计数法 `1e9` | `1_000_000_000.0` |
 | 八进制 `0644` | 不支持，当场报错。需要这个数值就写 `644`，需要十六进制就写 `0x284` |
 | `list<int> as object` 把容器装箱 | 装箱只接受 `class`、`struct` 和值类型，整个容器无法装入，在检查阶段就会报错；需要混合存放就逐个装入 |

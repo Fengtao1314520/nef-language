@@ -65,7 +65,7 @@ console.print("都跑完了")
 func TestFinallyRunsOncePerLoopExit(t *testing.T) {
 	got, code := run(t, `
 let hits:int = 0
-for (i:int in 0 until 4) {
+for (i:int from 0 until 4) {
     try {
         if (i == 2) {
             break
@@ -137,7 +137,7 @@ try {
 func TestFinallyKeepsHeapFlat(t *testing.T) {
 	const tmpl = `
 let total:int = 0
-for (i:int in 0 until @N@) {
+for (i:int from 0 until @N@) {
     try {
         let acc:list<int> = [i]
         total = total + acc[0]

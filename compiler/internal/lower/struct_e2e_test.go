@@ -187,7 +187,7 @@ struct Row {
     a:int
     b:int
 }
-for (i:int in 0 until 20000) {
+for (i:int from 0 until 20000) {
     let r:Row = Row { a: 1, b: 2 }
 }
 `},
@@ -196,7 +196,7 @@ struct Row {
     a:int
     b:int
 }
-for (i:int in 0 until 20000) {
+for (i:int from 0 until 20000) {
     let r:Row = Row { a: 1, b: 2 }
     let q:Row = r
 }

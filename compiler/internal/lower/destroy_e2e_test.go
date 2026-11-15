@@ -270,7 +270,7 @@ class Note {
 `
 	got, code := run(t, struct_+`
 let n:int = 0
-for (i:int in 0 until 3000) {
+for (i:int from 0 until 3000) {
     let head:string = "头" + "尾"
     let c:Card = Card { title: head }
     let note:Note = new Note(body: "正文", tags: ["甲", "乙"])
@@ -302,7 +302,7 @@ class Row {
 
 let total:int = 0
 let rows:list<int> = []
-for (i:int in 0 until 10000) {
+for (i:int from 0 until 10000) {
     let acc:list<int> = [i]
     let d:dict<string, int> = {"甲": i}
     let p:Pair = Pair { a: i, b: 0 - i }

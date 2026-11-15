@@ -686,9 +686,9 @@ func TestLoopBodyCheckedTwice(t *testing.T) {
 	const bag = "class Bag {\n    n:int\n}\n"
 	expectErr(t, bag+"let items:list<Bag> = [new Bag(n: 1)]\nfor (b:Bag in items) {\n    let keep:list<Bag> = [b]\n    let more:list<Bag> = [b]\n    console.print(length(keep), length(more))\n}\n",
 		"遍历交出的 b 是只读借用，不能交出去")
-	expectErr(t, bag+"let b:Bag = new Bag(n: 1)\nfor (i:int in 0 until 2) {\n    let keep:list<Bag> = [b]\n    let more:list<Bag> = [b]\n    console.print(length(keep), length(more))\n}\n", "b 已经交出去了，这个名字不能再写")
+	expectErr(t, bag+"let b:Bag = new Bag(n: 1)\nfor (i:int from 0 until 2) {\n    let keep:list<Bag> = [b]\n    let more:list<Bag> = [b]\n    console.print(length(keep), length(more))\n}\n", "b 已经交出去了，这个名字不能再写")
 	// 文本走的是共享：交进参数不作废名字，同一圈连着用两次、下一圈再读都照旧
-	expectOK(t, "method eat(s:string) {\n}\nlet items:list<string> = [\"a\"]\nfor (i:int in 0 until 2) {\n    let s:string = items[0]\n    eat(s)\n    console.print(s)\n}\n")
+	expectOK(t, "method eat(s:string) {\n}\nlet items:list<string> = [\"a\"]\nfor (i:int from 0 until 2) {\n    let s:string = items[0]\n    eat(s)\n    console.print(s)\n}\n")
 	// 只读借用的参数交进另一个只读借用的参数：两处都不接手，放行
 	expectOK(t, bag+"method eat(b:Bag) {\n    console.print(b.n)\n}\nmethod hold(b:Bag) {\n    eat(b)\n}\nlet items:list<Bag> = [new Bag(n: 1)]\nfor (b:Bag in items) {\n    eat(b)\n    eat(b)\n}\n")
 }

@@ -181,7 +181,7 @@ let box:list<object> = []
 box.add(new Note(body: "甲") as object)
 box.add(new Marker(tag: 7) as object)
 
-for (i:int in 0 until length(box)) {
+for (i:int from 0 until length(box)) {
     if (box[i] is Note) {
         console.print((box[i] as Note).body)
     } else {

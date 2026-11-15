@@ -83,7 +83,7 @@ func TestParseStatements(t *testing.T) {
 	f := parseString(t, `
 let items:list<string> = ["书包", "笔记本"]
 const want:int = 3
-for (i:int in 0 until 10) {
+for (i:int from 0 until 10) {
     items.add("雨伞")
 }
 for (s:string in items) {

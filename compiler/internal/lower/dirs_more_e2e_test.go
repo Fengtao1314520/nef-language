@@ -58,7 +58,7 @@ let left:bytes = file.read_bytes(a)
 let right:bytes = file.read_bytes(b)
 console.print(length(left), length(right))
 let bad:int = 0
-for (i:int in 0 until length(left)) {
+for (i:int from 0 until length(left)) {
     if (left[i] != right[i]) {
         bad = bad + 1
     }

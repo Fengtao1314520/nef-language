@@ -73,7 +73,7 @@ console.print("".pad_start(3, "z"), "|")
 // TestStringPadKeepsHeap 验证补位结果是当场新建的（扩容过程的中间产物也是）；两万圈不增长，说明无人引用的都已释放。
 func TestStringPadKeepsHeap(t *testing.T) {
 	if used := heapAt(t, `
-for (i:int in 0 until 20000) {
+for (i:int from 0 until 20000) {
     let s:string = ("甲乙" + "丙丁").pad_start(40, "○")
 }
 `); used > 2000 {
@@ -154,7 +154,7 @@ console.print(length(d.get("无", [4])), d.get("无", [4])[0])
 	if used := heapAt(t, `
 let d:dict<string, list<int>> = {}
 d.add("有", [1, 2])
-for (i:int in 0 until 20000) {
+for (i:int from 0 until 20000) {
     d.get("有", [3, 4, 5]);
 }
 `); used > 2000 {
@@ -207,7 +207,7 @@ for (v:int in xs) {
 // 峰值与"一个容器＋一份文本"同一档；每轮漏析构一个位置就会涨到几兆。
 func TestListClearFreesStrings(t *testing.T) {
 	if used := heapAt(t, `
-for (i:int in 0 until 20000) {
+for (i:int from 0 until 20000) {
     let xs:list<string> = []
     xs.add("甲" + "乙")
     xs.clear()
@@ -262,7 +262,7 @@ console.print(length(u), u.contains("甲乙"), u.contains("丙丁"))
 		t.Fatalf("文本元素并自己得到 %q 码 %d", got, code)
 	}
 	if used := heapAt(t, `
-for (i:int in 0 until 20000) {
+for (i:int from 0 until 20000) {
     let s:hashset<string> = {}
     s.add("甲" + "乙")
     let u:hashset<string> = s.union(s)
@@ -309,7 +309,7 @@ func TestMathRandomFloat(t *testing.T) {
 let out:int = 0
 let first:float = math.random_float()
 let same:int = 1
-for (i:int in 0 until 2000) {
+for (i:int from 0 until 2000) {
     let r:float = math.random_float()
     if (r < 0.0) {
         out = out + 1

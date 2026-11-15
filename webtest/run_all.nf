@@ -46,7 +46,7 @@ method in_want(stem_name:string):boolean {
         return true
     }
     let parts:list<string> = want.split(",")
-    for (i:int in 0 until length(parts)) {
+    for (i:int from 0 until length(parts)) {
         let one:string = parts[i]
         if (one == stem_name) {
             return true
@@ -77,7 +77,7 @@ method collect(target_dir:string, stem_name:string) {
         return
     }
     let rows:list<string> = file.read(report).split("\n")
-    for (i:int in 0 until length(rows)) {
+    for (i:int from 0 until length(rows)) {
         let row:string = rows[i]
         if (length(row) < 2) {
             continue
@@ -122,7 +122,7 @@ if (!path.is_absolute(cases_dir)) {
 file.ensure_directories(out_root)
 
 let names:list<string> = file.list_names(cases_dir)
-for (i:int in 0 until length(names)) {
+for (i:int from 0 until length(names)) {
     let name:string = names[i]
     if (!name.ends_with(".nf")) {
         continue

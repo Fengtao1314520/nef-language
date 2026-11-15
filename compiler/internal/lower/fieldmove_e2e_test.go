@@ -89,7 +89,7 @@ class Hold {
     leaf:Leaf
 }
 let total:int = 0
-for (i:int in 0 until @N@) {
+for (i:int from 0 until @N@) {
     let h:Hold = new Hold(leaf: new Leaf(v: i))
     let b:Leaf = h.leaf
     total = total + b.v
@@ -144,7 +144,7 @@ class Box {
     tag:string
 }
 let b:Box = new Box(inner: new Row(n: 1), tag: "头一份")
-for (i:int in 0 until 200) {
+for (i:int from 0 until 200) {
     b.inner = new Row(n: i)
     b.tag = "第 " + number.to_string(i)
 }
@@ -177,7 +177,7 @@ class Box {
     inner:Row
 }
 let total:int = 0
-for (i:int in 0 until @N@) {
+for (i:int from 0 until @N@) {
     let b:Box = new Box(inner: new Row(n: i))
     b.inner = b.inner
     total = total + b.inner.n

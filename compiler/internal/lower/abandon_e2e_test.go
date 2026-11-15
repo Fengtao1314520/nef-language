@@ -153,7 +153,7 @@ method risky(n:int):int {
     return 0
 }
 let total:int = 0
-for (i:int in 0 until 5) {
+for (i:int from 0 until 5) {
     try {
         total = total + risky(i)
     } catch (c, m, at) {
@@ -310,7 +310,7 @@ method top(n:int):int {
     }
 }
 let total:int = 0
-for (i:int in 0 until 20000) {
+for (i:int from 0 until 20000) {
     total = total + top(i)
 }
 console.print(total)

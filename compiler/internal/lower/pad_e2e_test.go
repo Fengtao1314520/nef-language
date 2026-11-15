@@ -116,7 +116,7 @@ method boom(n:int) {
 }
 let held:list<int> = [7]
 let total:int = 0
-for (i:int in 0 until 5) {
+for (i:int from 0 until 5) {
     try {
         boom(i)
     } catch (code, msg, at) {
@@ -216,7 +216,7 @@ throw (120, "该由程序终止接手")
 `, "1\n出错了（120）：该由程序终止接手（在 t.nf 11:1）\n"},
 		{"break 跳出去", `
 method leaveByBreak():int {
-    for (i:int in 0 until 1) {
+    for (i:int from 0 until 1) {
         try {
             break
         } catch (c, m, at) {

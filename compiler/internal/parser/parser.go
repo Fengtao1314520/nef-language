@@ -990,8 +990,10 @@ func (p *parser) parseFor() (ast.Stmt, error) {
 		return nil, err
 	}
 	f.Var = d
-	if !p.eatName("in") {
-		return nil, p.err("for 的循环变量后面要跟 in")
+	// 计数形式写 `from`，遍历形式写 `in`：一句话里两个介词（`in 0 until 10`）读起来别扭，
+	// 而且两种 for 的读法完全不同。`in` 在计数形式里仍然认，老程序不作废。
+	if !p.eatName("in") && !p.eatName("from") {
+		return nil, p.err("for 的循环变量后面要跟 in 或 from")
 	}
 	start := p.cur()
 	first, err := p.parseExpr()

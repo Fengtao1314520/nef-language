@@ -23,37 +23,37 @@ import "testing"
 func TestDiscardedValueFreedAtStatementEnd(t *testing.T) {
 	cases := []struct{ name, src string }{
 		{"下标读走不接住", `
-for (i:int in 0 until 20000) {
+for (i:int from 0 until 20000) {
     let xs:list<string> = ["甲乙" + "丙丁", "尾"]
     xs[0];
 }
 `},
 		{"dict 的下标读走不接住", `
-for (i:int in 0 until 20000) {
+for (i:int from 0 until 20000) {
     let d:dict<string, string> = {}
     d.set("键", "甲乙" + "丙丁")
     d["键"];
 }
 `},
 		{"first 读走不接住", `
-for (i:int in 0 until 20000) {
+for (i:int from 0 until 20000) {
     let xs:list<string> = ["甲乙" + "丙丁", "尾"]
     xs.first();
 }
 `},
 		{"remove_at 删下来不接住", `
-for (i:int in 0 until 20000) {
+for (i:int from 0 until 20000) {
     let xs:list<string> = ["甲乙" + "丙丁", "尾"]
     xs.remove_at(0);
 }
 `},
 		{"拼出来的一串不接住", `
-for (i:int in 0 until 20000) {
+for (i:int from 0 until 20000) {
     "甲乙" + "丙丁";
 }
 `},
 		{"标准库现造的一串不接住", `
-for (i:int in 0 until 20000) {
+for (i:int from 0 until 20000) {
     let s:string = "  甲乙  "
     s.trim();
 }
@@ -62,23 +62,23 @@ for (i:int in 0 until 20000) {
 class Node {
     n:int
 }
-for (i:int in 0 until 20000) {
+for (i:int from 0 until 20000) {
     new Node(n: 1);
 }
 `},
 		{"list 字面量不接住", `
-for (i:int in 0 until 20000) {
+for (i:int from 0 until 20000) {
     [1, 2];
 }
 `},
 		{"取一段不接住", `
-for (i:int in 0 until 20000) {
+for (i:int from 0 until 20000) {
     let xs:list<string> = ["甲", "乙"]
     xs.slice(0, 1);
 }
 `},
 		{"取全部值不接住", `
-for (i:int in 0 until 20000) {
+for (i:int from 0 until 20000) {
     let d:dict<string, string> = {"甲": "乙" + "丙"}
     d.values();
 }
@@ -174,7 +174,7 @@ console.print(length(s), s)
 		{"值是list", "list<int>", "[1, 2, 3]"},
 	} {
 		if used := heapAt(t, `
-for (i:int in 0 until 20000) {
+for (i:int from 0 until 20000) {
     let d:dict<string, `+one.elem+`> = {}
     d.set("键", `+one.val+`)
     d.remove("键")

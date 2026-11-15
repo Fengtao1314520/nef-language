@@ -51,7 +51,7 @@ method one_case(which:int) {
 
 method group_login() {
     let home:int = run.group_begin("表单登录", start_url)
-    for (i:int in 0 until length(titles)) {
+    for (i:int from 0 until length(titles)) {
         if (!run.picked(titles[i])) {
             continue
         }

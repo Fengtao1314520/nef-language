@@ -56,15 +56,15 @@ export method encode_frame(opcode:int, payload:bytes, key:bytes):bytes {
         out[3] = (n & 255) as byte
     } else {
         out[1] = 0xFF as byte
-        for (i:int in 0 until 8) {
+        for (i:int from 0 until 8) {
             let shift:byte = ((7 - i) * 8) as byte
             out[2 + i] = ((n >> shift) & 255) as byte
         }
     }
-    for (i:int in 0 until 4) {
+    for (i:int from 0 until 4) {
         out[head + i] = key[i]
     }
-    for (i:int in 0 until n) {
+    for (i:int from 0 until n) {
         let one:int = payload[i] as int
         let m:int = key[i & 3] as int
         out[head + 4 + i] = (one ^ m) as byte
@@ -102,7 +102,7 @@ export method take_wire(buf:bytes):Wire {
                 enough = false
             } else {
                 len = 0
-                for (i:int in 0 until 8) {
+                for (i:int from 0 until 8) {
                     len = (len << 8) | (buf[2 + i] as int)
                 }
                 at = 10
@@ -114,7 +114,7 @@ export method take_wire(buf:bytes):Wire {
         }
         if (enough && n >= at + len) {
             let body:bytes = bytes.allocate(len)
-            for (i:int in 0 until len) {
+            for (i:int from 0 until len) {
                 let v:int = buf[at + i] as int
                 if (masked) {
                     v = v ^ (buf[key_at + (i & 3)] as int)

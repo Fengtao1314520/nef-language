@@ -379,7 +379,7 @@ func TestNetConnectLoopReleases(t *testing.T) {
 	}()
 	got, code := run(t, `
 let total:int = 0
-for (i:int in 0 until 1000) {
+for (i:int from 0 until 1000) {
     let s:Socket = net.connect("127.0.0.1", `+strconv.Itoa(port)+`, 3000)
     total = total + 1
 }

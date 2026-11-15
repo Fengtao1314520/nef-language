@@ -57,7 +57,7 @@ let d:dict<string, Row> = {}
 let first:string = "头".slice(0, 1)
 d.set(first, new Row(n: 1, kids: [1, 2]))
 let total:int = 0
-for (i:int in 0 until 8000) {
+for (i:int from 0 until 8000) {
     let k:string = "头".slice(0, 1)
     d.set(k, new Row(n: i, kids: [i]))       // 命中：没收下的那个键当场拆，旧值也拆
     total = total + d["头"].n + length(d["头"].kids)   // 读两遍同一个位置，第二遍还在
@@ -122,7 +122,7 @@ method peek(nd:Node):int {
     return nd.n
 }
 let total:int = 0
-for (i:int in 0 until 3000) {
+for (i:int from 0 until 3000) {
     let ns:list<Node> = [new Node(n: i), new Node(n: i + 1)]
     let a:Node = ns.remove_at(0)
     let h:Hold = new Hold(item: a)
@@ -157,7 +157,7 @@ method peek(cs:list<Note>):int {
     return length(cs)
 }
 let total:int = 0
-for (i:int in 0 until 3000) {
+for (i:int from 0 until 3000) {
     let cs:list<Note> = [new Note(n: i), new Note(n: 7)]
     let got:Note = back(cs)
     total = total + got.n + peek(cs)
@@ -188,7 +188,7 @@ method pick(cs:list<Note>, fresh:boolean):Note {
     return cs.remove_at(0)
 }
 let total:int = 0
-for (i:int in 0 until 300) {
+for (i:int from 0 until 300) {
     let cs:list<Note> = [new Note(n: i)]
     let got:Note = pick(cs, i == 0)
     total = total + got.n

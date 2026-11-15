@@ -18,7 +18,7 @@ func TestLoopVarTypeMustMatch(t *testing.T) {
 	expectOK(t, "let bs:list<byte> = []\nfor (b:byte in bs) {\n    console.print(b)\n}\n")
 	expectOK(t, "class P {\n    n:int\n}\nlet ps:list<P> = []\nfor (p:P in ps) {\n    console.print(p.n)\n}\n")
 	// 计数循环给出的是 int，标注也得是 int。
-	expectOK(t, "for (i:int in 0 until 3) {\n    console.print(i)\n}\n")
+	expectOK(t, "for (i:int from 0 until 3) {\n    console.print(i)\n}\n")
 
 	// 标注不符：四种各覆盖一句。
 	expectErr(t, "let xs:list<int> = []\nfor (x:string in xs) {\n    console.print(x)\n}\n",
@@ -33,6 +33,6 @@ func TestLoopVarTypeMustMatch(t *testing.T) {
 	expectErr(t, "let xs:list<int> = []\nfor (x:object in xs) {\n    console.print(x)\n}\n",
 		"这里要的是 object，给的是 int；类型之间不自动转换")
 	// 计数循环用同一条规则。
-	expectErr(t, "for (i:string in 0 until 3) {\n    console.print(i)\n}\n",
+	expectErr(t, "for (i:string from 0 until 3) {\n    console.print(i)\n}\n",
 		"这里要的是 string，给的是 int；类型之间不自动转换")
 }

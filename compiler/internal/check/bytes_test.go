@@ -109,5 +109,5 @@ func TestBytesCannotBeIterated(t *testing.T) {
 		"bytes 不能遍历")
 	expectErr(t, "let b:bytes = bytes.allocate(4)\nfor (x:int in b) {\n    console.print(x)\n}\n",
 		"bytes 不能遍历")
-	expectOK(t, "let b:bytes = bytes.allocate(4)\nfor (i:int in 0 until length(b)) {\n    console.print(b[i])\n}\n")
+	expectOK(t, "let b:bytes = bytes.allocate(4)\nfor (i:int from 0 until length(b)) {\n    console.print(b[i])\n}\n")
 }

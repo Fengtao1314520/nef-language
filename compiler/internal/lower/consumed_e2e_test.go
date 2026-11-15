@@ -74,7 +74,7 @@ method count(s:string):int {
 method hold(b:Bag) {
 }
 let total:int = 0
-for (i:int in 0 until 2000) {
+for (i:int from 0 until 2000) {
     total = total + use([i, i, i]) + count("甲" + "乙")
     hold(new Bag(n: i))
 }
@@ -113,7 +113,7 @@ console.print(total)
 func TestAnonymousArgKeptFreedAtReceiver(t *testing.T) {
 	src := `
 let total:int = 0
-for (i:int in 0 until 500) {
+for (i:int from 0 until 500) {
     let bag:list<list<int>> = []
     bag.set([i, i])
     let got:list<int> = bag.remove_at(0)
@@ -241,7 +241,7 @@ method boom(xs:list<int>) {
     throw (141, "交进去的时候抛")
 }
 let total:int = 0
-for (i:int in 0 until 3000) {
+for (i:int from 0 until 3000) {
     let a:list<int> = [i]
     let b:list<int> = [i, i]
     let c:list<int> = [i, i, i]

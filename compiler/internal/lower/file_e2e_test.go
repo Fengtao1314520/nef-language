@@ -124,7 +124,7 @@ func TestSampleLineCount(t *testing.T) {
 func TestArgsFromCommandLine(t *testing.T) {
 	exe := build(t, `
 console.print(length(args))
-for (i:int in 0 until length(args)) {
+for (i:int from 0 until length(args)) {
     console.print(i, args[i])
 }
 `)

@@ -90,7 +90,7 @@ console.print(bytes.join([]))
 
 ## 按位置遍历
 
-要依次访问每一个位置，用带下标的计数循环：`for (i:int in 0 until length(b))`。
+要依次访问每一个位置，用带下标的计数循环：`for (i:int from 0 until length(b))`。
 
 `for (x:byte in b)` 这种写法不支持：能按位置遍历的四种类型是三种容器与文本。
 

@@ -102,7 +102,7 @@ let page:wt.Page = null
 
 method group_login() {
     let home:int = run.group_begin("表单登录", start_url)           // 组里只登一次录
-    for (i:int in 0 until length(titles)) {
+    for (i:int from 0 until length(titles)) {
         let title:string = titles[i]                              // 那个位置读一次就空了，先接住
         if (!run.picked(title)) {
             continue

@@ -52,7 +52,7 @@ func TestParamDoesNotLeakOrFreeTwice(t *testing.T) {
 }
 
 let items:list<string> = ["甲", "乙"]
-for (i:int in 0 until @N@) {
+for (i:int from 0 until @N@) {
     console.print(count(items))
 }
 `
@@ -72,7 +72,7 @@ func TestParamFreesReadOutCell(t *testing.T) {
 }
 
 let src:list<string> = ["甲乙", "丙丁"]
-for (i:int in 0 until @N@) {
+for (i:int from 0 until @N@) {
     let fresh:list<string> = ["甲乙", "丙丁"]
     show(fresh[0])
 }
@@ -91,7 +91,7 @@ func TestParamWithDefault(t *testing.T) {
     console.print(heading)
 }
 
-for (i:int in 0 until @N@) {
+for (i:int from 0 until @N@) {
     greet();
 }
 `
@@ -116,7 +116,7 @@ func TestParamReassignmentKeepsCallerBlock(t *testing.T) {
 }
 
 let a:string = "甲乙丙"
-for (i:int in 0 until @N@) {
+for (i:int from 0 until @N@) {
     f(a)
 }
 console.print(a, length(a))

@@ -16,7 +16,9 @@
 | `http.get(url, headers = [], timeout_ms = 30000)` | `Response` | 10100～10105、10109、10113 | 发送一个 GET 请求，等待整个响应接收完成；`headers` 省掉就是不追加任何头 |
 | `http.post(url, body, headers = [], timeout_ms = 30000)` | `Response` | 10100～10105、10109、10113 | 发送一个 POST 请求，传入的字节块就是发送出去的正文；`body` 也可以是一棵 `Json`，发出去的是渲染好的那一段文本；`headers` 省掉就是不追加任何头 |
 
-`http.get` 与 `http.post` 等于把方法写成 `GET` 或 `POST`、把 `body`（GET 没有这一格）与后两个开关留默认的 `http.request`，写出来的程序与展开之后的产物没有区别。要发认证头，把那一串 `"名字: 值"` 写进 `headers` 就行。三条成员的参数顺序都是"网址之后先正文、再头、最后超时"：`body` 省掉是 `null`，`headers` 省掉是空表，`timeout_ms` 省掉是 30000 毫秒。
+`http.get` 与 `http.post` 等于把方法写成 `GET` 或 `POST`、把 `body`（GET 没有这一格）与后两个开关留默认的 `http.request`，写出来的程序与展开之后的产物没有区别。
+要发认证头，把那一串 `"名字: 值"` 写进 `headers` 就行。
+三条成员的参数顺序都是“网址之后先正文、再头、最后超时”：`body` 省掉是 `null`，`headers` 省掉是空表，`timeout_ms` 省掉是 30000 毫秒。
 
 正文是一篇 JSON 时，`body` 那一个位置直接收一棵 `Json`，发出去的是渲染好的那一段文本。
 

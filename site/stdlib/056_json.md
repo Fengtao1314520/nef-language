@@ -150,7 +150,9 @@ console.print(one)
 
 要把整棵树再看一遍，用 `tree[key]` 与 `tree.contains(key)`，这两条都不改动树。
 
-`Json` 可以放进容器（`list<Json>`、`dict<string, Json>`、`hashset<Json>`），也可以当一个 `class` 的字段。写进那个位置就是交出，读出来不拿走；容器或对象析构时，里面的每一棵树都由 `nef.json.free` 逐节点递归拆干净。树当 `hashset` 的元素或 `dict` 的键时按身份比较，两棵内容相同的树是两个不同的值。
+`Json` 可以放进容器（`list<Json>`、`dict<string, Json>`、`hashset<Json>`），也可以当一个 `class` 的字段。
+写进那个位置就是交出，读出来不拿走；容器或对象析构时，里面的每一棵树都由 `nef.json.free` 逐节点递归拆干净。
+树当 `hashset` 的元素或 `dict` 的键时按身份比较，两棵内容相同的树是两个不同的值。
 
 要保存一棵树就存 JSON 原文，使用的时候再调用一次 `json.parse`；或者当场把它转换成自己要的值：`int`、`float`、`string`、`boolean`，以及它们的容器。
 

@@ -480,8 +480,8 @@ type Facts struct {
 	Types    map[ast.Expr]Type
 	Binds    map[*ast.Name]Bind
 	Calls    map[*ast.Call]CallRef
-	EnumVals map[string]int64     // "D.a" → 它的值
-	Tests    map[*ast.Test]Type   // `x is T` 里那个 T——结果本身恒为 boolean，被判断的类型要另记
+	EnumVals map[string]int64   // "D.a" → 它的值
+	Tests    map[*ast.Test]Type // `x is T` 里那个 T——结果本身恒为 boolean，被判断的类型要另记
 	// Narrow 记的是 `if (o is C)` 那一支里、被收窄成 C 的每一个使用点：
 	// 键是那一个 `o` 的语法节点，值是它在那一处按哪一只类型看。出了那一支就不再记。
 	// 后端不靠它取字段偏移（Types 上记的已经是收窄后的类型），它留给编辑器与测试查。
@@ -489,7 +489,7 @@ type Facts struct {
 	// that Name node, the value is the type it is seen as there. Nothing is recorded outside the
 	// branch. The backend does not read field offsets from it (Types already carries the narrowed
 	// type); it is for the editor and for tests.
-	Funcs    map[string]*ast.Func // 规范名 → 函数体；方法是 "类型名.方法名"
+	Funcs map[string]*ast.Func // 规范名 → 函数体；方法是 "类型名.方法名"
 	// Sigs 是每一个函数与方法算好的签名（键与 Funcs 同一种写法：方法是"类型名.方法名"，
 	// 包里的带包根）。编辑器那一侧的补全与悬停使用这一张表；标准库那些不在这里，
 	// 它们在 stdFuncs 与 stdMember 那两处。
@@ -1300,7 +1300,7 @@ type Checker struct {
 	// writes 是形参改写摘要（见 writes.go）；Facts.Writes 是同一份结论的对外副本。
 	// en: writes is the parameter-write summary (see writes.go); Facts.Writes is the outward copy.
 	writes map[string][]bool
-	consts    map[string]bool
+	consts map[string]bool
 	// topVals 是这一趟里每一份文件顶层那些 `const` 与 `export shared`：键与 funcs、types
 	// 同一种写法（包里的带包根）。包外面按点号取一个导出的数读的就是它。
 	topVals map[string]TopValue

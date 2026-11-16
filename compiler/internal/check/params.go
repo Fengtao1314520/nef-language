@@ -75,7 +75,7 @@ var stdParamNames = map[string][]string{
 	"math.exponential":    {"x"},
 	"math.floor":          {"x"},
 	"math.log_base_10":    {"x"},
-	"math.larger":        {"a", "b"},
+	"math.larger":         {"a", "b"},
 	"math.smaller":        {"a", "b"},
 	"math.natural_log":    {"x"},
 	"math.pi":             {},
@@ -100,22 +100,22 @@ var stdParamNames = map[string][]string{
 	"file.append":             {"path", "text"},
 	"file.copy":               {"source", "target"},
 	"file.ensure_directories": {"path"},
-	"file.make_directory":   {"path"},
+	"file.make_directory":     {"path"},
 	"file.exists":             {"path"},
 	"file.is_directory":       {"path"},
-	"file.list_names":               {"dir"},
-	"file.list_names_paths":         {"dir"},
+	"file.list_names":         {"dir"},
+	"file.list_names_paths":   {"dir"},
 	"file.modified":           {"path"},
 	"file.read":               {"path"},
 	"file.read_bytes":         {"path"},
-	"file.read_bytes_from":          {"path", "at", "count"},
-	"file.is_readonly":           {"path"},
+	"file.read_bytes_from":    {"path", "at", "count"},
+	"file.is_readonly":        {"path"},
 	"file.remove":             {"path"},
 	"file.remove_directory":   {"path"},
 	"file.remove_tree":        {"root"},
 	"file.rename":             {"source", "target"},
 	"file.size":               {"path"},
-	"file.list_names_tree":         {"root"},
+	"file.list_names_tree":    {"root"},
 	"file.write":              {"path", "text"},
 	"file.write_at":           {"path", "at", "text"},
 	"file.write_bytes":        {"path", "data"},
@@ -129,30 +129,30 @@ var stdParamNames = map[string][]string{
 	"path.join":           {"dir", "name"},
 
 	// 环境变量与本进程
-	"environment.current_directory":     {},
-	"environment.get":                   {"name"},
-	"environment.set":                   {"name", "value"},
-	"environment.change_directory": {"path"},
-	"environment.unset":                 {"name"},
+	"environment.current_directory": {},
+	"environment.get":               {"name"},
+	"environment.set":               {"name", "value"},
+	"environment.change_directory":  {"path"},
+	"environment.unset":             {"name"},
 
 	// 正则
 	"regular_expression.find":    {"text", "pattern"},
-	"regular_expression.matches":   {"text", "pattern"},
+	"regular_expression.matches": {"text", "pattern"},
 	"regular_expression.replace": {"text", "pattern", "replacement"},
 	"regular_expression.split":   {"text", "pattern"},
 
 	// JSON 的组名这一侧：没有接收者的那几条——拆一篇文本、说清楚为什么拆不成、
 	// 起一棵空的树、把程序里的一个值变成一棵树。树上的读写挂在类型身上。
-	"json.parse":      {"text"},
-	"json.explain":    {"text"},
+	"json.parse":        {"text"},
+	"json.explain":      {"text"},
 	"json.empty_object": {},
 	"json.empty_array":  {},
-	"json.from_value": {"value"},
+	"json.from_value":   {"value"},
 
 	// 字节块
 	"bytes.from_base64": {"encoded"},
 	"bytes.join":        {"parts"},
-	"bytes.allocate":         {"size"},
+	"bytes.allocate":    {"size"},
 
 	// 网络
 	"net.connect": {"host", "port", "timeout_ms"},
@@ -229,8 +229,8 @@ var stdParamNames = map[string][]string{
 	"json.take":       {"key"},
 	"json.take_at":    {"index"},
 	"json.to_text":    {},
-	"json.to_int": {"fallback"},
-	"json.to_float":  {"fallback"},
+	"json.to_int":     {"fallback"},
+	"json.to_float":   {"fallback"},
 	"json.to_boolean": {"fallback"},
 	"json.to_json":    {},
 
@@ -253,8 +253,8 @@ var stdParamNames = map[string][]string{
 	"process.wait":  {},
 	"process.close": {},
 
-	"thread.wait": {},
-	"thread.number":   {},
+	"thread.wait":   {},
+	"thread.number": {},
 }
 
 // stdParamName 返回一条动作第 i 个参数的展示名；这张表没有登记的返回空串，

@@ -37,21 +37,21 @@ import (
 )
 
 const (
-	fnJSONOf        = "nef.json.of"         // (值, 形状描述) → 一个节点
-	fnJSONOfInt     = "nef.json.of_int"     // (整数) → 数节点，两个面各存一份
-	fnJSONOfFloat   = "nef.json.of_float"   // (64 位位型) → 数节点
-	fnJSONOfBool    = "nef.json.of_bool"    // (0／1) → boolean 节点
-	fnJSONOfText    = "nef.json.of_text"    // (文本) → 文本节点，正文自己拷一份
-	fnJSONKeyText   = "nef.json.key_text"   // (键值, 形状描述) → 对象那把键的文本
+	fnJSONOf        = "nef.json.of"           // (值, 形状描述) → 一个节点
+	fnJSONOfInt     = "nef.json.of_int"       // (整数) → 数节点，两个面各存一份
+	fnJSONOfFloat   = "nef.json.of_float"     // (64 位位型) → 数节点
+	fnJSONOfBool    = "nef.json.of_bool"      // (0／1) → boolean 节点
+	fnJSONOfText    = "nef.json.of_text"      // (文本) → 文本节点，正文自己拷一份
+	fnJSONKeyText   = "nef.json.key_text"     // (键值, 形状描述) → 对象那把键的文本
 	fnJSONNewObject = "nef.json.empty_object" // () → 空对象
 	fnJSONNewArray  = "nef.json.empty_array"  // () → 空数组
-	fnJSONSet       = "nef.json.set"        // (对象, 键, 节点) → 没东西
-	fnJSONPush      = "nef.json.push"       // (数组, 节点) → 没东西
-	fnJSONInsertAt  = "nef.json.insert_at"  // (数组, 位置, 节点) → 没东西
-	fnJSONReplaceAt = "nef.json.replace_at" // (数组, 位置, 节点) → 没东西，换下来的拆掉
-	fnJSONDelKey    = "nef.json.remove_key" // (对象, 键) → 真／假
-	fnJSONDelAt     = "nef.json.remove_at"  // (数组, 位置) → 摘下来的那一个节点
-	fnJSONClearNode = "nef.json.clear_node" // (节点) → 没东西，树里的下属全拆干净
+	fnJSONSet       = "nef.json.set"          // (对象, 键, 节点) → 没东西
+	fnJSONPush      = "nef.json.push"         // (数组, 节点) → 没东西
+	fnJSONInsertAt  = "nef.json.insert_at"    // (数组, 位置, 节点) → 没东西
+	fnJSONReplaceAt = "nef.json.replace_at"   // (数组, 位置, 节点) → 没东西，换下来的拆掉
+	fnJSONDelKey    = "nef.json.remove_key"   // (对象, 键) → 真／假
+	fnJSONDelAt     = "nef.json.remove_at"    // (数组, 位置) → 摘下来的那一个节点
+	fnJSONClearNode = "nef.json.clear_node"   // (节点) → 没东西，树里的下属全拆干净
 )
 
 // jsonFnsWrite 是这一族新加的十五支，跟着读取那一族一起排（见 json.go 的 jsonFns）。

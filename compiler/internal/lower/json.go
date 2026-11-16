@@ -721,13 +721,13 @@ var jsonMemberFn = map[string]string{
 	// 构造与写入那一族
 	"json.empty_object": fnJSONNewObject,
 	"json.empty_array":  fnJSONNewArray,
-	"json.from_value": fnJSONOf,
-	"json.set":        fnJSONSet,
-	"json.add":        fnJSONPush,
-	"json.insert_at":  fnJSONInsertAt,
-	"json.remove":     fnJSONDelKey,
-	"json.remove_at":  fnJSONDelAt,
-	"json.clear":      fnJSONClearNode,
+	"json.from_value":   fnJSONOf,
+	"json.set":          fnJSONSet,
+	"json.add":          fnJSONPush,
+	"json.insert_at":    fnJSONInsertAt,
+	"json.remove":       fnJSONDelKey,
+	"json.remove_at":    fnJSONDelAt,
+	"json.clear":        fnJSONClearNode,
 }
 
 // jsonValueOf 把一个值变成树上的一个节点：本来就是节点的直接交出，别的按形状表现场建一棵。

@@ -177,7 +177,7 @@
         },
         {
           "name": "storage.type.primitive.nf",
-          "match": "(?<![\\w$])(boolean|int|float|byte|unicode|string|object|list|dict|hashset|Calendar|Json|bytes|Socket|Listener|Process|Thread|Response)(?![\\w$])"
+          "match": "(?<![\\w$])(boolean|int|float|byte|unicode|string|object|list|dict|hashset|Calendar|Json|Bytes|bytes|Socket|Listener|Process|Thread|Response)(?![\\w$])"
         },
         {
           "comment": "标准库的组名（console、text、math 这些）",

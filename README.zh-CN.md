@@ -1,6 +1,6 @@
 # Nef
 
-![版本](https://img.shields.io/badge/version-v0.8.5-blue)
+![版本](https://img.shields.io/badge/version-v0.8.6-blue)
 [![代码许可](https://img.shields.io/badge/license-Apache--2.0%20%E4%B8%8E%20Nef%20Output%20Exception-green)](LICENSE)
 [![文档许可](https://img.shields.io/badge/docs-CC%20BY%204.0-yellow)](nef-licensing/LICENSE-DOCS.md)
 [![平台](https://img.shields.io/badge/platform-Windows%20x64-lightgrey)](#依赖)
@@ -49,7 +49,7 @@ cd compiler
 go build -trimpath -o ../nf.exe ./cmd/nf
 ```
 
-`nf.exe` 生成在仓库根，运行示例用的就是这一份。`./nf.exe version` 打印它的版本号；构建时没注入版本号的打印 `nf dev`。要一份带版本号的产物，在上面那条命令里加上 `-ldflags "-X main.version=vX.Y.Z"`。每个发布版本的 `nf.exe` 与 VS Code 扩展包都挂在该版本的 GitHub Releases 页面上。版本号三位数各自什么时候变、`0.x` 阶段承诺什么，写在站上的[版本与兼容](site/about/066_versions.md)；每一版改了什么记在 [CHANGELOG.md](CHANGELOG.md)。
+`nf.exe` 生成在仓库根，运行示例用的就是这一份。`./nf.exe version` 打印它的版本号；构建时没注入版本号的打印 `nf dev`。要一份带版本号的产物，在上面那条命令里加上 `-ldflags "-X main.version=vX.Y.Z"`。每个发布版本的 `nf.exe` 与 VS Code 扩展包都挂在该版本的 GitHub Releases 页面上。版本号三位数各自什么时候变、`0.x` 阶段承诺什么，写在网站上的[版本与兼容](site/about/066_versions.md)；每一版改了什么记在 [CHANGELOG.md](CHANGELOG.md)。
 
 直接运行一个示例，或者把它编成可执行文件：
 

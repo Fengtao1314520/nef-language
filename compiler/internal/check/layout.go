@@ -76,21 +76,41 @@ func (f *Facts) Sizeof(t Type) int {
 	return 8
 }
 
-// BlockSize 是一个 struct 在堆上那一块占几个字节：把每个字段的存放宽度加起来。
+// BlockSize 是一个 struct 在堆上那一块占几个字节：**最后一个字段的偏移加上它自己的宽度**。
 // 空 struct 是 0 字节——照样要造一块（只为拿一个不重复的句柄），但拷 0 个字节。
 //
-// en: BlockSize is how many bytes a struct's heap block occupies: the sum of every field's
-// storage width. An empty struct is 0 bytes - a block is still allocated (to get a unique
-// handle) but 0 bytes are copied.
+// 不能写成"各字段宽度之和"：偏移是按自然对齐排的（recordFields），窄字段后面为了让出
+// 下一个 8 字节字段而留的填空也算这一块的地皮。两者在只由 8 字节字段构成的类型上恰好相等，
+// 一旦有 boolean／byte／unicode 排在 8 字节字段前面，和就比布局小——`{boolean, int,
+// boolean, string}` 各字段是 1+8+1+8=18，布局却是 0、8、16、24，整块要 32。
+// 按 18 造块（@alloc 只把尺寸垫到 8 的倍数，垫出来的不是它要的那一截），最后那个字段
+// 写在自己偏 24 的位置上就冲出块尾 8 字节，正压进**下一块的头**：那 8 字节是类型字与
+// 数据尺寸，被写成文本句柄的两半，下一趟分配／归还按那个尺寸去清零或挂链就是一次野写。
+// 整份拷贝（@copy_block）拿同一个数当拷贝长度，同样漏掉最后一个字段。
+//
+// en: BlockSize is how many bytes a struct's heap block occupies: the LAST field's offset plus
+// its own width. An empty struct is 0 bytes - a block is still allocated (to get a unique
+// handle) but 0 bytes are copied. It must not be written as "the sum of the field widths":
+// offsets follow natural alignment (recordFields), so the filler a narrow field leaves behind
+// for the next 8-byte field is part of this block's ground. The two agree only for types built
+// entirely from 8-byte fields; once a boolean/byte/unicode sits before an 8-byte field the sum
+// falls short of the layout - `{boolean, int, boolean, string}` is 1+8+1+8=18 by width but
+// 0, 8, 16, 24 by layout, a whole 32 bytes. Allocating 18 (@alloc only rounds to a multiple of
+// 8, and the rounded tail is not the missing part) makes the last field's write at offset 24
+// run 8 bytes past the block, straight into the NEXT block's header - those 8 bytes are the
+// type word and the data size, overwritten with the two halves of a text handle, so the next
+// allocation or return that trusts that size does a wild write. A wholesale copy
+// (@copy_block) takes the same number as its length and drops the last field as well.
 func (f *Facts) BlockSize(t Type) int64 {
 	if t.Kind != Struct {
 		return int64(f.Sizeof(t))
 	}
-	var sum int64
-	for _, fi := range f.Fields[t.Name] {
-		sum += int64(f.Sizeof(fi.Typ))
+	fields := f.Fields[t.Name]
+	if len(fields) == 0 {
+		return 0
 	}
-	return sum
+	last := fields[len(fields)-1]
+	return last.Off + int64(f.Sizeof(last.Typ))
 }
 
 // Alignof 取自然对齐；窄字段不撑开后面的 8 字节字段。

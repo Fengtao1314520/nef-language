@@ -21,6 +21,13 @@ struct Point {
     y:int
 }
 
+struct Beat {
+    visible:boolean
+    count:int
+    fallback:boolean
+    owner:string
+}
+
 enum Err { bad_path = 100, empty }
 
 const limit:int = 10
@@ -77,6 +84,15 @@ console.print(call_it(limit), names[0])
 	offs := f.FieldOffsets("Point")
 	if len(offs) != 2 || offs[0] != 0 || offs[1] != 8 {
 		t.Errorf("Point 的字段偏移是 %v，要 [0 8]", offs)
+	}
+	// 块大小与字段偏移必须是同一套排法：boolean 占一字节，它后面那个 int 挪到 8，
+	// 挪出来的填空也算这一块的地皮（0、8、16、24，整块 32）。按"各字段宽度之和"算出来
+	// 是 18，就是那个冲出块尾、压坏下一块头的故障（见 layout.go 的 BlockSize 注释）。
+	if got := f.BlockSize(Type{Kind: Struct, Name: "Beat"}); got != 32 {
+		t.Errorf("Beat 的块大小是 %d，要 32", got)
+	}
+	if got := f.BlockSize(Type{Kind: Struct, Name: "Point"}); got != 16 {
+		t.Errorf("Point 的块大小是 %d，要 16", got)
 	}
 	if got := f.Sizeof(Type{Kind: Unicode}); got != 4 {
 		t.Errorf("unicode 宽度是 %d，要 4", got)

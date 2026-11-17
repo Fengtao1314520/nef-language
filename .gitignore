@@ -38,3 +38,6 @@ Thumbs.db
 *~
 *.swp
 *.log
+
+# 本机项目数据：WorkBuddy 的记忆与复现件，不进语言仓库
+/.workbuddy/

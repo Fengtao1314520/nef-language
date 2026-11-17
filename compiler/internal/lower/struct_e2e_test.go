@@ -73,6 +73,42 @@ console.print(sizes[0].w, sizes[0].h, a.h, length(sizes))
 	}
 }
 
+// TestStructNarrowPadKeepsItsBlock 钉住"块大小与字段偏移是同一套排法"。
+//
+// 形状是 `{boolean, int, boolean, string}`：各字段宽度之和是 18，按自然对齐排出来是
+// 0、8、16、24，整块要 32。块若按 18 造（@alloc 只把尺寸垫到 8 的倍数，垫出来的不是缺的
+// 那一截），最后那个字段写在自己偏 24 的位置上就冲出块尾 8 字节，正压进下一块的头——
+// 那 8 字节是类型字与数据尺寸，被写成文本句柄的两半。三种症状都是这一处：整只打印要按
+// 字段表读这块，读到的邻居已经毁了；整份拷贝（@copy_block 拿同一个数当长度）漏掉最后一个
+// 字段；json.from_value 与打印机同一张字段表、同一条路。
+//
+// 这条测试用的是"看起来只是多一个 boolean"的形状，而原先的 TestStructValues 全由 8 字节
+// 字段构成，宽度之和恰好等于布局，所以那一处一直没露。
+func TestStructNarrowPadKeepsItsBlock(t *testing.T) {
+	got, code := run(t, `struct Beat {
+    visible:boolean
+    count:int
+    fallback:boolean
+    owner:string
+}
+
+let b:Beat = Beat { visible: true, count: 3, fallback: false, owner: "nef" }
+console.print(b)
+
+let c:Beat = b
+console.print(c.visible, c.count, c.fallback, c.owner)
+
+let xs:list<Beat> = [b]
+console.print(xs[0].owner, json.from_value(xs[0]).to_json())
+`)
+	want := "Beat { visible: true, count: 3, fallback: false, owner: \"nef\" }\n" +
+		"true 3 false nef\n" +
+		"nef {\"visible\":true,\"count\":3,\"fallback\":false,\"owner\":\"nef\"}\n"
+	if got != want || code != 0 {
+		t.Fatalf("窄字段让出的填空没算进块里：\n got %q 码 %d\nwant %q", got, code, want)
+	}
+}
+
 // TestStructRefusals 固定字段规则：装着"句柄型"字段的 struct 被拒绝——
 // 整份拷贝拷的就是那 8 个字节，拷完两个持有者指向同一个对象，值类型就不再是值类型。
 // 这项检查在编译期由前端完成，不是"这一版还没实现"。

@@ -109,6 +109,92 @@ console.print(xs[0].owner, json.from_value(xs[0]).to_json())
 	}
 }
 
+// TestStructLocalsDieAtTheClosingBrace 钉住"带返回值的方法走到最后一个 } 时"那一段。
+//
+// 这是报告里最像的那一条症状：一个 `method check(n:int):boolean` 里造一个带窄字段的
+// struct、一个 list、一棵 Json，最后 `return`；进程不是在校验那几句上挂，而是在**方法要出去
+// 的那一下**无声无息地没了。原因是块按"各字段宽度之和"造小了，最后那个字段的写越出块尾
+// 8 字节，压进**邻块的头**（类型字与数据尺寸）；那条路走完之前没人再碰邻块，所以它一路跑
+// 到 `}` 才发作——`}` 正是这个方法的局部量被拆掉、邻块第一次被还回自由链的地方。
+//
+// 三种收尾各钉一条：
+//   - 方法返回 boolean，局部量里同时有 struct、list 与 Json（正常走到 `}`）；
+//   - 方法从 while 循环里提前 return（提前收尾那条路）；
+//   - 方法把 struct 变成 Json 当返回值交出去（返回值与局部量各一份）。
+//
+// 三条都要跑很多轮：一块坏内存什么时候被撞上取决于这一轮分配了什么，跑一轮是撞不着的。
+// 这条钉的是**形状走通**（返回值、提前收尾、把树交出去都不出错）；能确定性抓住那处算错的
+// 是 `TestStructNarrowPadKeepsItsBlock`——那边最后一个字段的值会当场变，判得出来。
+// 堆被压坏这件事本身没有确定的观测点：这八个字节落在哪一块上、那一块什么时候被还回去，
+// 取决于这一刻分配了什么，所以它表现为"偶发、无报错"。
+func TestStructLocalsDieAtTheClosingBrace(t *testing.T) {
+	got, code := run(t, `struct Pad {
+    on:boolean
+    n:int
+    off:boolean
+    s:string
+}
+
+method check(n:int):boolean {
+    let p:Pad = Pad { on: true, n: n, off: false, s: "v" + number.to_string(n) }
+    let xs:list<int> = [n, n + 1, n + 2]
+    let tree:Json = json.from_value(p)
+    let rendered:string = tree.to_json()
+    let ok:boolean = length(rendered) > 10 && length(xs) == 3 && p.n == n && p.s == "v" + number.to_string(n)
+    return ok
+}
+
+method find(target:int):int {
+    let p:Pad = Pad { on: true, n: target, off: false, s: "v" }
+    let xs:list<int> = [1, 2, 3]
+    let tree:Json = json.from_value(p)
+    let rendered:string = tree.to_json()
+    let i:int = 0
+    while (i < 40) {
+        if (i == target) {
+            return i + length(xs) + length(rendered)
+        }
+        i = i + 1
+    }
+    return -1
+}
+
+method body_of(n:int):Json {
+    let p:Pad = Pad { on: true, n: n, off: false, s: "v" }
+    let tree:Json = json.from_value(p)
+    let box:Json = json.empty_object()
+    box.set("body", tree)
+    box.set("seq", n)
+    return box
+}
+
+let good:int = 0
+for (i:int from 0 until 300) {
+    if (check(i)) {
+        good = good + 1
+    }
+}
+console.print("checked:", good)
+
+let scans:int = 0
+for (i:int from 0 until 300) {
+    scans = scans + find(i % 40)
+}
+console.print("scanned:", scans)
+
+let total:int = 0
+for (i:int from 0 until 300) {
+    let j:Json = body_of(i)
+    total = total + length(j.to_json())
+}
+console.print("bodies:", total > 0)
+`)
+	want := "checked: 300\nscanned: 17870\nbodies: true\n"
+	if got != want || code != 0 {
+		t.Fatalf("带返回值的方法收尾这一趟不对：\n got %q 码 %d\nwant %q", got, code, want)
+	}
+}
+
 // TestStructRefusals 固定字段规则：装着"句柄型"字段的 struct 被拒绝——
 // 整份拷贝拷的就是那 8 个字节，拷完两个持有者指向同一个对象，值类型就不再是值类型。
 // 这项检查在编译期由前端完成，不是"这一版还没实现"。

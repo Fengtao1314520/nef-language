@@ -541,3 +541,132 @@ console.print(total)
 		t.Fatalf("句尽头该拆的那些每轮漏了 %.1f 字节", per)
 	}
 }
+
+// TestHttpPaddedStructBodyAcrossProfiles 把报告 #9 的走法搬进本机：两个 profile 顺序跑，
+// 每个先登录一次、再发一批带 n 的 GET 与心跳 POST，正文由 `json.from_value` 从 struct 造，
+// 回来的 JSON 解析、读字段、`take` 取值。两种 struct 都带窄字段（`{boolean, int, boolean,
+// string}` 与九字段的心跳 DTO），字段宽度之和比按对齐排出来的布局小——块按和造就冲出块尾，
+// 压进下一块的头（见 `internal/check/layout.go` 里 `BlockSize` 的注释），症状是进程在
+// 某个调用边界上以 `0xC0000005`／`0xC0000409` 直接退出，一句报错也没有。
+//
+// 这一段为什么值得单独一条：`TestStructNarrowPadKeepsItsBlock` 只钉了打印、拷贝与
+// `json.from_value`，没把 struct 送到网络那一侧；而报告里崩的是"HTTP ＋ JSON ＋ 收尾"
+// 叠在一起的那一条路，块在堆上的邻居换成了响应正文与树节点，冲出块尾压坏的东西不同，
+// 露出来的时机也不同（要过好几轮才炸）。
+func TestHttpPaddedStructBodyAcrossProfiles(t *testing.T) {
+	var beats int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/hb" {
+			atomic.AddInt32(&beats, 1)
+			_, _ = w.Write([]byte(`{"code":0,"ok":true}`))
+			return
+		}
+		n := r.URL.Query().Get("n")
+		if n == "" {
+			n = "0"
+		}
+		_, _ = w.Write([]byte(`{"code":0,"seq":` + n + `,"owner":"sim"}`))
+	}))
+	defer srv.Close()
+
+	src := `
+struct Login {
+    instance:int
+    sessionUuid:string
+    id:string
+    password:string
+    isMTLogin:boolean
+    loginTime:string
+}
+
+struct Heartbeat {
+    ip:string
+    sessionUuid:string
+    userInstance:int
+    timeStamp:string
+    pageVisible:boolean
+    count:int
+    isFallback:boolean
+    tabOwnerId:string
+    tabOwnerGeneration:string
+}
+
+method body_of<Value>(value:Value):string {
+    return json.from_value(value).to_json()
+}
+
+method run_one(name:string, n_cases:int):int {
+    let fails:int = 0
+    let lg:Login = Login {
+        instance: 1,
+        sessionUuid: name,
+        id: "002",
+        password: "1234",
+        isMTLogin: false,
+        loginTime: "1794886000"
+    }
+    if (length(body_of(lg)) == 0) {
+        fails = fails + 1
+    }
+    for (i:int from 0 until n_cases) {
+        let r:Response = http.get("@URL@/status?n=" + number.to_string(i), [], 5000)
+        if (r.status != 200) {
+            fails = fails + 1
+        }
+        let doc:Json = json.parse(text.from_bytes(r.body))
+        if (doc == null) {
+            fails = fails + 1
+        } else {
+            if (doc["seq"].to_int(-1) != i) {
+                fails = fails + 1
+            }
+            let owner:Json = doc.take("owner")
+            if (owner.to_text() != "sim") {
+                fails = fails + 1
+            }
+        }
+        if (i % 3 == 0) {
+            let hb:Heartbeat = Heartbeat {
+                ip: "127.0.0.1",
+                sessionUuid: name,
+                userInstance: 1,
+                timeStamp: "1795000000000",
+                pageVisible: true,
+                count: i,
+                isFallback: false,
+                tabOwnerId: "owner",
+                tabOwnerGeneration: "1"
+            }
+            let hb_body:Json = json.from_value(hb)
+            let hr:Response = http.post("@URL@/hb", hb_body, [], 5000)
+            if (hr.status != 200) {
+                fails = fails + 1
+            }
+            let back:Json = json.parse(text.from_bytes(hr.body))
+            if (back == null) {
+                fails = fails + 1
+            } else {
+                if (back["ok"].to_boolean(false) == false) {
+                    fails = fails + 1
+                }
+            }
+        }
+    }
+    return fails
+}
+
+let first:int = run_one("primary", 4)
+console.print("profile 1:", first)
+let second:int = run_one("secondary", 2)
+console.print("profile 2:", second)
+console.print("done")
+`
+	got, code := run(t, strings.ReplaceAll(src, "@URL@", urlOf(srv)))
+	want := "profile 1: 0\nprofile 2: 0\ndone\n"
+	if got != want || code != 0 {
+		t.Fatalf("两个 profile 走完这一趟不对：\n got %q 码 %d\nwant %q", got, code, want)
+	}
+	if n := atomic.LoadInt32(&beats); n != 3 {
+		t.Fatalf("心跳 POST 收到 %d 次，要 3 次（第一个 profile 两次、第二个一次）", n)
+	}
+}

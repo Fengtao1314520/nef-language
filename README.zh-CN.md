@@ -1,6 +1,6 @@
 # Nef
 
-![版本](https://img.shields.io/badge/version-v0.8.6-blue)
+![版本](https://img.shields.io/badge/version-v0.8.7-blue)
 [![代码许可](https://img.shields.io/badge/license-Apache--2.0%20%E4%B8%8E%20Nef%20Output%20Exception-green)](LICENSE)
 [![文档许可](https://img.shields.io/badge/docs-CC%20BY%204.0-yellow)](nef-licensing/LICENSE-DOCS.md)
 [![平台](https://img.shields.io/badge/platform-Windows%20x64-lightgrey)](#依赖)

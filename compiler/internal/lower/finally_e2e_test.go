@@ -153,3 +153,43 @@ console.print(total)
 		t.Fatalf("每圈多要 %v 字节，收尾那一段把值漏下了\n%s", per, tmpl)
 	}
 }
+
+// TestFinallySeesTheEnclosingBody 钉住"接住块里再抛出、收尾还要读外层那一段"这一条。
+//
+// 接住块里 `throw`，落点仍是本帧那一条"跑完收尾再往外传"的处理器——这一帧还要接着跑
+// `finally`，所以抛出去只许还到**本层这一格**。按外层那一层还（原先如此）会把包住这层 try
+// 的那一段里声明的名字一起抹成空句柄：收尾读它当场抛 10092，外面接住的是这个新错误码，
+// 原来那一条（9002）就丢了。
+//
+// en: Pins "a throw from the catch block still runs the finally, and the finally can read the
+// enclosing body's names". The throw lands on this frame's own "run the cleanup, then pass it
+// out" handler, so unwinding must stop at this layer. Unwinding to the enclosing layer (as it
+// did) zeroed the names declared in the block that wraps this try, and the finally's read of one
+// threw 10092 - the outer catch saw that code instead of the original 9002.
+func TestFinallySeesTheEnclosingBody(t *testing.T) {
+	got, code := run(t, `
+method f():string {
+    let seen:string = "?"
+    try {
+        let inside:string = "外层体里的名字"
+        try {
+            throw (9001, "最里")
+        } catch (c, m, at) {
+            throw (9002, "接住块里再抛")
+        } finally {
+            seen = inside
+            console.print("收尾看到 [" + seen + "]")
+        }
+    } catch (c2, m2, at2) {
+        console.print("外面接住", c2, m2)
+    }
+    return seen
+}
+
+console.print("结果 [" + f() + "]")
+`)
+	want := "收尾看到 [外层体里的名字]\n外面接住 9002 接住块里再抛\n结果 [外层体里的名字]\n"
+	if got != want || code != 0 {
+		t.Fatalf("得到 %q 码 %d，要 %q 码 0", got, code, want)
+	}
+}

@@ -5919,6 +5919,12 @@ func (c *fc) tryStmt(x *ast.Try) error {
 		if x.HasFinally {
 			// 接住块里再抛出也要先跑收尾：再挂一层处理器，落点是下面那一段"跑完收尾接着往外传"。
 			c.pushHand(mark, region, rethrow)
+			// 抛出去落到的仍是本帧这一条：这一帧还要接着跑收尾，所以**不许**释放到外层那一层去。
+			// `finally` 是写在包住这层 try 的那一段里的，那一段里的名字它照样看得见——按外层那一层
+			// 释放的话（原先如此），收尾读到的会是一个被抹成空句柄的位置，`console.print` 当场抛 10092。
+			// 记进 c.tries 之后，leaveToHandler 只还到本层这一格：try 体里那些（接住块入口已经
+			// 归还过）与接住块自己的局部量，外层的一概不动。
+			c.tries = append(c.tries, mark)
 		}
 		catchHands := c.saveHands()
 		for _, s := range x.Catch {
@@ -5930,6 +5936,7 @@ func (c *fc) tryStmt(x *ast.Try) error {
 		// 这一层记录还在，下面 popHandOf 要照发。
 		c.restoreHands(catchHands)
 		if x.HasFinally {
+			c.tries = c.tries[:len(c.tries)-1]
 			c.popHandOf(region)
 		}
 	}

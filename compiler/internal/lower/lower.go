@@ -1900,11 +1900,13 @@ func (c *fc) forString(x *ast.For, iter ir.Val) error {
 
 	c.brk = append(c.brk, exitSite{to: end, mark: len(c.marks) - 1})
 	c.cont = append(c.cont, exitSite{to: next, mark: len(c.marks) - 1})
+	hands := c.saveHands()
 	for _, s := range x.Body {
 		if err := c.stmt(s); err != nil {
 			return err
 		}
 	}
+	c.restoreHands(hands)
 	c.brk = c.brk[:len(c.brk)-1]
 	c.cont = c.cont[:len(c.cont)-1]
 
@@ -1961,11 +1963,13 @@ func (c *fc) forList(x *ast.For, iter ir.Val, it check.Type) error {
 
 	c.brk = append(c.brk, exitSite{to: end, mark: len(c.marks) - 1})
 	c.cont = append(c.cont, exitSite{to: next, mark: len(c.marks) - 1})
+	hands := c.saveHands()
 	for _, s := range x.Body {
 		if err := c.stmt(s); err != nil {
 			return err
 		}
 	}
+	c.restoreHands(hands)
 	c.brk = c.brk[:len(c.brk)-1]
 	c.cont = c.cont[:len(c.cont)-1]
 	c.f.Emit(&ir.Lbl{At: next})
@@ -2017,11 +2021,13 @@ func (c *fc) forMap(x *ast.For, iter ir.Val, it check.Type) error {
 
 	c.brk = append(c.brk, exitSite{to: end, mark: len(c.marks) - 1})
 	c.cont = append(c.cont, exitSite{to: next, mark: len(c.marks) - 1})
+	hands := c.saveHands()
 	for _, s := range x.Body {
 		if err := c.stmt(s); err != nil {
 			return err
 		}
 	}
+	c.restoreHands(hands)
 	c.brk = c.brk[:len(c.brk)-1]
 	c.cont = c.cont[:len(c.cont)-1]
 	c.f.Emit(&ir.Lbl{At: next})
@@ -2401,6 +2407,57 @@ func (c *fc) dropHandOf(region int) {
 		if c.hands[i].region == region {
 			c.hands[i].popped = true
 		}
+	}
+}
+
+// handState 是"此刻链上有哪几条记录"的一份快照，只看摘没摘过那一位。
+//
+// 为什么需要它：`popped` 说的是**正在编的这一条路**摘过没有，而一条 try 体有好几条出口——
+// 体里每一处 `return`／`break`／`continue` 各算一条，体正常走完又是一条。这几条出口是并排
+// 编出来的，前一条路上摘过，不等于后一条路上也摘过。所以每编完一条分支，就把这一位恢复成
+// 进分支之前的样子；不恢复的话，第二条出口起都不再发 `PopHandler`：
+//
+//   - 链上留下一条记录，它指的正是刚返回的那一帧；
+//   - 帧尾那一次摘链把这条残留当成了自己的清理记录，摘掉并归还了它；
+//   - 这一帧自己的清理记录反而留在链上，指向一块已经作废的帧；
+//   - 下一个来摘链的人读 [作废帧+24] 取"上一条"，那就是野指针。实测崩在 `@pop_handler`
+//     读链头那一步，`0xC0000005`，没有任何 Nef 层报错。
+//
+// en: handState is a snapshot of "which records are on the chain right now" - just the popped
+// bit. A try body has several exits (one per `return`/`break`/`continue`, plus falling off the
+// end) and they are compiled side by side, so having popped on one says nothing about the next.
+// Each branch restores the bit on the way out. Without that, every exit after the first stops
+// emitting PopHandler: a record pointing at the frame that just returned stays on the chain, the
+// frame tail takes that leftover for its own cleanup record and frees it, the frame's own record
+// is left behind pointing into a dead frame, and the next unlink reads `[dead frame+24]` for
+// "previous" - a wild pointer. Observed as `0xC0000005` at the load in `@pop_handler`, with no
+// Nef-level error at all.
+type handState []bool
+
+// saveHands 抄一份当前的摘除状态。
+//
+// en: saveHands copies the current popped flags.
+func (c *fc) saveHands() handState {
+	st := make(handState, len(c.hands))
+	for i := range c.hands {
+		st[i] = c.hands[i].popped
+	}
+	return st
+}
+
+// restoreHands 把状态恢复成快照时的样子。快照之后才开的那几层 try（分支体里写的）一律记成
+// "已摘"：它们在这条分支里都走完了自己的出口，记录已经不在链上，后面别人的早退路不该再摘一次。
+//
+// en: restoreHands puts the flags back the way the snapshot found them. Try layers opened after
+// the snapshot (written inside the branch) are all marked popped: each ran its own exit inside
+// this branch, so its record is off the chain and a later early exit must not unlink it again.
+func (c *fc) restoreHands(st handState) {
+	for i := range c.hands {
+		if i < len(st) {
+			c.hands[i].popped = st[i]
+			continue
+		}
+		c.hands[i].popped = true
 	}
 }
 
@@ -5803,11 +5860,15 @@ func (c *fc) tryStmt(x *ast.Try) error {
 	c.tries = append(c.tries, mark)
 	c.tryRegs[region].mark = mark
 	c.hands = append(c.hands, handSite{mark: mark, region: region})
+	bodyHands := c.saveHands()
 	for _, s := range x.Body {
 		if err := c.stmt(s); err != nil {
 			return err
 		}
 	}
+	// 体里那几处 `return`／`break`／`continue` 各摘过一次，那是它们各自那条路的事；
+	// 走到这儿的是"体正常走完"这一条路，这一层记录还在链上，下面 popHandOf 要照发。
+	c.restoreHands(bodyHands)
 	c.tries = c.tries[:len(c.tries)-1]
 	inBody := c.held[from:]
 	c.close()
@@ -5859,11 +5920,15 @@ func (c *fc) tryStmt(x *ast.Try) error {
 			// 接住块里再抛出也要先跑收尾：再挂一层处理器，落点是下面那一段"跑完收尾接着往外传"。
 			c.pushHand(mark, region, rethrow)
 		}
+		catchHands := c.saveHands()
 		for _, s := range x.Catch {
 			if err := c.stmt(s); err != nil {
 				return err
 			}
 		}
+		// 同体那一段：接住块里的早退路摘的是它们自己那条路，接住块正常走完这一条路上
+		// 这一层记录还在，下面 popHandOf 要照发。
+		c.restoreHands(catchHands)
 		if x.HasFinally {
 			c.popHandOf(region)
 		}
@@ -5963,11 +6028,13 @@ func (c *fc) switchStmt(x *ast.Switch) error {
 		c.open()
 		// 这里不压 brk：break 只属于循环（与检查器同一条语言规则），写在 switch 里
 		// 也是跳出外面那圈，不是跳出 switch。
+		hands := c.saveHands()
 		for _, s := range cs.Body {
 			if err := c.stmt(s); err != nil {
 				return err
 			}
 		}
+		c.restoreHands(hands)
 		c.close()
 		c.f.Emit(&ir.Jump{To: end})
 	}
@@ -6184,11 +6251,13 @@ func (c *fc) ifStmt(x *ast.If) error {
 		next := c.f.Fresh()
 		c.f.Emit(&ir.Jz{V: v, To: next})
 		c.open()
+		hands := c.saveHands()
 		for _, s := range x.Bodies[i] {
 			if err := c.stmt(s); err != nil {
 				return err
 			}
 		}
+		c.restoreHands(hands)
 		c.close()
 		end := c.f.Fresh()
 		ends[i] = end
@@ -6197,11 +6266,13 @@ func (c *fc) ifStmt(x *ast.If) error {
 	}
 	if x.HasElse {
 		c.open()
+		hands := c.saveHands()
 		for _, s := range x.Else {
 			if err := c.stmt(s); err != nil {
 				return err
 			}
 		}
+		c.restoreHands(hands)
 		c.close()
 	}
 	for _, e := range ends {
@@ -6227,11 +6298,13 @@ func (c *fc) while(x *ast.While) error {
 	next := c.f.Fresh()
 	c.brk = append(c.brk, exitSite{to: end, mark: len(c.marks) - 1})
 	c.cont = append(c.cont, exitSite{to: next, mark: len(c.marks) - 1})
+	hands := c.saveHands()
 	for _, s := range x.Body {
 		if err := c.stmt(s); err != nil {
 			return err
 		}
 	}
+	c.restoreHands(hands)
 	c.brk = c.brk[:len(c.brk)-1]
 	c.cont = c.cont[:len(c.cont)-1]
 	c.f.Emit(&ir.Lbl{At: next})
@@ -6293,11 +6366,13 @@ func (c *fc) forStmt(x *ast.For) error {
 	c.brk = append(c.brk, exitSite{to: end, mark: len(c.marks) - 1})
 	next := c.f.Fresh()
 	c.cont = append(c.cont, exitSite{to: next, mark: len(c.marks) - 1})
+	hands := c.saveHands()
 	for _, s := range x.Body {
 		if err := c.stmt(s); err != nil {
 			return err
 		}
 	}
+	c.restoreHands(hands)
 	c.brk = c.brk[:len(c.brk)-1]
 	c.cont = c.cont[:len(c.cont)-1]
 	c.f.Emit(&ir.Lbl{At: next})

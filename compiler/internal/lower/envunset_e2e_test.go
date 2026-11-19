@@ -58,18 +58,27 @@ console.print("跑完了")
 	}
 }
 
-// TestUnsetKeepsTheMidExpressionLeak 名字是当场拼出来的那一种（`"NF_UNSET" + number.to_string(...)`），
-// 每轮留 32 字节。这一处泄漏不在 `unset` 的责任范围：同一段式子换成 `console.print(...)` 一字不差也是 32
-// （两万圈各 640,176 字节）。它属于"式子中间那一步读走的值"那一族，要先定下"式子里各步读走的
-// 分别归谁、按什么顺序析构"。这里固定量级：那一族收掉的时候这条测试会失败，届时同步更新。
-func TestUnsetKeepsTheMidExpressionLeak(t *testing.T) {
+// TestUnsetFreesTheAssembledName 名字是当场拼出来的那一种（`"NF_UNSET" + number.to_string(...)`）：
+// 运算符两个操作数只读一次、谁都不收留，所以右边那一段"这一轮才拼出来的"到这一层尽头就没有人
+// 认得了，当场归还。每轮不多要一个字节。
+//
+// 这一条原先固定的是"每轮 32 字节"——运算符那两个操作数落在"式子中间那一步"那一族之外
+// （登记只在标准库那几条只读借用的参数窗口上做），拼出来的那一段没人还。收掉之后改为要求 0；
+// 同一族剩下的部分（`xs[0][0]` 那一种读走）仍由 midread／heap 那两组钉子管着。
+//
+// en: The name is assembled on the spot (`"NF_UNSET" + number.to_string(...)`). A binary operator
+// reads both operands once and keeps neither, so the freshly assembled right-hand side is unknown
+// to anyone at the end of that layer and is returned there - no extra byte per round. This test
+// used to pin 32 bytes a round, the state before fresh operands were registered at the operator's
+// own layer.
+func TestUnsetFreesTheAssembledName(t *testing.T) {
 	per := heapSlope(t, `
 for (i:int from 0 until @N@) {
     environment.unset("NF_UNSET" + number.to_string(i % 2))
 }
 console.print("跑完了")
 `)
-	if per < 28 {
-		t.Fatalf("式子中间那一步这一族改成能拆了（每圈 %v 字节），要把这条测试与对应文档一起更新", per)
+	if per > 2 {
+		t.Fatalf("拼出来的名字每轮还留 %v 字节，运算符那一层该把它还掉", per)
 	}
 }

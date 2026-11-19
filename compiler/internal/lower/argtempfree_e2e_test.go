@@ -171,6 +171,23 @@ for (i:int from 0 until @N@) {
 }
 console.print(total)
 `},
+		// 拼接的**操作数**也是当场造出来的一段：运算符只读两个操作数、谁都不收留，
+		// 所以登记在运算符自己那一层窗口上，拼完就还。不登记的话每圈遗留一块，
+		// 大小跟着串长走（`"编号" + number.to_string(i)` 量到 32 字节／圈）。
+		{"拼接的右边是当场造出来的一段", true, `
+let total:int = 0
+for (i:int from 0 until @N@) {
+    total = total + length("编号" + number.to_string(i))
+}
+console.print(total)
+`},
+		{"拼接的两边都是当场造出来的", true, `
+let total:int = 0
+for (i:int from 0 until @N@) {
+    total = total + length(number.to_string(i) + number.to_string(i + 1))
+}
+console.print(total)
+`},
 	}
 	for _, one := range cases {
 		per := heapSlope(t, one.tmpl)

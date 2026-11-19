@@ -3608,9 +3608,18 @@ func (c *fc) binary(x *ast.Binary, t check.Type) (ir.Val, check.Type, error) {
 	// 这里不登记——登记就等于析构刚交出去的值。
 	outer, from := c.borrow, len(c.temps)
 	through := from
+	savedWin := c.stdWin
 	c.borrow++
+	// 这一层与标准库那几条只读借用同一条规矩：两个操作数只读一次、谁都不收留，所以
+	// **当场造出来的那一块**（`"编号" + number.to_string(i)` 右边那一段、`[1] == [2]` 那两个表）
+	// 到这一层尽头就没有人认得了，登记在这里当场还。不登记每轮遗留一块——实测
+	// `length("a" + number.to_string(n))` 每轮 32 字节，`number.to_string(n) + number.to_string(n)`
+	// 每轮 64 字节，长跑的进程（一次几十万条请求）就是一路涨上去。
+	// 结果那一块仍然登记在**外面**那一层（下面 `c.borrow = outer` 之后才登记），这里不碰它。
+	c.stdWin = c.borrow
 	defer func() {
 		c.borrow = outer
+		c.stdWin = savedWin
 		c.freeTempsTo(from, through)
 	}()
 	a, at, err := c.expr(x.Left)
@@ -3624,6 +3633,7 @@ func (c *fc) binary(x *ast.Binary, t check.Type) (ir.Val, check.Type, error) {
 	through = len(c.temps)
 	// 操作数都已取得：往后按**外面那一层**的规则登记，这一步自己造的那一块才不会在这里被归还。
 	c.borrow = outer
+	c.stdWin = savedWin
 	switch x.Op {
 	case "==", "!=", "<", "<=", ">", ">=":
 		if at.Kind == check.Struct || bt.Kind == check.Struct {

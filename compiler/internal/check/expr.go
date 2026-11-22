@@ -1185,13 +1185,17 @@ func stdMember(base Type, name string) member {
 			return member{kind: memberStd, typ: Type{Kind: FuncT, Name: group}}
 		}
 	case Socket:
-		// 网络那三条：accept 只有监听句柄有，send／recv_into／close 只有套接字有。
+		// 网络那几条：accept 只有监听句柄有，其余只有套接字有。
 		// 交进去与收进来的都是 `bytes` 那一块：一次到手多少字节不可控，就地填才用得起。
 		switch name {
-		case "send":
+		case "send", "send_all":
 			return member{kind: memberStd, typ: Type{Kind: FuncT, Name: group}, sig: methodSig{Params: []Param{{Typ: typeBytes}}, Ret: typeInt}}
 		case "recv_into":
-			return member{kind: memberStd, typ: Type{Kind: FuncT, Name: group}, sig: methodSig{Params: []Param{{Typ: typeBytes}}, Ret: typeInt}}
+			return member{kind: memberStd, typ: Type{Kind: FuncT, Name: group}, sig: methodSig{Params: []Param{
+				{Typ: typeBytes}, {Typ: typeInt, Default: &ast.Lit{Kind: "int", Text: "0"}},
+			}, Ret: typeInt}}
+		case "peer_address":
+			return member{kind: memberStd, typ: Type{Kind: FuncT, Name: group}, sig: methodSig{Ret: typeStr}}
 		case "close":
 			return member{kind: memberStd, typ: Type{Kind: FuncT, Name: group}}
 		}
@@ -2575,17 +2579,20 @@ var stdFuncs = map[string]stdSig{
 	"environment.set":               {params: []Param{{Typ: typeStr}, {Typ: typeStr}}},
 	"environment.unset":             {params: []Param{{Typ: typeStr}}},
 	"environment.current_directory": {ret: typeStr},
+	"environment.names":             {ret: Type{Kind: List, Name: "list", Args: []Type{typeStr}}},
 	"time.now":                      {ret: typeInt},
 	"time.elapsed":                  {ret: typeFloat},
 	// 把秒数拆成内建那只 `Calendar`（七个 int，按 UTC 算）
 	"time.calendar":       {params: []Param{{Typ: typeInt}}, ret: typeCalendar},
+	"time.format_utc":     {params: []Param{{Typ: typeInt}, {Typ: typeStr}}, ret: typeStr},
 	"math.absolute_value": {params: []Param{{Typ: Type{Kind: ErrT}}}, poly: 1},
 	"math.floor":          {params: []Param{{Typ: typeFloat}}, ret: typeInt},
 	"math.ceiling":        {params: []Param{{Typ: typeFloat}}, ret: typeInt},
 	"math.round":          {params: []Param{{Typ: typeFloat}}, ret: typeInt},
 	"math.smaller":        {params: []Param{{Typ: Type{Kind: ErrT}}, {Typ: Type{Kind: ErrT}}}, poly: 2},
 	"math.larger":         {params: []Param{{Typ: Type{Kind: ErrT}}, {Typ: Type{Kind: ErrT}}}, poly: 2},
-	"math.power":          {params: []Param{{Typ: typeInt}, {Typ: typeInt}}, ret: typeInt},
+	"math.power":          {params: []Param{{Typ: typeFloat}, {Typ: typeFloat}}, ret: typeFloat},
+	"math.power_int":      {params: []Param{{Typ: typeInt}, {Typ: typeInt}}, ret: typeInt},
 	"math.random":         {params: []Param{{Typ: typeInt}, {Typ: typeInt}}, ret: typeInt},
 	// 四条具名函数：开方一条、休眠一条、目录四条里的三条（is_directory 也在这一组）。
 	"math.square_root": {params: []Param{{Typ: typeFloat}}, ret: typeFloat},
@@ -2658,7 +2665,10 @@ var stdFuncs = map[string]stdSig{
 	// `getaddrinfo` 只有四个参数，不收超时（Microsoft 的 `ws2tcpip.h`），
 	// 解析那一段卡多久由系统的解析器决定——这一句要同步进语言说明与站上那一组。
 	"net.connect": {params: []Param{{Typ: typeStr}, {Typ: typeInt}, {Typ: typeInt}}, ret: typeSocket},
-	"net.listen":  {params: []Param{{Typ: typeInt}}, ret: typeListener},
+	"net.listen": {params: []Param{
+		{Typ: typeInt},
+		{Typ: typeStr, Default: &ast.Lit{Kind: "string", Text: "0.0.0.0"}},
+	}, ret: typeListener},
 	// http 那一组。三条都返回内建那只 `Response`：状态码、头、正文三样一次给全，
 	// TLS／重定向／证书由系统的 winhttp 做，语言不管。
 	// 超时那一个毫秒数这一次管四段（解析、连接、送、收），winhttp 的 `WinHttpSetTimeouts`
@@ -2775,6 +2785,12 @@ func hasLength(t Type) bool {
 func (c *Checker) stdCall(call *ast.Call, name string, sig stdSig) Type {
 	if !sig.vararg && len(call.Args) != len(sig.params) {
 		c.fail(call.Where(), "%s 收 %d 个参数，这里给了 %d 个", name, len(sig.params), len(call.Args))
+	}
+	// time.format_utc 的模式串在编译期展开成现成的排版调用，所以必须写死的一段文本。
+	if name == "time.format_utc" && len(call.Args) == 2 {
+		if lit, ok := call.Args[1].(*ast.Lit); !ok || lit.Kind != "string" {
+			c.fail(call.Args[1].Where(), "time.format_utc 的模式串要写死的一段文本")
+		}
 	}
 	var got []Type
 	if sig.vararg {

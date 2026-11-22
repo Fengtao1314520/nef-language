@@ -188,9 +188,14 @@ var stdDocs = map[string]StdDoc{
 		Eg: `let half: float = math.pi() / 2.0`,
 	},
 	"math.power": {
-		Zh: "两个参数都是 int。指数为负抛 10012 号（指数不能是负的），结果超出 int 抛 10021 号。",
-		En: "Both arguments are int. A negative exponent throws 10012 and a result too large for int throws 10021.",
-		Eg: `let v: int = math.power(2, 10)`,
+		Zh: "两个参数与返回的都是 float，算底数的指数次方。底数为负时返回 NaN，不抛。两步各带一次舍入，末几位与精确值可能差几个 ulp。整数幂用 power_int。",
+		En: "Both arguments and the result are float: the base raised to the exponent. A negative base yields NaN without throwing. Two rounding steps mean the last few ulp may differ. For integer powers use power_int.",
+		Eg: `let v: float = math.power(2.0, 10.0)`,
+	},
+	"math.power_int": {
+		Zh: "两个参数都是 int。返回也用 int。指数为负抛 10012 号（指数不能是负的），结果超出 int 抛 10021 号。小数幂用 power。",
+		En: "Both arguments and the result are int. A negative exponent throws 10012 and a result too large for int throws 10021. For float powers use power.",
+		Eg: `let v: int = math.power_int(2, 10)`,
 	},
 	"math.random": {
 		Zh: "包含起点、不包含终点，规则与 until 相同。范围为空（start ≥ end，两者相等也算空）时抛 10020 号，可以 catch。没有调用 math.set_seed 时，种子取自系统里的高精度计数器，每次运行的结果都不同；调用过之后，同一个程序两次运行会得到同一串结果。",
@@ -258,6 +263,11 @@ var stdDocs = map[string]StdDoc{
 		Zh: "本机所在时区比 UTC 快几分钟：东八区是 480，西五区是 -300。带夏令时的时区返回的是此刻的数值，所以同一个程序在夏天与冬天返回的数值可以不同。读取不到时区信息时返回 0，不抛出错误。",
 		En: "How many minutes the local timezone is ahead of UTC: 480 for UTC+8, -300 for UTC-5. A timezone that observes summer time reports the offset in effect right now, so the same program can answer differently in summer and winter. When the timezone cannot be read it returns 0 and throws nothing.",
 		Eg: `let offset: int = time.utc_offset()`,
+	},
+	"time.format_utc": {
+		Zh: "把秒数按 UTC 排成文本。这里说的是从 1970 年起算的秒。模式串里认六个记号：yyyy 四位年、MM 两位月、dd 两位日、HH 两位时、mm 两位分、ss 两位秒；其余字节照抄，两位不足补前导 0。",
+		En: "Lays out seconds since 1970 as UTC text. The pattern recognizes six tokens: yyyy (4-digit year), MM, dd, HH, mm, ss; every other byte is copied through and short fields get a leading zero.",
+		Eg: `let stamp: string = time.format_utc(0, "yyyy-MM-dd HH:mm:ss")`,
 	},
 
 	// —— file：读写文件
@@ -374,8 +384,8 @@ var stdDocs = map[string]StdDoc{
 
 	// —— path：路径
 	"path.directory_name": {
-		Zh: "取上一级目录，连同分隔符：C:/work/demo.nf 得到 C:/work/，反斜杠写法 a\\b\\c.nf 得到 a\\b\\。整条路径里没有分隔符时返回空文本。末尾本来就带分隔符时（C:/work/）返回 C:/：返回的是这个目录所在的上一级。",
-		En: "Takes the parent directory including its separator; a path with no separator yields an empty text.",
+		Zh: "取上一级目录，不带分隔符：C:/work/demo.nf 得到 C:/work，反斜杠写法 a\\b\\c.nf 得到 a\\b。整条路径里没有分隔符时返回空文本。末尾本来就带分隔符时（C:/work/）返回 C:：返回的是这个目录所在的上一级。",
+		En: "Takes the parent directory without its trailing separator; a path with no separator yields an empty text.",
 		Eg: `let parent: string = path.directory_name("C:/work/demo.nf")`,
 	},
 	"path.exists": {
@@ -429,6 +439,11 @@ var stdDocs = map[string]StdDoc{
 		Zh: "删除一个环境变量，也只对本程序有效。变量本来就不存在时不做任何事、不抛出错误；名字非法到系统调用不接受（比如带 =）才抛 10060 号。",
 		En: "Removes an environment variable, again for this program only; removing one that is not there does nothing and throws nothing.",
 		Eg: `environment.unset("NEF_DEMO")`,
+	},
+	"environment.names": {
+		Zh: "列出当前进程所有环境变量的名字，只有名字没有值；顺序照系统给的，不保证按字母排。返回一份 list<string>。",
+		En: "Lists the names of all environment variables in this process as a list<string>. Names only, no values; the order is whatever the system gives, not sorted.",
+		Eg: `let names:list<string> = environment.names()`,
 	},
 
 	// —— regular_expression：正则表达式
@@ -594,9 +609,9 @@ var stdDocs = map[string]StdDoc{
 		Eg: `let sock: Socket = net.connect("127.0.0.1", 8080, 1000)`,
 	},
 	"net.listen": {
-		Zh: "在本机监听端口，等待连接进来。端口已被占用时也是 10104。",
-		En: "Listens on a local port for incoming connections; a port already in use throws 10104.",
-		Eg: `let gate: Listener = net.listen(8080)`,
+		Zh: "在本机监听端口，等待连接进来。第二个参数是要绑定的地址，写 IPv4 点分十进制，省掉就是 0.0.0.0（本机每一个网卡都接收）；只收回环连接写 127.0.0.1。端口已被占用或者地址不合法时是 10104。",
+		En: "Listens on a local port for incoming connections. The optional second argument is the bind address in IPv4 dotted-decimal form, defaulting to 0.0.0.0 (all interfaces); pass 127.0.0.1 to accept loopback only. A port already in use or a bad address throws 10104.",
+		Eg: `let gate: Listener = net.listen(8080, "127.0.0.1")`,
 	},
 	"http.get": {
 		Zh: "发送一个 GET 请求，等待整个响应接收完成；headers 省掉就是不追加任何头。它是 http.request 的封装：方法写成 GET、后两个开关留默认；要带自定义头（如认证头）把那一串 \"名字: 值\" 写进 headers。",
@@ -883,14 +898,24 @@ var stdDocs = map[string]StdDoc{
 
 	// —— socket 与 listener：套接字与监听
 	"socket.send": {
-		Zh: "把字节块发送出去，返回已发送的字节数。",
-		En: "Sends the block and returns how many bytes went out.",
+		Zh: "把字节块发送出去，返回已发送的字节数；系统只收下一部分时如实报告，不自动补发剩下的部分。",
+		En: "Sends the block and returns how many bytes actually went out; if the system takes only part of it the real number is reported and the rest is not retried.",
 		Eg: `let sock: Socket = net.connect("127.0.0.1", 8080, 1000)` + "\n" + `let sent: int = sock.send(bytes.allocate(4))`,
 	},
+	"socket.send_all": {
+		Zh: "把字节块一直补发到全部发完，返回字节总数（就是那一块的大小）。发不出去时抛 10105。",
+		En: "Sends the whole block, retrying until every byte is out, and returns the total byte count (the size of the block). A failure throws 10105.",
+		Eg: `let sock: Socket = net.connect("127.0.0.1", 8080, 1000)` + "\n" + `let sent: int = sock.send_all(bytes.allocate(4))`,
+	},
 	"socket.recv_into": {
-		Zh: "把接收到的字节填入传入的字节块，返回填入的字节数；返回 0 表示对方已关闭连接。等待超时是 10102。",
-		En: "Fills the given block with what arrives and returns the byte count; 0 once the peer has closed.",
-		Eg: `let sock: Socket = net.connect("127.0.0.1", 8080, 1000)` + "\n" + `let buf: bytes = bytes.allocate(16)` + "\n" + `let got: int = sock.recv_into(buf)`,
+		Zh: "把接收到的字节填入传入的字节块，返回填入的字节数；返回 0 表示对方已关闭连接。第二个参数是偏移，省掉是 0：从字节块的第几个位置开始填。等待超时是 10102。",
+		En: "Fills the given block with what arrives and returns the byte count; 0 once the peer has closed. The optional offset says where in the block to start filling, defaulting to 0.",
+		Eg: `let sock: Socket = net.connect("127.0.0.1", 8080, 1000)` + "\n" + `let buf: bytes = bytes.allocate(16)` + "\n" + `let got: int = sock.recv_into(buf, 4)`,
+	},
+	"socket.peer_address": {
+		Zh: "返回对方的地址，形如 127.0.0.1；拿不到时抛 10105（比方说对方已经关闭）。",
+		En: "Returns the peer's address as dotted-decimal text such as 127.0.0.1; throws 10105 if it cannot be read.",
+		Eg: `let gate: Listener = net.listen(8080)` + "\n" + `let peer: Socket = gate.accept()` + "\n" + `let who: string = peer.peer_address()`,
 	},
 	"socket.close": {
 		Zh: "提前关闭。不主动调用，名字执行到尽头时也会关。",

@@ -148,6 +148,39 @@ console.print(cli, srv)
 	}
 }
 
+// TestNetAddressSendAllAndPeer 钉四个新增的网络形状：net.listen 的绑定地址、
+// socket.peer_address 的点分十进制、send_all 的整块补发、recv_into 的偏移。
+// 只绑回环，避免与别的测试抢网卡；端口现场申请。
+func TestNetAddressSendAllAndPeer(t *testing.T) {
+	p := freePort(t)
+	got, code := run(t, `
+let port:int = `+strconv.Itoa(p)+`
+let srv:Listener = net.listen(port, "127.0.0.1")
+let cli:Socket = net.connect("127.0.0.1", port, 3000)
+let acc:Socket = srv.accept()
+console.print(acc.peer_address(), cli.peer_address())
+let msg:Bytes = "hello".to_bytes()
+console.print(cli.send_all(msg))
+let buf:Bytes = bytes.allocate(16)
+let n:int = acc.recv_into(buf, 4)
+console.print(n, text.from_bytes(buf.slice(4, 4+n)))
+`)
+	want := "127.0.0.1 127.0.0.1\n5\n5 hello\n"
+	if got != want || code != 0 {
+		t.Fatalf("地址/补发/偏移那几条不对：\n got %q 码 %d\nwant %q", got, code, want)
+	}
+	// 省略地址时仍绑所有网卡，与原来的写法一字不差地可用。
+	got, code = run(t, `
+let port:int = `+strconv.Itoa(p)+`
+let srv:Listener = net.listen(port)
+srv.close()
+console.print("默认地址可用")
+`)
+	if got != "默认地址可用\n" || code != 0 {
+		t.Fatalf("省掉地址那条不对：got %q 码 %d", got, code)
+	}
+}
+
 // TestNetToGoServer 覆盖 nf 作客户端、Go 作服务端：文本、二进制、以及"发送字节数"这个返回值。
 func TestNetToGoServer(t *testing.T) {
 	port, stop := echoOnce(t)

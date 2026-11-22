@@ -74,7 +74,7 @@ console.print(number.to_string(3.0) + " 与 " + number.to_string(true))
 
 ## math
 
-这一组一共二十个函数，名字都是完整单词。
+这一组一共二十一个函数，名字都是完整单词。
 
 | 写法 | 返回 | 抛出的错误码 | 说明 |
 | --- | --- | --- | --- |
@@ -83,7 +83,8 @@ console.print(number.to_string(3.0) + " 与 " + number.to_string(true))
 | `math.ceiling(x)` | `int` | 10013 | 向上取整，返回不小于输入的最小整数 |
 | `math.round(x)` | `int` | 10013 | 就近取整，`.5` 向数轴正方向进位 |
 | `math.smaller(a, b)`、`math.larger(a, b)` | 与传入时同一类型 | 不抛 | 两个值必须是同一类型，不做隐式转换 |
-| `math.power(base, exponent)` | `int` | 10012、10021 | 两个参数都是 `int`。指数为负抛 10012 号（`指数不能是负的`），结果超出 `int` 抛 10021 号 |
+| `math.power(base, exponent)` | `float` | 不抛 | 两个参数与返回的都是 `float`，算底数的指数次方。底数为负返回 `NaN`，不抛；按 `e^(指数·ln 底数)` 分两步算，末几位与精确值可能差几个 ulp |
+| `math.power_int(base, exponent)` | `int` | 10012、10021 | 两个参数都是 `int`。指数为负抛 10012 号（`指数不能是负的`），结果超出 `int` 抛 10021 号 |
 | `math.square_root(x)` | `float` | 不抛 | 平方根。输入为负数时返回 `NaN`，不抛出错误；`0.0` 返回 `0.0` |
 | `math.pi()` | `float` | 不抛 | 圆周率 `3.141592653589793`。这个函数不带参数，写法与 `time.now()` 相同：写在组名下面的成员只有函数这一种形式 |
 | `math.sine(x)`、`math.cosine(x)` | `float` | 不抛 | 正弦与余弦，参数是弧度不是角度。要用角度就先算 `角度 * math.pi() / 180.0`。`±Inf`、`NaN` 返回 `NaN` |
@@ -105,7 +106,7 @@ console.print(number.to_string(3.0) + " 与 " + number.to_string(true))
 console.print(math.absolute_value(-7), math.absolute_value(-7.5))
 console.print(math.floor(2.9), math.ceiling(2.1), math.round(2.5))
 console.print(math.smaller(3, 7), math.larger(3.5, 1.25))
-console.print(math.power(2, 10))
+console.print(math.power_int(2, 10))
 console.print(math.pi(), math.sine(0.0), math.cosine(0.0), math.natural_log(1.0))
 console.print(math.sine(3.141592653589793 / 2.0) > 0.99, math.natural_log(math.pi()) > 1.14)
 console.print(math.random_float() >= 0.0, math.random_float() < 1.0)
@@ -174,7 +175,7 @@ console.print(math.exponential(0.0), math.tangent(0.0))
 
 `math.smaller(3, 3.5)` 是编译错误：两个参数的类型不一致，而这里不做隐式转换。要么都写成整数，要么都写成小数。
 
-`math.power` 只有整数版本，指数为负或者结果超出 `int` 都会抛出错误（分别是 10012 号和 10021 号），不会给出一个近似值。
+`math.power` 收 `float`，算出的是小数幂，底数为负时返回 `NaN` 而不抛；`math.power_int` 收 `int`，指数为负或者结果超出 `int` 都会抛出错误（分别是 10012 号和 10021 号），不会给出一个近似值。两者不做隐式转换：整数幂写 `power_int`，小数幂写 `power`。
 
 `math.floor` 返回的是 `int`，不是取整之后的小数。要把一个小数向零截断，写 `x as int`：`3.9 as int` 得到 `3`，`-3.9 as int` 得到 `-3`；而 `math.floor(-3.9)` 得到 `-4`。
 

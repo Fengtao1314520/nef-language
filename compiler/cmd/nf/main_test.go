@@ -204,8 +204,8 @@ func TestRunReportsBadProgram(t *testing.T) {
 	}
 }
 
-// TestVersionRunsQuietly 固定 `nf version`：脚本里拿它探"装了没有"，所以不读文件、
-// 不写 stderr、退出码恒 0，输出的那一行就是"nf <版本号>"。
+// TestVersionRunsQuietly 固定 `nf version`：脚本里拿它探"装了没有"与"给哪个平台"，
+// 所以不读文件、不写 stderr、退出码恒 0，输出的那一行是"nf <版本号> windows-x64"。
 func TestVersionRunsQuietly(t *testing.T) {
 	nf := nfExe(t)
 	out, code := runNf(t, nf, "version")
@@ -213,8 +213,8 @@ func TestVersionRunsQuietly(t *testing.T) {
 		t.Fatalf("nf version 退出码 %d，要 0", code)
 	}
 	line := strings.TrimRight(out, "\r\n")
-	if !strings.HasPrefix(line, "nf ") {
-		t.Fatalf("`nf version` 该印「nf <版本号>」，得到 %q", out)
+	if !strings.HasPrefix(line, "nf ") || !strings.HasSuffix(line, " windows-x64") {
+		t.Fatalf("`nf version` 该印「nf <版本号> windows-x64」，得到 %q", out)
 	}
 	if strings.Contains(line, "\n") {
 		t.Fatalf("版本号就该一行，得到 %q", out)

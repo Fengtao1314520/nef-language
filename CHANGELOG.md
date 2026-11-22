@@ -4,6 +4,34 @@
 
 下面每一版指的是仓库里打上该版本号的构建。网站已经上线；每个版本的产物归档在 `release/` 下一个同名目录里（`nf.exe`、`nef-x.y.z.vsix`、`说明.md`、`RELEASE.md`），GitHub Release 的附件由手工上传，不进包管理器。
 
+## v0.9.0 - 2026-11-22
+
+这一版补上一整层对外能力：标准库多了六个成员，`nf` 多一个 `fmt` 子命令，借用规则里"借出去的一份与整只容器一起交进去"那一类写法扩到字段上，检查阶段就能拒。版本号开的是 MINOR——`math.power` 的小数幂、`time.format_utc`、`socket.peer_address` 都是以前写不出的程序，`nf fmt` 是以前没有的工具入口。数：关键字仍 35 个，内建名字仍 36 个，标准库仍 15 组，`组名.动作` 从 90 条到 93 条（新增 `math.power_int`、`time.format_utc`、`environment.names`），参数名与悬停说明各从 163／178 条到 168 条（多了六个成员与 `net.listen` 的第二个参数），报错原文从 394 句到 397 句（清单文件 399 行；多的是模式串要写死、Calendar 类型字没排上、拼地址用的一个点号，内建错误号一个没开），每条线程的状态块仍 75 格、252,776 字节，导入表从 70 个名字到 74 个（`InetPtonW`、`getpeername`、`GetEnvironmentStringsW`、`FreeEnvironmentStringsW`），运行期例程从 214 条到 218 条（新增 `@f_pow`、`@net_send_all`、`@net_peer_address`、`@env_names`），Go 测试 164 份文件 950 条。
+
+### 新增
+
+- **`math.power` 收小数，`math.power_int` 收整数**：原来的 `power(base:int, exponent:int):int` 改名 `power_int` 保持不动；新的 `power(base:float, exponent:float):float` 走 `e^(指数·ln 底数)`，借已有的自然对数与指数那两条例程，两步各舍入一次，末几位与精确值差几个 ulp；底数为负返回 `NaN`，不抛。整数那一档的负指数 10012、溢出 10021 两条规则照旧。
+- **`time.format_utc(seconds, pattern)`**：把从 1970 年起的秒按 UTC 排成文本。模式串写死的一段文本，认六个记号 `yyyy`、`MM`、`dd`、`HH`、`mm`、`ss`；编译期展开成一串现成的排版调用（`@time_parts`、`@int_str`、`@str_pad`、`@str_cat`），不另写运行期解释器。两位不足补前导 0，负数或超过四位的年份照实写；时区那一档仍不提供，按本机时区就先加 `time.utc_offset() * 60`。
+- **`environment.names()`**：返回 `list<string>`，装着当前进程所有环境变量的名字，只有名字没有值。走 `GetEnvironmentStringsW`／`FreeEnvironmentStringsW`，顺序照系统给的。
+- **`net.listen(port, address)`、`socket.peer_address()`、`socket.send_all(data)`、`socket.recv_into(buffer, offset)`**：监听地址可指定 IPv4 点分十进制，省掉仍是 `0.0.0.0`；`peer_address` 用 `getpeername` 给已接受的套接字查对端地址；`send_all` 一直补发到整块发完；`recv_into` 多一个偏移，从字节块的第几个位置开始填。四个都是旧写法的自然延伸，省掉新加的位置时与从前逐字一致。
+- **`nf fmt 文件.nf [-w]`**：把编辑器"格式化文档"那一套规则搬到命令行，默认打到标准输出，`-w` 原地写回。不另写格式化器，直接取 `internal/ls` 里给 `textDocument/formatting` 用的那一条改动；词法过不去时原样输出、退出码 0。子命令从九个到十个。
+
+### 变更
+
+- **借出与容器同交的检查扩到字段路径**：v0.8.5 只认直接写在名字上的 `f(a, a[0])`。这版给每条函数多算一份"哪个形参的哪个字段被改写"——`b.xs[0] = 值`、`b.xs.clear()` 记成 `xs`——调用处对一下实参的字段路径就认得 `probe(box, box.xs[0])`、`drain(bag, bag.xs[0])`，检查阶段就拒（2026-11-22）。同一个对象上的两个不同字段（`box.xs` 与 `box.ys`）不会互相误判；文本那一档是共用，归还它是空操作，不拦。跨包、方法与摘要看不到的写法仍由运行期的借用表默认处理，10097 保留作那一道护栏。
+- **`path.directory_name` 去掉尾部分隔符**：`C:/work/demo.nf` 从前得到 `C:/work/`，现在得到 `C:/work`。与全库其余返回值"不带多余记号"的习惯对齐；这是破坏性改名，放在 0.9 这一个窗口里一次做完（§5.8）。
+- **`nf version` 带上目标三元组**：打印 `nf v0.9.0 windows-x64`，末尾那一段是产物给哪个平台，脚本据此确认手上的构建。
+
+### 文档
+
+- 时间参数把单位写进名字：`_ms` 收毫秒、`_seconds` 收秒；`time.sleep(milliseconds)` 与 `net.connect` 的 `timeout_ms` 是早期成员，沿用老写法不改。
+- 错误码与退出码虽同写 `0`~`9999`，却是两套编号、同一个数在两处含义无关；退出码只有 `0`~`255` 能被 shell 与 CI 可靠读到，写 `300` 读出来是 `44`。编译器仍按 `0`~`9999` 放行，历史程序不用改。
+- 站点与悬停说明跟着改：总览页数（90 → 93）、math／time／environment／net／path 五页的成员表与例子、命令行页的十个子命令、错误信息索引的 10097 那一行、版本页的示例输出；`nf version` 的目标三元组写进两份 README。
+
+### 已知遗留，与这一版无关
+
+网络相关的 `TestWebTestSiteCheck`、`TestHttpCodes`、`TestNetCodes` 与浏览器用例 `TestWebTestRunAllCheck` 在本机红：本机解析器把不存在的域名指到保留地址、无头浏览器起不来，属环境问题；把本轮改动还原、在原树上重跑同样红。
+
 ## v0.8.7 - 2026-11-19
 
 这一版只修缺陷，不添语言面：`try` 的每一处出口各欠一条 `PopHandler`，接住块里再抛出时的归还层次算错了一层，拼接的操作数每轮留下一块。版本号开的是 PATCH——写不出任何新程序，只是把三处记账补上。对外是 issue `#10` 那份 164 例的离线权限复现件：`v0.8.6` 上跑到 `[GROUP] VM1 / scales` 之后 `0xC0000005`，没有任何 Nef 报错，屏幕上也留不下东西。数：关键字仍 35 个，内建名字仍 36 个，标准库仍 15 组，`组名.动作` 仍 90 条，报错原文仍 394 句（清单文件 396 行），错误号一个没开，每条线程的状态块仍 75 格、252,776 字节，运行期例程仍 214 条，Go 测试 163 份文件 943 条（新增 `handpath_e2e_test.go` 三条与 `finally_e2e_test.go` 一条，另两份是复核 `#10` 时补的）。

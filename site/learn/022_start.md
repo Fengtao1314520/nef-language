@@ -97,5 +97,5 @@ console.print("要印的文字", 1 + 1)
 第一个程序运行成功。接下来给每个名称加上类型标注。
 
 - **[第 2 课：变量与类型标注](/learn/023_values)** — `let` 与 `const` 的区别，类型标注为什么不能省略
-- **[命令行工具](/tools/059_cli)** — `nf check`、直接运行、`nf build`、`nf pack`、`nf tokens`、`nf ir`、`nf lsp`、`nf dap`、`nf version` 九个子命令的完整说明
+- **[命令行工具](/tools/059_cli)** — `nf check`、直接运行、`nf build`、`nf pack`、`nf tokens`、`nf ir`、`nf lsp`、`nf dap`、`nf fmt`、`nf version` 十个子命令的完整说明
 - **[语法速查](/reference/034_syntax)** — 快速查看某个写法的语法

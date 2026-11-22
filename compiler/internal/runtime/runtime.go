@@ -445,6 +445,7 @@ func Build() Blob {
 	b.routine("@env_set", envSet)
 	b.routine("@env_unset", envUnset)
 	b.routine("@env_cwd", envCwd)
+	b.routine("@env_names", envNames)
 	// 往外写的三条（file.exists 复用上面那条 @path_exists，降级那头直接指过去）
 	b.routine("@file_write", fileWrite)
 	b.routine("@file_append", fileAppend)
@@ -496,6 +497,8 @@ func Build() Blob {
 	b.routine("@f_arctangent", fArctangent)
 	b.routine("@f_log_base_10", fLogBase10)
 	b.routine("@f_exponential", fExponential)
+	// @f_pow 叫 @f_natural_log 与 @f_exponential，两条都在上面排过了。
+	b.routine("@f_pow", fPow)
 	b.routine("@path_dir", pathDir)
 	b.routine("@path_abs", pathAbs)
 	b.routine("@env_chdir", envChdir)
@@ -509,7 +512,9 @@ func Build() Blob {
 	b.routine("@net_listen", netListen)
 	b.routine("@net_accept", netAccept)
 	b.routine("@net_send", netSend)
+	b.routine("@net_send_all", netSendAll)
 	b.routine("@net_recv_into", netRecvInto)
+	b.routine("@net_peer_address", netPeerAddress)
 	b.routine("@net_close", netClose)
 	// `http` 那一组：一次请求由这五条排成一条直路（`httpAction` 那头）。
 	// 顺序要紧：@http_headers 要 @list_new／@str_sub／@free，@http_body 要 @bytes_new／@alloc，
@@ -561,6 +566,7 @@ var imports = groupImports(
 		"MultiByteToWideChar", "WideCharToMultiByte", "GetCommandLineW",
 		"GetSystemTimeAsFileTime", "QueryPerformanceCounter", "QueryPerformanceFrequency",
 		"GetEnvironmentVariableW", "SetEnvironmentVariableW", "GetCurrentDirectoryW", "GetFileAttributesW",
+		"GetEnvironmentStringsW", "FreeEnvironmentStringsW",
 		"DeleteFileW",
 		// M2b 那七条要的四个：列目录三个、分块定位一个。
 		"FindFirstFileW", "FindNextFileW", "FindClose", "SetFilePointerEx",
@@ -578,12 +584,13 @@ var imports = groupImports(
 		"TlsAlloc", "TlsSetValue", "AcquireSRWLockExclusive", "ReleaseSRWLockExclusive",
 		"ExitThread", "CreateThread", "VirtualFree",
 	),
-	// 网络这一层：winsock 开机与收尾，加上 `net` 那一组要问的十五条，共十七个名字。
+	// 网络这一层：winsock 开机与收尾，加上 `net` 那一组要问的十七条，共十九个名字。
+	// InetPtonW 把 listen 的绑定地址写成 IPv4 点分十进制，getpeername 给 socket 查对端地址。
 	// 同一个模块的名字必须连着排（internal/pe 的 runsOf 按段切描述符），所以这一串一口气列全。
 	importsOf(ws2, "WSAStartup", "WSACleanup",
 		"socket", "closesocket", "connect", "bind", "listen", "accept", "send", "recv",
 		"setsockopt", "getsockopt", "ioctlsocket", "select", "GetAddrInfoW", "FreeAddrInfoW",
-		"WSAGetLastError"),
+		"WSAGetLastError", "InetPtonW", "getpeername"),
 	// `http` 那一组：会话、连接、请求三步各拿一只句柄，送出去、收答复、问状态码与头、
 	// 读正文、摆超时、追加头、设开关、关句柄——十一个名字。网址那三段由这一层自己扫（见
 	// internal/runtime/http.go 的 @http_begin），不走 WinHttpCrackUrl：那一条要的是

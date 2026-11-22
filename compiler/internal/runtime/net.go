@@ -127,6 +127,7 @@ func netData(put func(name string, bs []byte)) {
 	put("sNetAsk", strObject("网络这一处没办成"))
 	put("sNetNum", strObject("（系统的号码 "))
 	put("sNetClose", strObject("）"))
+	put("sNetDot", strObject("."))
 }
 
 // netCodeOf 是错误号码映射表：入参 rcx＝系统号码，返回 rax＝10100 段里的号码、
@@ -655,24 +656,30 @@ func netConnect(b *rt) {
 	netThrow(b)
 }
 
-// @net_listen(rcx=端口)：返回 rax=监听句柄。
+// @net_listen(rcx=端口, rdx=地址文本或 0)：返回 rax=监听句柄。
 //
-// 绑定 0.0.0.0（INADDR_ANY）：一种形态即可。backlog 取 SOMAXCONN，队列长度由系统决定。
-// 不设置 SO_REUSEADDR：端口被占用时必须能报出来（系统号码 10048 折算到 10104）。
+// 地址是 IPv4 点分十进制；0 表示省掉，绑定 0.0.0.0（INADDR_ANY，接收本机所有网卡的连接）。
+// 文本经 @to_wide 变成宽字符，再用 InetPtonW 写进 sockaddr_in 的地址四字节；解析不了（不是
+// 合法 IPv4）算地址不合法，与端口越界同一条 WSAEINVAL，折算到 10104。
+// backlog 取 SOMAXCONN，队列长度由系统决定。不设置 SO_REUSEADDR：端口被占用时必须能报出来
+// （系统号码 10048 折算到 10104）。
 //
-// en: @net_listen (rcx = port): returns rax = the listener handle. It binds to 0.0.0.0
-// (INADDR_ANY) - one shape is enough. The backlog is SOMAXCONN, so the system decides how many
-// may queue. SO_REUSEADDR is not set: a port already taken must be reportable (that system
-// error 10048 folds into 10104).
+// en: @net_listen (rcx = port, rdx = address text or 0): returns rax = the listener handle.
+// The address is IPv4 dotted-decimal; 0 means it was omitted and binds 0.0.0.0 (INADDR_ANY).
+// The text goes through @to_wide then InetPtonW into the four address bytes of sockaddr_in; a
+// bad address counts as invalid together with a bad port (WSAEINVAL, folded to 10104).
+// The backlog is SOMAXCONN. SO_REUSEADDR is not set: a port already taken must be reportable.
 func netListen(b *rt) {
 	const (
 		lPort = 0
-		lS    = 1
-		lErr  = 2 // 失败步骤的号码：关闭句柄前先记录，closesocket 会覆盖"上一个错误"
+		lAddr = 1
+		lS    = 2
+		lErr  = 3 // 失败步骤的号码：关闭句柄前先记录，closesocket 会覆盖"上一个错误"
 	)
 	a := b.a
 	b.prologue()
 	b.put(lPort, x64.RCX)
+	b.put(lAddr, x64.RDX)
 
 	badPort := b.label()
 	bad := b.label()
@@ -687,6 +694,31 @@ func netListen(b *rt) {
 	a.CmpImm(x64.RAX, 65535)
 	a.Jcc(x64.A, badPort)
 
+	// 地址：0（省略）时 netAddr 的地址四字节留 0；否则 InetPtonW 解析点分十进制。
+	// sockaddr_in 在 netAddr 那个位置里，第 4～7 字节是地址（0～1 家族、2～3 端口）。
+	b.leaCell(x64.RDI, "netAddr")
+	a.MovImmMem(x64.RDI, 0, afInet) // 低两字节是家族，2～7 一并清 0（端口与地址的前一段）
+	a.MovImmMem(x64.RDI, 4, 0)      // sin_addr 四字节与后面的填充：默认 0.0.0.0
+	b.get(x64.RCX, lAddr)
+	a.Test(x64.RCX, x64.RCX)
+	parsed := b.label()
+	a.Jcc(x64.E, parsed) // 省略了地址：保持全 0
+	b.leaCell(x64.RDX, "wPath")
+	b.call("@to_wide")
+	a.Test(x64.RAX, x64.RAX)
+	a.Jcc(x64.E, badPort) // 文本转不开：地址不合法
+	a.MovImm(x64.RCX, afInet)
+	b.leaCell(x64.RDX, "wPath")
+	b.leaCell(x64.R8, "netAddr")
+	a.AddImm(x64.R8, 4) // 写进 sockaddr_in 的 sin_addr（第 4 字节起）
+	b.impCallFrom(ws2, "InetPtonW")
+	a.CmpImm(x64.RAX, 1)
+	a.Jcc(x64.NE, badPort) // 不是合法的 IPv4
+	a.Mark(parsed)
+	// 上面两次调用洗掉了 RDI，写端口之前重新取 netAddr 的地址。
+	b.leaCell(x64.RDI, "netAddr")
+	portInto(b, x64.RDI, lPort)
+
 	a.MovImm(x64.RCX, afInet)
 	a.MovImm(x64.RDX, sockStream)
 	a.MovImm(x64.R8, ipProtoTCP)
@@ -700,12 +732,6 @@ func netListen(b *rt) {
 	a.Jmp(bad)
 	a.Mark(have)
 	b.put(lS, x64.RAX)
-
-	// sockaddr_in 的 16 字节：家族 2、端口由 portInto 写入（网络字节序）、地址 0＝接收本机所有网卡的连接
-	b.leaCell(x64.RDI, "netAddr")
-	a.MovImmMem(x64.RDI, 0, afInet) // 低两字节是家族，2～7 一并清 0（端口与地址的前一段）
-	a.MovImmMem(x64.RDI, 8, 0)      // 地址的剩余四字节与两个填充字节
-	portInto(b, x64.RDI, lPort)
 
 	b.get(x64.RCX, lS)
 	b.leaCell(x64.RDX, "netAddr")
@@ -822,16 +848,197 @@ func netIO(b *rt, fn string) {
 // en: @net_send (rcx = socket, rdx = bytes): returns rax = how many bytes were written.
 func netSend(b *rt) { netIO(b, "send") }
 
-// @net_recv_into(rcx=套接字, rdx=bytes)：把收到的字节就地填入该块，返回 rax=个数。
+// @net_send_all(rcx=套接字, rdx=bytes)：一直补发到整块都发出去，返回 rax=字节总数。
+//
+// send 一次只保证发走一部分，剩下要接着发：循环里每次把已经发出去的字节数从总量里扣掉、
+// 正文指针往前挪，直到为 0。返回的是那一块的大小（全部发完），中途任一次 send 报错走
+// @net_fail。块大小为 0 时一次也不发，直接返回 0。
+//
+// en: @net_send_all (rcx = socket, rdx = bytes): keeps sending until the whole block is out and
+// returns rax = the total byte count. One send only promises a part, so the loop subtracts what
+// went out and advances the body until nothing is left; any failed send takes @net_fail. An
+// empty block sends nothing and returns 0.
+func netSendAll(b *rt) {
+	const (
+		sS   = 0
+		sB   = 1
+		sLen = 2 // 整块的大小，也是最后返回的字节总数
+		sOff = 3 // 已经发出去的字节数，正文指针从它往前挪
+	)
+	a := b.a
+	b.prologue()
+	b.put(sS, x64.RCX)
+	b.put(sB, x64.RDX)
+	b.get(x64.RAX, x64.RDX)
+	a.MovLoad(x64.RAX, x64.RAX, BytesLen)
+	b.put(sLen, x64.RAX)
+	a.Xor(x64.RAX, x64.RAX)
+	b.put(sOff, x64.RAX)
+
+	top := b.label()
+	done := b.label()
+	bad := b.label()
+	a.Mark(top)
+	b.get(x64.RDX, sOff)
+	b.get(x64.RCX, sLen)
+	a.Cmp(x64.RDX, x64.RCX)
+	a.Jcc(x64.AE, done) // 全发完了
+
+	// send(句柄 RCX, 正文+已发 RDX, 还剩多少 R8, 标志 R9=0)。
+	// 已发字节数在这一轮开头读到 R10（被调方保存的那一组），分支与调用都不改它。
+	b.get(x64.R10, sOff)
+	b.get(x64.RCX, sS)
+	b.get(x64.RDX, sB)
+	a.AddImm(x64.RDX, BytesBody)
+	a.Add(x64.RDX, x64.R10) // 正文 + 已发
+	b.get(x64.R8, sB)
+	a.MovLoad(x64.R8, x64.R8, BytesLen)
+	a.Sub(x64.R8, x64.R10) // 余量 = 总量 - 已发
+	a.Xor(x64.R9, x64.R9)  // flags = 0
+	b.impCallFrom(ws2, "send")
+	signExt(a)
+	a.Test(x64.RAX, x64.RAX)
+	a.Jcc(x64.S, bad)
+	a.Test(x64.RAX, x64.RAX)
+	a.Jcc(x64.E, bad) // 返回 0 而还有余量：对方不再收，按出错处理，免得死循环
+	b.get(x64.RDX, sOff)
+	a.Add(x64.RDX, x64.RAX) // 已发 += 本次发出去的
+	b.put(sOff, x64.RDX)
+	a.Jmp(top)
+
+	a.Mark(bad)
+	b.impCallFrom(ws2, "WSAGetLastError")
+	a.Mov(x64.RCX, x64.RAX)
+	a.Xor(x64.RDX, x64.RDX)
+	netThrow(b)
+	a.Mark(done)
+	b.get(x64.RAX, sLen)
+	b.epilogue()
+}
+
+// @net_recv_into(rcx=套接字, rdx=bytes, r8=偏移)：把收到的字节就地填入该块，返回 rax=个数。
 //
 // 就地填充是该档存在的理由之一：单次接收的字节数不可控，
-// 每收一片都要重建一个八倍大的容器就没法用。
+// 每收一片都要重建一个八倍大的容器就没法用。偏移是从块正文起点算起的位置，省掉时降级侧传 0；
+// 可填的个数是块大小减偏移，偏移超出块大小时按 0 个填，不抛。
 //
-// en: @net_recv_into (rcx = socket, rdx = bytes): fills what arrives in place into that block
-// and returns rax = how many. Filling in place is one of the reasons that tier exists: how
-// much arrives per read is not controllable, and rebuilding a container eight times the size
-// for every chunk would be unusable.
-func netRecvInto(b *rt) { netIO(b, "recv") }
+// en: @net_recv_into (rcx = socket, rdx = bytes, r8 = offset): fills what arrives in place into
+// that block and returns rax = how many. Filling in place is one of the reasons that tier exists:
+// how much arrives per read is not controllable. The offset counts from the body start (lowering
+// passes 0 when omitted); the space left is the size minus the offset, and an offset past the end
+// fills nothing rather than throwing.
+func netRecvInto(b *rt) {
+	const (
+		hS    = 0
+		hB    = 1
+		hOff  = 2
+		hRoom = 3 // 可填的字节数
+	)
+	a := b.a
+	b.prologue()
+	b.put(hS, x64.RCX)
+	b.put(hB, x64.RDX)
+	b.put(hOff, x64.R8)
+	bad := b.label()
+	b.get(x64.RAX, hB)
+	a.MovLoad(x64.RAX, x64.RAX, BytesLen) // 块大小
+	b.get(x64.RDX, hOff)
+	a.Sub(x64.RAX, x64.RDX) // 可填 = 大小 - 偏移
+	a.Test(x64.RAX, x64.RAX)
+	fits := b.label()
+	a.Jcc(x64.NS, fits)     // 可填 ≥ 0：照用
+	a.Xor(x64.RAX, x64.RAX) // 偏移超出：可填按 0
+	a.Mark(fits)
+	b.put(hRoom, x64.RAX)
+	b.get(x64.RCX, hS)
+	b.get(x64.RDX, hB)
+	a.AddImm(x64.RDX, BytesBody)
+	b.get(x64.R8, hOff)
+	a.Add(x64.RDX, x64.R8) // 正文 + 偏移
+	b.get(x64.R8, hRoom)   // 第三个参数才是长度
+	a.Xor(x64.R9, x64.R9)  // flags = 0
+	b.impCallFrom(ws2, "recv")
+	signExt(a)
+	a.Test(x64.RAX, x64.RAX)
+	a.Jcc(x64.S, bad)
+	b.epilogue()
+	a.Mark(bad)
+	b.impCallFrom(ws2, "WSAGetLastError")
+	a.Mov(x64.RCX, x64.RAX)
+	a.Xor(x64.RDX, x64.RDX)
+	netThrow(b)
+}
+
+// @net_peer_address(rcx=套接字)：返回 rax=对端地址文本（点分十进制）的对象句柄。
+//
+// getpeername 把对端的 sockaddr_in 填进 netAddr，地址四字节在第 4 字节起。把四段按无符号
+// 十进制拆开，用 @str_cat 与 @int_str 拼成 "a.b.c.d"——与 netFail 拼消息同一套，只读那四段，
+// 不借系统的地址格式化例程。对方已关闭或拿不到时走 @net_fail（10105）。
+//
+// en: @net_peer_address (rcx = socket): returns rax = a text object with the peer's dotted-decimal
+// address. getpeername fills netAddr with the peer's sockaddr_in, whose address bytes start at
+// byte 8. The four bytes are split as unsigned decimals and joined with @str_cat and @int_str -
+// the same pair netFail uses for its messages - rather than borrowing a system formatter. A
+// closed or unavailable peer takes @net_fail (10105).
+func netPeerAddress(b *rt) {
+	const (
+		pS    = 0
+		pBuf  = 1 // 已拼好的文本句柄
+		pSeg  = 2 // 本次 @int_str 拼出的那一段
+		pJoin = 3 // @str_cat 的结果，@free 洗掉 rax 之前先存在这里
+	)
+	a := b.a
+	b.prologue()
+	b.put(pS, x64.RCX)
+
+	// getpeername(句柄 RCX, sockaddr* RDX, socklen_t* R8)。长度写在 netLen4，
+	// 那个位置只被 netConnect 用，与本例程不会同时在栈上，借用无妨。
+	b.leaCell(x64.RCX, "netLen4")
+	a.MovImmMem(x64.RCX, 0, int32(sockAddrSize)) // int  sockaddr 缓冲长度 16
+	b.get(x64.RCX, pS)
+	b.leaCell(x64.RDX, "netAddr")
+	b.leaCell(x64.R8, "netLen4")
+	b.impCallFrom(ws2, "getpeername")
+	a.Test(x64.RAX, x64.RAX)
+	bad := b.label()
+	a.Jcc(x64.S, bad)
+
+	// 从 netAddr+4 起取四个无符号字节，拼成 a.b.c.d。
+	// 第 0 段直接以 @int_str 的结果起头；后面三段先拼 sNetDot 再拼数字。
+	// @int_str(rcx=整数) → rax=文本；@str_cat(rcx=左, rdx=右) → rax=新文本，
+	// 旧左半随即 @free（静态池那一段的尺寸是 0，free 是空操作，同一条收尾）。
+	// cat 把已有的文本接上一块：新块先存进 pSeg（@free 会洗掉 rax，不能留在寄存器里），
+	// 再把旧左半释放。静态池那几段的尺寸是 0，@free 是空操作，同一条收尾即可。
+	cat := func(piece func()) {
+		b.get(x64.RCX, pBuf)
+		piece()
+		b.call("@str_cat")
+		b.put(pJoin, x64.RAX)
+		b.get(x64.RCX, pBuf)
+		b.call("@free")
+		b.get(x64.RAX, pJoin)
+		b.put(pBuf, x64.RAX)
+	}
+	for i := int32(0); i < 4; i++ {
+		b.leaCell(x64.RSI, "netAddr")
+		a.MovZX8(x64.RCX, x64.RSI, 4+i) // 无符号取第 i 段
+		b.call("@int_str")
+		b.put(pSeg, x64.RAX) // 本段的文本：跨过 cat 的两次调用留住
+		if i == 0 {
+			b.put(pBuf, x64.RAX)
+			continue
+		}
+		cat(func() { b.leaCell(x64.RDX, "sNetDot") })
+		cat(func() { b.get(x64.RDX, pSeg) })
+	}
+	b.get(x64.RAX, pBuf)
+	b.epilogue()
+	a.Mark(bad)
+	b.impCallFrom(ws2, "WSAGetLastError")
+	a.Mov(x64.RCX, x64.RAX)
+	a.Xor(x64.RDX, x64.RDX)
+	netThrow(b)
+}
 
 // @net_close(rcx=句柄)：调用一次 closesocket。
 //

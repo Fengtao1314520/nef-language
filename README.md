@@ -1,6 +1,6 @@
 # Nef
 
-![Version](https://img.shields.io/badge/version-v0.8.7-blue)
+![Version](https://img.shields.io/badge/version-v0.9.0-blue)
 [![License](https://img.shields.io/badge/license-Apache--2.0%20with%20Nef%20Output%20Exception-green)](LICENSE)
 [![Docs](https://img.shields.io/badge/docs-CC%20BY%204.0-yellow)](nef-licensing/LICENSE-DOCS.md)
 [![Platform](https://img.shields.io/badge/platform-Windows%20x64-lightgrey)](#requirements)
@@ -78,8 +78,8 @@ go build -trimpath -o ../nf.exe ./cmd/nf
 ```
 
 `nf.exe` lands at the repository root; that is the binary you run the samples
-with. `./nf.exe version` prints its version, and a build with no version
-injected says `nf dev`. To stamp one, add
+with. `./nf.exe version` prints its version and target platform, and a build with no
+version injected says `nf dev windows-x64`. To stamp one, add
 `-ldflags "-X main.version=vX.Y.Z"` to the command above. The `nf.exe` and the
 VS Code extension package for each release are attached to that release's
 GitHub Releases page. Which digit of the version moves, and when, is
@@ -125,6 +125,7 @@ write `xs.remove_at(0)` (a dict has `d.take(key)`, a JSON tree has
 | `nf check file.nf` | Lex, parse and type-check; diagnostics carry file, line and column |
 | `nf tokens file.nf` | Print the token stream (`kind:text`, one per line) - the site highlighter is checked against it |
 | `nf ir file.nf` | Print the lowered intermediate code, without emitting machine code |
+| `nf fmt file.nf [-w]` | Lay out a source file with the editor's format-document rules; print to stdout, or write back with `-w` |
 | `nf lsp` | Language server over stdio; same checking rules as `nf check` |
 | `nf dap` | Debug adapter for VS Code: breakpoints, stepping, call stack, variables, and stopping on a throw nobody catches (`breakOnThrow`) |
 | `nf version` | Print the compiler version; exit code is always 0 |

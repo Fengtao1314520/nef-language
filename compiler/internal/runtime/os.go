@@ -92,6 +92,109 @@ func osData(put func(name string, bs []byte)) {
 	put("sEnvAsk", strObject("环境这一处没办成"))
 }
 
+// @env_names()：返回 rax=一份 list<string>，装着当前进程所有环境变量的名字。
+//
+// GetEnvironmentStringsW 给出一块 "NAME=VALUE\0NAME=VALUE\0…\0\0" 的宽字符块，
+// 每条取等号前面的名字，经 WideCharToMultiByte 翻成 UTF-8，@str_sub 造文本、@list_add 收进表。
+// 只列名字，不列值。遍历完 FreeEnvironmentStringsW 归还那块内存。
+//
+// en: @env_names(): returns rax = a list<string> of every environment variable name in this
+// process. GetEnvironmentStringsW yields a wide block of "NAME=VALUE\0...\0\0"; each entry's
+// name (before the '=') is converted to UTF-8 and added to the list. Names only, no values;
+// the block is returned with FreeEnvironmentStringsW when done.
+func envNames(b *rt) {
+	const (
+		nOut  = 0 // 生成的 list
+		nBlk  = 1 // 环境块起点
+		nCur  = 2 // 当前扫到的宽字符位置
+		nName = 3 // 名字起点（块的当前位置）
+		nWide = 4 // 名字有几个宽字符
+	)
+	a := b.a
+	b.prologue()
+	a.MovImm(x64.RCX, 0)
+	a.MovImm(x64.RDX, tagString)
+	b.call("@list_new")
+	b.put(nOut, x64.RAX)
+
+	b.impCall("GetEnvironmentStringsW") // 无参，返回 rax=宽字符块
+	b.put(nBlk, x64.RAX)
+	b.get(x64.RAX, nBlk)
+	b.put(nCur, x64.RAX)
+
+	top := b.label()
+	done := b.label()
+	a.Mark(top)
+	b.get(x64.RSI, nCur)
+	a.MovZX16(x64.RDX, x64.RSI, 0) // 当前宽字符
+	a.Test(x64.RDX, x64.RDX)
+	a.Jcc(x64.E, done) // 双零结尾
+
+	// 记下名字起点，一路扫到 '=' 或 '\0'，数出宽字符个数。
+	b.get(x64.RAX, nCur)
+	b.put(nName, x64.RAX)
+	nameScan := b.label()
+	a.Mark(nameScan)
+	b.get(x64.RSI, nCur)
+	a.MovZX16(x64.RDX, x64.RSI, 0)
+	a.CmpImm(x64.RDX, '=')
+	endName := b.label()
+	a.Jcc(x64.E, endName)
+	a.Test(x64.RDX, x64.RDX)
+	a.Jcc(x64.E, endName)
+	b.get(x64.RAX, nCur)
+	a.AddImm(x64.RAX, 2) // 一个宽字符两个字节
+	b.put(nCur, x64.RAX)
+	a.Jmp(nameScan)
+
+	// 名字的宽字符数 = (当前位置 - 名字起点) / 2
+	a.Mark(endName)
+	b.get(x64.RAX, nCur)
+	b.get(x64.RDX, nName)
+	a.Sub(x64.RAX, x64.RDX)
+	a.ShrImm(x64.RAX, 1)
+	b.put(nWide, x64.RAX)
+
+	// 把名字翻成 UTF-8：wideToText 从 nName/nWide 两格读，结果放在 rax。
+	b.get(x64.RAX, nName)
+	b.put(5, x64.RAX) // wide 起点
+	b.get(x64.RAX, nWide)
+	b.put(6, x64.RAX) // 宽字符数
+	b.get(x64.RAX, nWide)
+	a.Test(x64.RAX, x64.RAX)
+	skip := b.label()
+	a.Jcc(x64.E, skip) // 空名字不收
+	wideToText(b, 5, 6)
+	b.get(x64.RCX, nOut)
+	a.Mov(x64.RDX, x64.RAX)
+	b.call("@list_add")
+	a.Mark(skip)
+
+	// 跳过 '=' 与后面的值，走到这一条的结尾 '\0'，再往后一个宽字符是下一条起点。
+	skipValue := b.label()
+	a.Mark(skipValue)
+	b.get(x64.RSI, nCur)
+	a.MovZX16(x64.RDX, x64.RSI, 0)
+	a.Test(x64.RDX, x64.RDX)
+	nextEntry := b.label()
+	a.Jcc(x64.E, nextEntry)
+	b.get(x64.RAX, nCur)
+	a.AddImm(x64.RAX, 2)
+	b.put(nCur, x64.RAX)
+	a.Jmp(skipValue)
+	a.Mark(nextEntry)
+	b.get(x64.RAX, nCur)
+	a.AddImm(x64.RAX, 2) // 越过结尾的 NUL，来到下一条（或双零的第二个）
+	b.put(nCur, x64.RAX)
+	a.Jmp(top)
+
+	a.Mark(done)
+	b.get(x64.RCX, nBlk)
+	b.impCall("FreeEnvironmentStringsW")
+	b.get(x64.RAX, nOut)
+	b.epilogue()
+}
+
 // @time_now()：返回 rax=从 1970-01-01 零点（UTC）到此刻的秒数。
 //
 // Windows 返回的是"从 1601 年起算的 100 纳秒位置数"，减掉中间那 369 年再除一千万。
@@ -1042,10 +1145,21 @@ func pathDir(b *rt) {
 	b.put(dN, x64.RAX)
 	segmentBounds(b, dSrc, dN, dHi, dSt, dCur)
 
+	// dSt 是最后一段的起点，也就是紧跟着分隔符的那个字节。取到 dSt 会把那个分隔符
+	// 一并带上；这一条去尾分隔符，所以长度退一个字节。整条没有分隔符时 dSt 是 0，
+	// 不能退成 -1（那会取到倒数一个字节），保持 0 返回空文本。
+	b.get(x64.RAX, dSt)
+	a.Test(x64.RAX, x64.RAX)
+	noSep := b.label()
+	a.Jcc(x64.E, noSep)
+	a.AddImm(x64.RAX, -1)
+	b.put(dSt, x64.RAX)
+	a.Mark(noSep)
+
 	b.get(x64.RCX, dSrc)
 	a.Xor(x64.RDX, x64.RDX)
 	b.get(x64.R8, dSt)
-	b.call("@str_sub") // 起 0、长＝最后一段的起点：那之前的每一字节都是上一截
+	b.call("@str_sub") // 起 0、长＝上一截（不含它后面那个分隔符）
 	b.epilogue()
 }
 

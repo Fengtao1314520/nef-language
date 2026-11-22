@@ -1,6 +1,6 @@
 # Nef
 
-![版本](https://img.shields.io/badge/version-v0.8.7-blue)
+![版本](https://img.shields.io/badge/version-v0.9.0-blue)
 [![代码许可](https://img.shields.io/badge/license-Apache--2.0%20%E4%B8%8E%20Nef%20Output%20Exception-green)](LICENSE)
 [![文档许可](https://img.shields.io/badge/docs-CC%20BY%204.0-yellow)](nef-licensing/LICENSE-DOCS.md)
 [![平台](https://img.shields.io/badge/platform-Windows%20x64-lightgrey)](#依赖)
@@ -49,7 +49,7 @@ cd compiler
 go build -trimpath -o ../nf.exe ./cmd/nf
 ```
 
-`nf.exe` 生成在仓库根，运行示例用的就是这一份。`./nf.exe version` 打印它的版本号；构建时没注入版本号的打印 `nf dev`。要一份带版本号的产物，在上面那条命令里加上 `-ldflags "-X main.version=vX.Y.Z"`。每个发布版本的 `nf.exe` 与 VS Code 扩展包都挂在该版本的 GitHub Releases 页面上。版本号三位数各自什么时候变、`0.x` 阶段承诺什么，写在网站上的[版本与兼容](site/about/066_versions.md)；每一版改了什么记在 [CHANGELOG.md](CHANGELOG.md)。
+`nf.exe` 生成在仓库根，运行示例用的就是这一份。`./nf.exe version` 打印它的版本号与目标平台；构建时没注入版本号的打印 `nf dev windows-x64`。要一份带版本号的产物，在上面那条命令里加上 `-ldflags "-X main.version=vX.Y.Z"`。每个发布版本的 `nf.exe` 与 VS Code 扩展包都挂在该版本的 GitHub Releases 页面上。版本号三位数各自什么时候变、`0.x` 阶段承诺什么，写在网站上的[版本与兼容](site/about/066_versions.md)；每一版改了什么记在 [CHANGELOG.md](CHANGELOG.md)。
 
 直接运行一个示例，或者把它编成可执行文件：
 
@@ -83,6 +83,7 @@ console.print("hello, " + name + "; sum = " + number.to_string(total))
 | `nf check 文件.nf` | 词法、语法、静态检查依次走完；报错带文件名、行号与列号 |
 | `nf tokens 文件.nf` | 打印记号流（每行一个 `类型:文字`），站点的语法高亮拿它当对照基准 |
 | `nf ir 文件.nf` | 打印降级后的中间码，不生成机器码，也不写文件 |
+| `nf fmt 文件.nf [-w]` | 按编辑器"格式化文档"那套规则排版；默认打到标准输出，`-w` 原地写回 |
 | `nf lsp` | 语言服务器：从标准输入读编辑器的协议消息，检查规则与 `nf check` 同一条 |
 | `nf dap` | 调试适配器：断点、单步、调用栈与变量，以及停在没人接住的那一次抛出（`breakOnThrow`），VS Code 里按 F5 用的就是它 |
 | `nf version` | 打印编译器版本后退出，退出码恒为 0，方便脚本判断装没装 |

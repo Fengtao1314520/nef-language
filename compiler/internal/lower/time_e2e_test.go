@@ -2,7 +2,10 @@
 
 package lower_test
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
 
 // TestTimeGroupRun 运行两条时钟成员。
 //
@@ -85,5 +88,23 @@ for (i:int from 0 until 20000) {
 		if used := heapAt(t, one.src); used > 4000 {
 			t.Errorf("%s：两万圈峰值 %d 字节，那一块大概还没人拆", one.name, used)
 		}
+	}
+}
+
+// TestTimeFormatUtc 钉 format_utc：字面量模式串在编译期展开，六个记号按 UTC 的
+// 1970 年起点取值，两位不足补前导 0，其余字节照抄。非字面量的模式串在检查阶段被拒。
+func TestTimeFormatUtc(t *testing.T) {
+	got, code := run(t, `
+console.print(time.format_utc(0, "yyyy-MM-dd HH:mm:ss"))
+console.print(time.format_utc(86400, "yyyy/MM/dd"))
+console.print(time.format_utc(0, "HH时mm分"))
+`)
+	want := "1970-01-01 00:00:00\n1970/01/02\n00时00分\n"
+	if got != want || code != 0 {
+		t.Fatalf("format_utc 不对：\n got %q 码 %d\nwant %q", got, code, want)
+	}
+	if err := compileErr("let pat:string = \"yyyy\"\nconsole.print(time.format_utc(0, pat))\n"); err == nil ||
+		!strings.Contains(err.Error(), "模式串要写死的一段文本") {
+		t.Fatalf("非字面量模式串该拦：err=%v", err)
 	}
 }

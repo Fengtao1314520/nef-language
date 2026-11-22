@@ -82,3 +82,26 @@ console.print("跑完了")
 		t.Fatalf("拼出来的名字每轮还留 %v 字节，运算符那一层该把它还掉", per)
 	}
 }
+
+// TestEnvironmentNames 钉 environment.names()：返回当前进程所有环境变量的名字，
+// 一份 list<string>；只列名字不列值。用 set 放进去一个独有的名字，确认它出现在表里，
+// 每轮造的表到句子尽头就归还（两百轮与两千轮堆读数相同）。
+func TestEnvironmentNames(t *testing.T) {
+	got, code := run(t, `
+environment.set("NEF_ENV_NAMES_PROBE", "值甲")
+let xs:list<string> = environment.names()
+let found:boolean = false
+for (i:int from 0 until length(xs)) {
+    if (xs[i] == "NEF_ENV_NAMES_PROBE") { found = true }
+}
+console.print(found, length(xs) > 0)
+environment.unset("NEF_ENV_NAMES_PROBE")
+`)
+	if got != "true true\n" || code != 0 {
+		t.Fatalf("environment.names 不对：got %q 码 %d", got, code)
+	}
+	slope := heapSlope(t, `for (i:int from 0 until @N@) { let xs:list<string> = environment.names() }`)
+	if slope > 2 {
+		t.Fatalf("environment.names 每轮漏内存：%.1f 字节", slope)
+	}
+}

@@ -20,13 +20,13 @@ import (
 // - by overwriting its container cell, clearing the container, or the like - leaves the borrower
 // reading memory already returned to the heap.
 
-// 容器挂在一个 class 的字段上：`box.xs` 与 `box.xs[0]` 不是同一个名字，
-// 检查阶段那一条"借出来的一份与整只容器一起交进去"认不出来（它只认直接的名字），
-// 所以这一条仍然走到运行期那一道护栏，钉的正是护栏本身。
+// 容器挂在一个 class 的字段上：`box.xs` 与 `box.xs[0]` 不是同一个名字，但字段路径摘要
+// 认得出"被调方写的正是那个字段"，所以这一条在检查阶段就被拒；运行期那道护栏仍是
+// 跨包、方法、以及摘要看不到的写法的默认处理。
 //
-// en: the container hangs on a class field: `box.xs` and `box.xs[0]` are not the same name, so the
-// checking rule "a borrowed element handed in with the whole container" (it recognises direct
-// names only) does not fire; this one still reaches the runtime guard and pins the guard itself.
+// en: the container hangs on a class field: `box.xs` and `box.xs[0]` are not the same name, but
+// the field-path summary sees that the callee rewrites that very field, so this is refused during
+// checking; the runtime guard still backs up cross-package calls, methods and unseen writes.
 const borrowFreeProbe = `class Node {
     tag:string
 }
@@ -48,11 +48,12 @@ let box:Box = new Box(xs: [build("AAAA")])
 probe(box, box.xs[0])
 `
 
-// TestBorrowedBlockNotReleasedThrows 借出去的那一块被覆盖位置释放，当场抛 10097。
-func TestBorrowedBlockNotReleasedThrows(t *testing.T) {
-	got, code := run(t, borrowFreeProbe)
-	if code != 1 || !strings.Contains(got, "出错了（10097）：要收回的这一块正被借用") {
-		t.Fatalf("借着的块被当场收回：\n got %q 码 %d\nwant 退出码 1，话里有 10097 那一句\n", got, code)
+// TestBorrowedBlockNotReleasedRefused 借出去的那一块与整只对象一起交进去、被调方改写那个字段：
+// 检查阶段就拒，不必等运行期撞借用表。
+func TestBorrowedBlockNotReleasedRefused(t *testing.T) {
+	if err := compileErr(borrowFreeProbe); err == nil ||
+		!strings.Contains(err.Error(), "box[...] 借出来的那一份与 box 一起交了进去") {
+		t.Fatalf("字段上的借出+改写该在检查阶段拒：err=%v", err)
 	}
 }
 
@@ -75,20 +76,16 @@ console.print(show(box[0]), show(box[1]), length(box))
 	}
 }
 
-// TestBorrowedBlockClearedThrows 借用表要认得 `clear` 那一条收回路径。
+// TestBorrowedBlockClearedRefused `clear` 那一条收回路径同样在检查阶段拦下：
+// `b.xs.clear()` 记成字段 "xs" 的改写，调用处 `drain(bag, bag.xs[0])` 当场拒。
+// 文本那一档走的是另一条路：交进去时那块就标成共用，`clear` 归还是空操作，所以不拦
+// （`TestSharedTextSurvivesClear` 钉那一半）。
 //
-// 钉的是可变的那一种：`class` 的对象挂在容器那一个位置里，读出来交给被调方只是借看一眼，
-// `clear` 当场把它收回就是拆别人手里的一块——命中 10097。
-// 文本那一档在这一条上走的是另一条路：交进去的时候那块就标成共用了，`clear` 归还它是空操作，
-// 所以不拦（`TestSharedTextSurvivesClear` 钉那一半）。
-//
-// en: the borrow table must know the clear path. What this pins is the mutable kind: a `class`
-// object hangs in a container position, reading it out and passing it along is only a look, so
-// clearing the container takes back what somebody else holds - 10097. Text goes the other way
-// here: the block carries the shared mark from the moment it is passed in, so returning it is a
-// no-op and nothing to stop - TestSharedTextSurvivesClear pins that half.
-func TestBorrowedBlockClearedThrows(t *testing.T) {
-	got, code := run(t, `class Tag {
+// en: the clear path is refused during checking too: b.xs.clear() records a write of field "xs",
+// so drain(bag, bag.xs[0]) is refused at the call site. Text goes the other way: the block carries
+// the shared mark, so clearing is a no-op - TestSharedTextSurvivesClear pins that half.
+func TestBorrowedBlockClearedRefused(t *testing.T) {
+	if err := compileErr(`class Tag {
     s:string
 }
 
@@ -103,9 +100,8 @@ method drain(b:Bag, one:Tag) {
 
 let bag:Bag = new Bag(xs: [new Tag(s: "甲"), new Tag(s: "乙")])
 drain(bag, bag.xs[0])
-`)
-	if code != 1 || !strings.Contains(got, "出错了（10097）：要收回的这一块正被借用") {
-		t.Fatalf("clear 收回了借出的那一块：\n got %q 码 %d\nwant 退出码 1，话里有 10097 那一句\n", got, code)
+`); err == nil || !strings.Contains(err.Error(), "bag[...] 借出来的那一份与 bag 一起交了进去") {
+		t.Fatalf("字段上的 clear 该在检查阶段拒：err=%v", err)
 	}
 }
 

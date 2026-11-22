@@ -233,7 +233,7 @@ console.print(path.directory_name("a\\b\\c.nf"))
 console.print(path.is_absolute("F:/a"), path.is_absolute("/a"), path.is_absolute("\\\\srv\\share"))
 console.print(path.is_absolute("a/b"), path.is_absolute(""), path.is_absolute("F/a"))
 `)
-	want := "C:/work/\nC:/\n/etc/  \na\\b\\\ntrue true true\nfalse false false\n"
+	want := "C:/work\nC:\n/etc  \na\\b\ntrue true true\nfalse false false\n"
 	if got != want || code != 0 {
 		t.Fatalf("取上一截与是不是从根起不对：\n got %q 码 %d\nwant %q", got, code, want)
 	}

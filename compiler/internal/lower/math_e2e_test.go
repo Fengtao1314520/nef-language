@@ -19,8 +19,8 @@ console.print(math.floor(-2.1), math.ceiling(-2.9), math.round(-2.5), math.round
 console.print(math.floor(-3.0), math.ceiling(-3.0), math.round(-0.5), math.round(0.4))
 console.print(math.floor(-0.0), math.ceiling(-0.0), math.floor(0.0))
 console.print(math.smaller(3, 7), math.larger(3.5, 1.25), math.smaller(-1, -5), math.larger(0, 0))
-console.print(math.power(2, 10), math.power(0, 0), math.power(-2, 3), math.power(5, 1))
-console.print(math.power(2, 62), math.power(3, 20), math.power(10, 18), math.power(1, 1000))
+console.print(math.power_int(2, 10), math.power_int(0, 0), math.power_int(-2, 3), math.power_int(5, 1))
+console.print(math.power_int(2, 62), math.power_int(3, 20), math.power_int(10, 18), math.power_int(1, 1000))
 let b:byte = 200
 console.print(math.absolute_value(b))
 let f:float = 2.0
@@ -30,6 +30,30 @@ console.print(math.smaller(f, 5.0), math.larger(f, 5.0))
 		"3 3.5 -5 0\n1024 1 -8 5\n4611686018427387904 3486784401 1000000000000000000 1\n200\n2.0 5.0\n"
 	if got != want || code != 0 {
 		t.Fatalf("math 那七条不对：\n got %q 码 %d\nwant %q", got, code, want)
+	}
+}
+
+// TestFloatPower 钉 math.power：两个 float 算幂，用 e^(y·ln x) 分两步，末几位差几个 ulp，
+// 所以按区间核对，不断言最后两位。负底数返回 NaN（与 natural_log、square_root 同一档）。
+// 整数幂仍由 power_int 承担，负指数与溢出都抛那两句。
+func TestFloatPower(t *testing.T) {
+	got, code := run(t, `
+console.print(math.power(2.0, 10.0) > 1023.9999, math.power(2.0, 10.0) < 1024.0001)
+console.print(math.power(2.0, 0.5) > 1.41421355, math.power(2.0, 0.5) < 1.41421357)
+console.print(math.power(4.0, 0.5) > 1.9999999, math.power(4.0, 0.5) < 2.0000001)
+console.print(math.power(9.0, 0.5) > 2.9999999, math.power(9.0, 0.5) < 3.0000001)
+console.print(math.power(5.0, 0.0), math.power(1.0, 1000.0))
+console.print(math.power(0.0 - 2.0, 3.0) != math.power(0.0 - 2.0, 3.0))
+console.print(math.power_int(2, 10), math.power_int(-2, 3))
+`)
+	want := "true true\ntrue true\ntrue true\ntrue true\n1.0 1.0\ntrue\n1024 -8\n"
+	if got != want || code != 0 {
+		t.Fatalf("小数幂不对：\n got %q 码 %d\nwant %q", got, code, want)
+	}
+	// 小数那一路连 float 字面量都不收整数：给 2 而不是 2.0 当场拒。
+	if err := compileErr("console.print(math.power(2, 3.0))\n"); err == nil ||
+		!strings.Contains(err.Error(), "这里要的是 float") {
+		t.Fatalf("power 收整数底数该拦：err=%v", err)
 	}
 }
 
@@ -43,9 +67,9 @@ func TestMathGroupThrows(t *testing.T) {
 		// absolute_value：最小的那个负数取反还是它自己
 		{"absolute_value 下界", "let low:int = 0 - 9223372036854775807 - 1\nconsole.print(math.absolute_value(low))\n", "出错了（10021）"},
 		// power：底与指数都是正数，结果摆不进 int
-		{"power 超界", "console.print(math.power(2, 63))\n", "出错了（10021）"},
-		// power：负指数抛 10012 号
-		{"power 负指数", "console.print(math.power(2, 0 - 3))\n", "出错了（10012）：指数不能是负的"},
+		{"power_int 超界", "console.print(math.power_int(2, 63))\n", "出错了（10021）"},
+		// power_int：负指数抛 10012 号
+		{"power_int 负指数", "console.print(math.power_int(2, 0 - 3))\n", "出错了（10012）：指数不能是负的"},
 		// 取整：装不进 int 的小数，含 NaN 与 ±Inf（位型都大过 2^63 那个上限）
 		{"floor 超界", "console.print(math.floor(10000000000000000000000.0))\n", "出错了（10013）"},
 		{"floor 是 NaN", "console.print(math.floor(0.0 / 0.0))\n", "出错了（10013）"},

@@ -996,15 +996,15 @@ func TestImportTableIsGroupedByModule(t *testing.T) {
 		kernel32 = "kernel32.dll"
 		winsock  = "ws2_32.dll"
 		winhttp  = "winhttp.dll"
-		// 42 个 kernel32 的名字：文件、目录、环境、时间那一摊 31 个，加 `process` 那四个，
+		// 44 个 kernel32 的名字：文件、目录、环境、时间那一摊 31 个，加 `process` 那四个，
 		// 加每一条线程那一份状态块要的两个（要一个槽号、把块登记进那个槽），
 		// 再加堆锁与打印锁那两条（拿与放）、"只结束这一条线程"那一条，
-		// 再加起线程那两条（CreateThread 与归还那块状态块要用的 VirtualFree）；
-		// 加 winsock 那 17 个：开机与收尾两个，加 `net` 那一组十五个；
+		// 再加起线程那两条（CreateThread 与归还那块状态块要用的 VirtualFree）与枚举环境那两条；
+		// 加 winsock 那 19 个：开机与收尾两个，加 `net` 那一组十七条（含 InetPtonW 与 getpeername）；
 		// 再加 winhttp 那 11 个（`http` 那一组：九条走一次请求，加追加请求头与设开关各一条）。
-		namesBefore   = 70
-		kernel32Names = 42
-		winsockNames  = 17
+		namesBefore   = 74
+		kernel32Names = 44
+		winsockNames  = 19
 		winhttpNames  = 11
 	)
 	imps := runtime.Build().Imports
@@ -1042,7 +1042,7 @@ func TestImportTableIsGroupedByModule(t *testing.T) {
 			imps[0].DLL, kernel32Names+1, imps[kernel32Names].DLL)
 	}
 	if got := countOf(imps, winsock); got != winsockNames {
-		t.Fatalf("winsock 那一段是 %d 个名字，要的是 %d 个（开机与收尾两个 ＋ `net` 那一组十五个）", got, winsockNames)
+		t.Fatalf("winsock 那一段是 %d 个名字，要的是 %d 个（开机与收尾两个 ＋ `net` 那一组十七条）", got, winsockNames)
 	}
 	// 第三段排在最后：前两段的格号是形状表与 `nf ir` 里打印出来的数，不能被插进来的名字挪走。
 	if imps[kernel32Names+winsockNames].DLL != winhttp {

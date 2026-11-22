@@ -18,6 +18,7 @@
 //
 // check 走前端：词法、语法、静态检查。build 走完整条链，出独立可执行文件。
 // ir 走到中间码那一步就停，把降级出来的三地址码打到标准输出，不落文件。
+// fmt 把一份源文件按编辑器那套规则排好，打到标准输出或 -w 原地写回（fmt.go）。
 // pack 把一个包的源文件装进一份 .nfpack 容器，不产可执行。
 // `nf 文件.nf 甲 乙` 在内存里编译完直接执行，不落中间文件（run_windows.go）。
 // lsp 起语言服务器：标准输入接收编辑器送来的报文，标准输出回波浪线（internal/ls）。
@@ -26,8 +27,9 @@
 // en: The command-line entry point of nf. check runs the front end: lexer,
 // parser, static checker. build runs the whole chain and emits a standalone executable. ir
 // stops at the intermediate code and prints the three-address code produced by lowering to
-// standard output, writing no file. pack puts a package's source files into one .nfpack
-// container and produces no executable. `nf file.nf arg1
+// standard output, writing no file. fmt lays out one source file with the editor's own rules,
+// printing it or writing it back with -w (fmt.go). pack puts a package's source files into one
+// .nfpack container and produces no executable. `nf file.nf arg1
 // arg2` compiles entirely in memory and executes straight away, leaving no intermediate file
 // (run_windows.go). lsp starts the language server: it takes the editor's messages on standard
 // input and answers with squiggles on standard output (internal/ls). dap starts the debugger:
@@ -63,13 +65,20 @@ import (
 // Without it, "which build is this nf.exe" could only be inferred from the file's timestamp.
 var version = "dev"
 
+// targetTriple 是这套工具链产物的平台。1.0 只出 Windows x64，所以固定写这一个值；
+// 换平台的那天要把它与后端一起改。
+//
+// en: targetTriple is the platform the tool chain produces for. Only Windows x64 ships in 1.0,
+// so the value is fixed here; changing platform means changing it together with the backend.
+const targetTriple = "windows-x64"
+
 func main() {
 	os.Exit(run(os.Args[1:]))
 }
 
 func run(args []string) int {
 	if len(args) == 0 {
-		fmt.Fprintln(os.Stderr, "用法：nf check 文件.nf　｜　nf build 文件.nf [-o 产物名]　｜　nf pack 门面.nf [-o 容器名]　｜　nf 文件.nf　｜　nf tokens 文件.nf　｜　nf ir 文件.nf　｜　nf lsp　｜　nf dap　｜　nf version")
+		fmt.Fprintln(os.Stderr, "用法：nf check 文件.nf　｜　nf build 文件.nf [-o 产物名]　｜　nf pack 门面.nf [-o 容器名]　｜　nf 文件.nf　｜　nf tokens 文件.nf　｜　nf ir 文件.nf　｜　nf fmt 文件.nf [-w]　｜　nf lsp　｜　nf dap　｜　nf version")
 		return 2
 	}
 	switch args[0] {
@@ -77,6 +86,8 @@ func run(args []string) int {
 		return cmdTokens(args[1:])
 	case "ir":
 		return cmdIR(args[1:])
+	case "fmt":
+		return cmdFmt(args[1:])
 	case "pack":
 		return cmdPack(args[1:])
 	case "lsp":
@@ -419,7 +430,8 @@ func cmdLSP() int {
 // en: cmdVersion reports which version the compiler itself is. It reads nothing and always
 // exits 0 - scripts use it to check whether the compiler is installed.
 func cmdVersion() int {
-	fmt.Printf("nf %s\n", version)
+	// 目标三元组跟在版本号后面：这一版只出 Windows x64，脚本据此确认手上的产物是给哪个平台的。
+	fmt.Printf("nf %s %s\n", version, targetTriple)
 	return 0
 }
 

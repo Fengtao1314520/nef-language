@@ -571,6 +571,37 @@ func fNaturalLog(b *rt) {
 	b.epilogue()
 }
 
+// @f_pow(rcx=底数的 64 位, rdx=指数的 64 位)：返回 rax=底数的指数次方的 64 位。
+//
+// 这台机器的 x87 没有"直接算 x 的 y 次方"那一条指令，所以按 x^y = e^(y·ln x) 拆成
+// 已有的两条例程：先 @f_natural_log 算 ln x，再乘上 y，最后 @f_exponential。
+// 底数为负时 ln 给 NaN，于是结果也是 NaN——与 @f_natural_log、@f_sqrt 的角落同一档，不抛。
+// 两步各带一次舍入，末几位与精确值可能差几个 ulp；测试按一段区间比，不钉最后两位。
+// 指数与 ln 的结果都要跨过一次 call，放在本帧的两个局部槽里（调用方的寄存器作废）。
+//
+// en: @f_pow (rcx = base bits, rdx = exponent bits): returns rax = base raised to exponent.
+// x87 has no single "x to the y" instruction here, so x^y = e^(y·ln x) is split into the two
+// routines already present: @f_natural_log for ln x, multiply by y, then @f_exponential. A
+// negative base makes ln return NaN, so the result is NaN too - the same corner as @f_natural_log
+// and @f_sqrt, and nothing is thrown. Each step rounds once, so the last few ulp may differ from
+// the exact value; tests compare a band rather than pinning the last digits. Both the exponent
+// and ln are kept in two local slots across a call (caller-saved registers are dead afterwards).
+func fPow(b *rt) {
+	a := b.a
+	b.prologue()
+	b.put(0, x64.RDX)          // 指数留住，跨过 @f_natural_log
+	b.call("@f_natural_log")   // rcx 已是底数；rax = ln(底数)
+	b.put(1, x64.RAX)          // ln 留住，跨过 @f_exponential
+	b.get(x64.RCX, 0)          // 指数位型
+	a.MovsdFromGPR(0, x64.RCX) // xmm0 = 指数
+	b.get(x64.RCX, 1)          // ln 位型
+	a.MovsdFromGPR(1, x64.RCX) // xmm1 = ln(底数)
+	a.Mulsd(0, 1)              // xmm0 = 指数 × ln(底数)
+	a.MovsdToGPR(x64.RCX, 0)   // rcx = 乘积的位型
+	b.call("@f_exponential")   // rax = e^(乘积)
+	b.epilogue()
+}
+
 // @f_random()：返回 rax=[0,1) 之间那一个小数的 64 位。
 //
 // 状态推进与 `math.random` 完全一致（同一颗种子、同三步 xorshift、同一个乘数），

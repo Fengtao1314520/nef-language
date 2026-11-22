@@ -11,7 +11,7 @@
 | `path.join(dir, name)` | `string` | 不抛 | 拼接一条路径，分隔符按本机习惯补充；它只处理字符串，不访问系统 |
 | `path.file_name(path)` | `string` | 不抛 | 取最后一段，包含扩展名；整条都是分隔符时返回 `""` |
 | `path.extension(path)` | `string` | 不抛 | 取最后一个点之后的部分，没有点时返回 `""` |
-| `path.directory_name(path)` | `string` | 不抛 | 取上一级目录，连同分隔符：`C:/work/demo.nf` 得到 `C:/work/`，反斜杠写法 `a\b\c.nf` 得到 `a\b\`。整条路径里没有分隔符时返回空文本。末尾本来就带分隔符时（`C:/work/`）返回 `C:/`：返回的是这个目录所在的上一级 |
+| `path.directory_name(path)` | `string` | 不抛 | 取上一级目录，不带分隔符：`C:/work/demo.nf` 得到 `C:/work`，反斜杠写法 `a\b\c.nf` 得到 `a\b`。整条路径里没有分隔符时返回空文本。末尾本来就带分隔符时（`C:/work/`）返回 `C:`：返回的是这个目录所在的上一级 |
 | `path.is_absolute(path)` | `boolean` | 不抛 | 判断是否为绝对路径。第一个字符是斜杠（两种斜杠都算）时一定是；前两个字符是一个字母加一个冒号时也是，`F:/a`、`F:`、`F:a` 都算：`F:a` 这种写法在本机就是“在这个盘上从当前目录起”。只查看写法，不查看盘是否存在：盘是否存在要问 `path.exists` 与 `file.exists` |
 | `path.exists(path)` | `boolean` | 10051 | 判断文件或目录是否存在，只询问不抛出错误；空串这类无法提交给系统的路径抛 51 |
 
@@ -35,7 +35,7 @@ console.print(path.is_absolute(full), path.is_absolute(a))
 
 ```text
 docs\notes.md 报告.txt txt
-docs\notes.md\ C:/work\
+docs\notes.md C:/work
 true false
 ```
 

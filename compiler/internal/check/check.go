@@ -1300,7 +1300,10 @@ type Checker struct {
 	// writes 是形参改写摘要（见 writes.go）；Facts.Writes 是同一份结论的对外副本。
 	// en: writes is the parameter-write summary (see writes.go); Facts.Writes is the outward copy.
 	writes map[string][]bool
-	consts map[string]bool
+	// writeFields 是每个形参被改写过的字段路径，writes 的细化版；只在检查这一侧用。
+	// en: writeFields refines writes with the rewritten field paths of each parameter; checking only.
+	writeFields map[string][]map[string]bool
+	consts      map[string]bool
 	// topVals 是这一趟里每一份文件顶层那些 `const` 与 `export shared`：键与 funcs、types
 	// 同一种写法（包里的带包根）。包外面按点号取一个导出的数读的就是它。
 	topVals map[string]TopValue

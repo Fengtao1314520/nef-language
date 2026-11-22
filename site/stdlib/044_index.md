@@ -2,11 +2,11 @@
 
 标准库分成十五组，在任何文件里都能直接调用：不需要 `import`，也无法被 `export`。
 
-写成 `组名.动作` 的一共 90 个，另外还有一个全局的 `length`。
+写成 `组名.动作` 的一共 93 个，另外还有一个全局的 `length`。
 
-三个容器的成员（`add`、`remove`、`sort`、`insert_at` 等），以及文本的十八个点号成员（`split`、`index_of`、`trim_start`、`to_bytes` 等），都不在这 90 个名字里，各页的成员表会逐条列出。
+三个容器的成员（`add`、`remove`、`sort`、`insert_at` 等），以及文本的十八个点号成员（`split`、`index_of`、`trim_start`、`to_bytes` 等），都不在这 93 个名字里，各页的成员表会逐条列出。
 
-字节块的 `slice` 与 `to_base64`、套接字的 `send`、`recv_into`、`close`、监听的 `accept` 与 `close`、进程的 `wait` 与 `close`、线程的 `wait` 与 `id` 同样不在其中。
+字节块的 `slice` 与 `to_base64`、套接字的 `send`、`send_all`、`recv_into`、`peer_address`、`close`、监听的 `accept` 与 `close`、进程的 `wait` 与 `close`、线程的 `wait` 与 `number` 同样不在其中。
 
 | 组 | 作用 | 详细页 |
 | --- | --- | --- |
@@ -48,7 +48,7 @@
 | 转换成另一种类型 | `text.to_int(s)`、`number.to_string(42)` |
 | 查询整个容器的长度 | `length(items)` |
 | 与外部世界交互 | `file.read(p)`、`path.join(a, b)`、`environment.get("PATH")`、`time.now()`、`console.print(...)` |
-| 计算并返回一个值 | `math.absolute_value(n)`、`math.power(2, 10)`、`regular_expression.matches(text, pattern)`、`json.parse(text)` |
+| 计算并返回一个值 | `math.absolute_value(n)`、`math.power_int(2, 10)`、`regular_expression.matches(text, pattern)`、`json.parse(text)` |
 
 ## 归属分两种情况
 

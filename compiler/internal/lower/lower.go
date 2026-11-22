@@ -1223,7 +1223,8 @@ func containerAction(name string) bool {
 		"hashset.add", "hashset.remove", "hashset.contains",
 		"hashset.union", "hashset.intersect", "hashset.difference",
 		"bytes.slice", "bytes.to_base64",
-		"socket.send", "socket.recv_into", "socket.close", "listener.accept", "listener.close",
+		"socket.send", "socket.send_all", "socket.recv_into", "socket.peer_address",
+		"socket.close", "listener.accept", "listener.close",
 		"process.wait", "process.close",
 		"thread.wait", "thread.number":
 		return true
@@ -1583,9 +1584,11 @@ func (c *fc) stdContainer(x *ast.Call, ref check.CallRef, t check.Type) (ir.Val,
 		c.f.Emit(&ir.Call{D: d, HasD: true, Fn: "@net_accept", Args: []ir.Val{recv},
 			FT: []ir.T{ir.TInt}, RT: ir.TInt})
 		return d, t, nil
-	case "socket.send", "socket.recv_into":
+	case "socket.send", "socket.send_all", "socket.recv_into":
 		fn := "@net_send"
-		if ref.Std == "socket.recv_into" {
+		if ref.Std == "socket.send_all" {
+			fn = "@net_send_all"
+		} else if ref.Std == "socket.recv_into" {
 			fn = "@net_recv_into"
 		}
 		blk, _, err := c.expr(x.Args[0])
@@ -1593,9 +1596,27 @@ func (c *fc) stdContainer(x *ast.Call, ref check.CallRef, t check.Type) (ir.Val,
 			return nil, t, err
 		}
 		c.guardNotNull(blk)
+		args := []ir.Val{recv, blk}
+		fts := []ir.T{ir.TInt, ir.TInt}
+		if ref.Std == "socket.recv_into" {
+			// 偏移可省，省掉就是 0。
+			var off ir.Val = ir.K(0)
+			if len(x.Args) > 1 {
+				off, _, err = c.expr(x.Args[1])
+				if err != nil {
+					return nil, t, err
+				}
+			}
+			args = append(args, off)
+			fts = append(fts, ir.TInt)
+		}
 		d := c.f.Temp()
-		c.f.Emit(&ir.Call{D: d, HasD: true, Fn: fn, Args: []ir.Val{recv, blk},
-			FT: []ir.T{ir.TInt, ir.TInt}, RT: ir.TInt})
+		c.f.Emit(&ir.Call{D: d, HasD: true, Fn: fn, Args: args, FT: fts, RT: ir.TInt})
+		return d, t, nil
+	case "socket.peer_address":
+		d := c.f.Temp()
+		c.f.Emit(&ir.Call{D: d, HasD: true, Fn: "@net_peer_address", Args: []ir.Val{recv},
+			FT: []ir.T{ir.TInt}, RT: ir.TInt})
 		return d, t, nil
 	case "socket.close", "listener.close", "process.close":
 		// 提前关闭那一条：先调用它自身那一条收尾例程，再把这个位置抹成 0——那个名字当场作废，
@@ -5007,10 +5028,13 @@ func (c *fc) mathAction(x *ast.Call, ref check.CallRef, t check.Type) (ir.Val, c
 			return back(call2(fn, bits(v0), bits(v1))), t, nil
 		}
 		return call2(fn, v0, v1), t, nil
-	case "math.power":
+	case "math.power", "math.power_int":
 		v1, _, err := c.expr(x.Args[1])
 		if err != nil {
 			return nil, t, err
+		}
+		if ref.Std == "math.power" {
+			return back(call2("@f_pow", bits(v0), bits(v1))), t, nil
 		}
 		return call2("@i_pow", v0, v1), t, nil
 	case "math.square_root":
@@ -5079,6 +5103,7 @@ func (c *fc) osAction(x *ast.Call, ref check.CallRef, t check.Type) (ir.Val, che
 		"environment.set":               "@env_set",
 		"environment.unset":             "@env_unset",
 		"environment.current_directory": "@env_cwd",
+		"environment.names":             "@env_names",
 		"file.write":                    "@file_write",
 		"file.append":                   "@file_append",
 		"file.remove":                   "@file_remove",
@@ -5188,6 +5213,11 @@ func (c *fc) netAction(x *ast.Call, ref check.CallRef, t check.Type) (ir.Val, ch
 		}
 		args = append(args, v)
 	}
+	// net.listen 的地址可省：省掉时补一个 0，运行期把它读成 0.0.0.0。
+	// 与 httpAction 的“省掉交 0”同一做法——默认值不在这里求，调用点只给个哨兵。
+	if fn == "@net_listen" && len(args) == 1 {
+		args = append(args, ir.K(0))
+	}
 	fts := make([]ir.T, len(args))
 	for i := range fts {
 		fts[i] = ir.TInt
@@ -5220,8 +5250,108 @@ func (c *fc) netAction(x *ast.Call, ref check.CallRef, t check.Type) (ir.Val, ch
 // this stretch lifts the values produced along the way out of the "returned at the end of this
 // sentence" ledger - otherwise there would be two holders, one dismantling at the sentence's end
 // and another when that thread finishes. The handle itself is registered through claim, with
-// @thread_join as its closer (see closerOf): the name's end of scope waits once and releases that
-// thread's runtime state block.
+// timeFormatUtc 把字面量模式串在编译期展开成一串现成的运行期调用：先用 @time_parts
+// 把秒数拆进一块内建 Calendar，再按记号读字段、@int_str 成文本、@str_pad 补前导 0，
+// 逐段 @str_cat 接起来。普通字节按原文合成一段文本接进去。模式串不是字面量时报错——
+// 检查阶段已经拦住，这里是后端这一侧的默认处理。
+//
+// en: timeFormatUtc expands a literal pattern at compile time into existing runtime calls:
+// @time_parts splits the seconds into a built-in Calendar block, each token reads a field,
+// @int_str plus @str_pad pads it, and the pieces are joined with @str_cat. Literal bytes are
+// joined in as one text. A non-literal pattern is refused here as a backstop - the checker
+// already rejects it.
+func (c *fc) timeFormatUtc(x *ast.Call, t check.Type) (ir.Val, check.Type, error) {
+	sec, _, err := c.expr(x.Args[0])
+	if err != nil {
+		return nil, t, err
+	}
+	lit, ok := x.Args[1].(*ast.Lit)
+	if !ok || lit.Kind != "string" {
+		return nil, t, fmt.Errorf("time.format_utc 的模式串要写死的一段文本")
+	}
+	pattern := lit.Text
+
+	// 造一块内建 Calendar：尺寸与类型字从 c.l.f 里那张内建表来，与 time.calendar 同路。
+	calType := check.Type{Kind: check.Struct, Name: "Calendar"}
+	tag, ok := c.l.tagOf(calType)
+	if !ok {
+		return nil, t, fmt.Errorf("Calendar 的类型字没排上")
+	}
+	block := c.f.Temp()
+	c.f.Emit(&ir.Call{D: block, HasD: true, Fn: "@alloc",
+		Args: []ir.Val{ir.K(c.l.f.BlockSize(calType)), ir.K(tag)},
+		FT:   []ir.T{ir.TInt, ir.TInt}, RT: ir.TInt})
+	c.f.Emit(&ir.Call{Fn: "@time_parts", Args: []ir.Val{sec, block}, FT: []ir.T{ir.TInt, ir.TInt}})
+
+	// 结果从空文本起头。静态空串用文本池里的一段。
+	result := c.f.Temp()
+	c.f.Emit(&ir.Mov{D: result, S: c.l.msg(""), T: ir.TInt})
+
+	cat := func(piece ir.Val) {
+		d := c.f.Temp()
+		c.f.Emit(&ir.Call{D: d, HasD: true, Fn: "@str_cat", Args: []ir.Val{result, piece},
+			FT: []ir.T{ir.TInt, ir.TInt}, RT: ir.TInt})
+		result = d
+	}
+
+	// 记号 → (字段偏移, 宽度)。yyyy 四位年，其余两位。
+	tokens := []struct {
+		text  string
+		off   int32
+		width int64
+	}{
+		{"yyyy", 0, 4}, {"MM", 8, 2}, {"dd", 16, 2},
+		{"HH", 24, 2}, {"mm", 32, 2}, {"ss", 40, 2},
+	}
+	concatLiteral := func(s string) {
+		if s == "" {
+			return
+		}
+		d := c.f.Temp()
+		c.f.Emit(&ir.Mov{D: d, S: c.l.msg(s), T: ir.TInt})
+		cat(d)
+	}
+	emitField := func(off int32, width int64) {
+		v := c.f.Temp()
+		c.f.Emit(&ir.Load{D: v, Base: block, Off: int(off), T: ir.TInt})
+		n := c.f.Temp()
+		c.f.Emit(&ir.Call{D: n, HasD: true, Fn: "@int_str", Args: []ir.Val{v},
+			FT: []ir.T{ir.TInt}, RT: ir.TInt})
+		// @str_pad(文本, 宽度, 填充, 模式=0 补在头)
+		padded := c.f.Temp()
+		c.f.Emit(&ir.Call{D: padded, HasD: true, Fn: "@str_pad",
+			Args: []ir.Val{n, ir.K(width), c.l.msg("0"), ir.K(0)},
+			FT:   []ir.T{ir.TInt, ir.TInt, ir.TInt, ir.TInt}, RT: ir.TInt})
+		cat(padded)
+	}
+
+	run := ""
+	for i := 0; i < len(pattern); {
+		matched := ""
+		for _, tk := range tokens {
+			if strings.HasPrefix(pattern[i:], tk.text) {
+				matched = tk.text
+				concatLiteral(run)
+				run = ""
+				emitField(tk.off, tk.width)
+				i += len(tk.text)
+				break
+			}
+		}
+		if matched == "" {
+			run += pattern[i : i+1]
+			i++
+		}
+	}
+	concatLiteral(run)
+	return result, t, nil
+}
+
+// threadAction 落 `thread.start(被起的函数, 那一个实参)`：句柄是那张线程表的表项，
+// 第二个入参是交出去的（不是只读借用），见上文与 thread's runtime state block 那段说明。
+//
+// en: threadAction lowers `thread.start(function, argument)`: the handle is an entry in the
+// thread table, and the second argument is given away rather than borrowed read-only.
 func (c *fc) threadAction(x *ast.Call, ref check.CallRef, t check.Type) (ir.Val, check.Type, error) {
 	target, vt, err := c.expr(x.Args[0])
 	if err != nil {
@@ -5481,7 +5611,7 @@ func (c *fc) textFunc(x *ast.Call, ref check.CallRef, t check.Type) (ir.Val, che
 // than inferred from types inside the loop.
 func (c *fc) stdAction(x *ast.Call, ref check.CallRef, t check.Type) (ir.Val, check.Type, error) {
 	switch ref.Std {
-	case "math.absolute_value", "math.floor", "math.ceiling", "math.round", "math.smaller", "math.larger", "math.power", "math.square_root", "math.random",
+	case "math.absolute_value", "math.floor", "math.ceiling", "math.round", "math.smaller", "math.larger", "math.power", "math.power_int", "math.square_root", "math.random",
 		"math.pi", "math.sine", "math.cosine", "math.natural_log", "math.random_float",
 		"math.tangent", "math.arctangent", "math.log_base_10", "math.exponential", "math.sign", "math.set_seed":
 		return c.mathAction(x, ref, t)
@@ -5515,6 +5645,11 @@ func (c *fc) stdAction(x *ast.Call, ref check.CallRef, t check.Type) (ir.Val, ch
 			FT:   []ir.T{ir.TInt, ir.TInt}, RT: ir.TInt})
 		c.f.Emit(&ir.Call{Fn: "@time_parts", Args: []ir.Val{sec, d}, FT: []ir.T{ir.TInt, ir.TInt}})
 		return d, t, nil
+	case "time.format_utc":
+		// 模式串必须是字面量：在编译期把记号展开成一串 @str_cat，块与补位都用现成的例程，
+		// 不另写一套运行期排版。秒数照 time.calendar 那条路拆进一块内建 Calendar，
+		// 再按字段偏移读出来。非字面量的模式串在检查阶段就被拒（见 check/expr.go）。
+		return c.timeFormatUtc(x, t)
 	case "thread.start":
 		// `thread.start(被起的函数, 那一个实参)`：返回的是线程句柄，形状与上面那三条同档
 		//（手上那一个数是运行期那张表的表项），但第二个入参是**交出去**的，不是只读借用——
@@ -5541,7 +5676,7 @@ func (c *fc) stdAction(x *ast.Call, ref check.CallRef, t check.Type) (ir.Val, ch
 			FT: []ir.T{ir.TInt}, RT: ir.TInt})
 		return d, t, nil
 	case "path.join", "path.file_name", "path.extension", "path.exists",
-		"environment.get", "environment.set", "environment.unset", "environment.current_directory",
+		"environment.get", "environment.set", "environment.unset", "environment.current_directory", "environment.names",
 		"file.write", "file.append", "file.exists", "file.remove",
 		"file.size", "file.modified", "file.is_readonly", "file.list_names", "file.list_names_paths",
 		"file.read_bytes_from", "file.write_at",

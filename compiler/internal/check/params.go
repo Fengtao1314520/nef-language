@@ -80,6 +80,7 @@ var stdParamNames = map[string][]string{
 	"math.natural_log":    {"x"},
 	"math.pi":             {},
 	"math.power":          {"base", "exponent"},
+	"math.power_int":      {"base", "exponent"},
 	"math.random":         {"low", "high"},
 	"math.random_float":   {},
 	"math.round":          {"x"},
@@ -91,6 +92,7 @@ var stdParamNames = map[string][]string{
 
 	// 时间与日历
 	"time.calendar":   {"seconds"},
+	"time.format_utc": {"seconds", "pattern"},
 	"time.elapsed":    {},
 	"time.now":        {},
 	"time.sleep":      {"milliseconds"},
@@ -134,6 +136,7 @@ var stdParamNames = map[string][]string{
 	"environment.set":               {"name", "value"},
 	"environment.change_directory":  {"path"},
 	"environment.unset":             {"name"},
+	"environment.names":             {},
 
 	// 正则
 	"regular_expression.find":    {"text", "pattern"},
@@ -156,7 +159,7 @@ var stdParamNames = map[string][]string{
 
 	// 网络
 	"net.connect": {"host", "port", "timeout_ms"},
-	"net.listen":  {"port"},
+	"net.listen":  {"port", "address"},
 	"http.get":    {"url", "headers", "timeout_ms"},
 	"http.post":   {"url", "body", "headers", "timeout_ms"},
 	"http.request": {"method", "url", "body", "headers", "timeout_ms",
@@ -243,9 +246,11 @@ var stdParamNames = map[string][]string{
 	"json.remove_at": {"index"},
 	"json.clear":     {},
 
-	"socket.send":      {"data"},
-	"socket.recv_into": {"buffer"},
-	"socket.close":     {},
+	"socket.send":         {"data"},
+	"socket.send_all":     {"data"},
+	"socket.recv_into":    {"buffer", "offset"},
+	"socket.peer_address": {},
+	"socket.close":        {},
 
 	"listener.accept": {},
 	"listener.close":  {},

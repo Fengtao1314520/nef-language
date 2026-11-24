@@ -77,16 +77,17 @@ const (
 	wSrc   = 23
 )
 
-// osData 摆这一组的静态数据：高精度计数器的频率那一个槽、那一条反斜杠、两句运行期要说的话。
-// 计时那一次读回的起点在每一条线程的状态块里（stateCells 那张清单的 `perfStart`）；频率是全机
-// 一个数，两条线程各问一次问回来的也是同一个，留静态。
+// osData 摆这一组的静态数据：那一条反斜杠、两句运行期要说的话。
+// 计时的起点与频率都在每一条线程的状态块里（stateCells 那张清单的 `perfStart`／`perfFreq`）。
+// 频率原本留静态，结果第二线程看见它非零就跳过初始化，拿本线程还是 0 的起点报出开机至今的
+// 秒数；两个格放进同一作用域才自洽。
 //
-// en: osData lays out this group's static data: the high-resolution counter's frequency slot,
-// that one backslash, and the two runtime sentences. The reading the timing call writes back
-// goes to each thread's state block (perfStart in stateCells); the frequency is one number for
-// the whole machine, so two threads asking each get the same value and it stays static.
+// en: osData lays out this group's static data: that one backslash and the two runtime sentences.
+// Both the timing origin and the frequency live in each thread's state block (perfStart/perfFreq
+// in stateCells). The frequency used to be static: a second thread saw it non-zero, skipped
+// initialization, and reported uptime since boot using its own still-zero origin. Keeping both
+// cells in the same scope makes the guard sound.
 func osData(put func(name string, bs []byte)) {
-	put("perfFreq", make([]byte, 8))
 	put("sSep", []byte{'\\'})
 	put("sNoEnv", strObject("没有这个环境变量"))
 	put("sEnvAsk", strObject("环境这一处没办成"))
@@ -546,19 +547,23 @@ func widen(b *rt, srcSlot, lenSlot int, bufName string, bad x64.Label) {
 // 再翻进 aBuf 的正文那一侧，最后 @str_sub 就地造对象。
 //
 // 问出来是 0（那一段本来就是空的）也照同一条走：@str_sub 收零长度返回空文本，不必另开一支。
-// 落点是这一条线程的 aBuf，装得下 lineCap 个字节——环境变量与路径都远在这个数以下；真的超过了
-// 返回的就是截断的那一段，这一条语言规则尚未定。
+// 落点是这一条线程的 aBuf，正文那一侧正好 lineCap 个字节。写入长度恒用 lineCap 作上界，
+// 绝不能把第一次问出来的所需字节数直接交进去——那会越过缓冲写进后面的状态格。
+// 真的装不下时按宽字符截断：一个宽字符最多转成三个 UTF-8 字节，所以先把个数压到
+// (lineCap-1)/3 再翻一次，截出来的文本就是公开文档写明的那条规则。
 // 本函数只用第 wBytes／wSrc 两个槽，调用方的槽排在 0～9，不会重叠。
 //
 // en: wideToText translates the wide characters in slot wideSlot (countSlot of them, excluding
 // the terminating zero) into UTF-8 and leaves a text object in rax. WideCharToMultiByte is
 // called twice: first to ask how many bytes, then into aBuf's body side, and finally @str_sub
 // builds the object in place. An answer of 0 (the run was empty) takes the same path: @str_sub
-// with zero length returns empty text, so no extra branch is needed. The landing spot is the
-// static aBuf, which holds lineCap bytes - environment variables and paths stay far below that;
-// if it is truly exceeded the truncated run comes back, and the language rule for that case
-// is not settled. This function uses only slots wBytes/wSrc while the
-// caller's are numbered 0-9, so they cannot collide.
+// with zero length returns empty text, so no extra branch is needed. The write size is ALWAYS
+// capped at lineCap; handing the required size straight to the second call would write past
+// the buffer into the following state cells. When it does not fit, the wide run is truncated
+// to (lineCap-1)/3 characters (three UTF-8 bytes is the worst case per wide character) and
+// converted again - this is the truncation rule published in the library docs.
+// This function uses only slots wBytes/wSrc while the caller's are numbered 0-9, so they
+// cannot collide.
 func wideToText(b *rt, wideSlot, countSlot int) {
 	a := b.a
 	// 第一次：只问长度（lpMultiByteStr 传 NULL、cbMultiByte 传 0）
@@ -574,7 +579,10 @@ func wideToText(b *rt, wideSlot, countSlot int) {
 	b.impCall("WideCharToMultiByte")
 	zeroExtend32(b, wBytes)
 
-	// 第二次：真翻
+	// 第二次：真翻。写入上界恒为 lineCap，失败就按上面那条规则截短再来一次。
+	convert := b.label()
+	done := b.label()
+	a.Mark(convert)
 	a.MovImm(x64.RCX, cpUTF8)
 	a.Xor(x64.RDX, x64.RDX)
 	b.get(x64.R8, wideSlot)
@@ -582,14 +590,24 @@ func wideToText(b *rt, wideSlot, countSlot int) {
 	b.leaCell(x64.RAX, "aBuf")
 	a.AddImm(x64.RAX, strHead)
 	a.MovStore(x64.RBP, arg5, x64.RAX)
-	b.get(x64.RAX, wBytes)
+	a.MovImm(x64.RAX, lineCap)
 	a.MovStore(x64.RBP, arg6, x64.RAX)
 	a.Xor(x64.RAX, x64.RAX)
 	a.MovStore(x64.RBP, arg7, x64.RAX)
 	a.MovStore(x64.RBP, arg8, x64.RAX)
 	b.impCall("WideCharToMultiByte")
 	zeroExtend32(b, wBytes)
+	b.get(x64.RAX, wBytes)
+	a.Test(x64.RAX, x64.RAX)
+	a.Jcc(x64.NE, done) // 写出了字节（空串返回 0 也是成功）
+	b.get(x64.RAX, countSlot)
+	a.Test(x64.RAX, x64.RAX)
+	a.Jcc(x64.E, done) // 空串：零长度是正常结果
+	a.MovImm(x64.RCX, (lineCap-1)/3)
+	b.put(countSlot, x64.RCX)
+	a.Jmp(convert)
 
+	a.Mark(done)
 	b.leaCell(x64.RCX, "aBuf")
 	a.Xor(x64.RDX, x64.RDX)
 	b.get(x64.R8, wBytes)

@@ -42,6 +42,8 @@ import (
 // en: The error codes below are the ones JSON-RPC 2.0 fixed, not numbers chosen here: the
 // editor recognises these.
 const (
+	ErrParseError     = -32700 // 报文不是合法 JSON
+	ErrInvalidRequest = -32600 // 报文是合法 JSON，却不是一条请求
 	ErrMethodNotFound = -32601
 	ErrInvalidParams  = -32602
 	ErrInternal       = -32603

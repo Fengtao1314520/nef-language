@@ -1342,27 +1342,31 @@ func strTrimTail(b *rt) { trimOneSide(b, false) }
 //
 // 次数不是正数就返回一份空的文本，与"排零份"是同一个答复，不抛。
 // 拼接走 @str_cat 那一条：每一次都是新块，上一次的中间块交完就还掉，不留账；
+// 份数够就整份翻倍（O(n)），不够才补一份；翻倍前查字节数回绕，超限时抛 10013。
 // 码点数与字节数都由 @str_cat 自己算，这里不数第二遍。
 //
 // en: @str_repeat (rcx = text, rdx = count): returns rax = new text with that run laid out
 // count times. A count that is not positive returns empty text - the same answer as
 // "repeat zero times" - and throws nothing. Joining goes through @str_cat: every step is a new
-// block, the previous intermediate is returned as soon as it is handed over, leaving no ledger;
-// the code point and byte counts are both computed by @str_cat and not counted a second time
-// here.
+// block, the previous intermediate is returned as soon as it is handed over, leaving no ledger.
+// The accumulated run doubles when the remainder allows it (O(n)), otherwise one copy is added;
+// a byte-count overflow before doubling throws code 10013. Code point and byte counts are both
+// computed by @str_cat and not counted a second time here.
 func strRepeat(b *rt) {
 	const (
 		pSrc = 0
 		pK   = 1 // 还剩几份要排
 		pAcc = 2
 		pNew = 3
+		pN   = 4 // 底子里已经排了几份
+		pOld = 5 // 翻倍前底子里有几份（这一轮要扣掉的份数）
 	)
 	a := b.a
 	b.prologue()
 	b.put(pSrc, x64.RCX)
 	b.put(pK, x64.RDX)
 
-	empty, loop, done := b.label(), b.label(), b.label()
+	empty, loop, double, single, done, tooBig := b.label(), b.label(), b.label(), b.label(), b.label(), b.label()
 	b.get(x64.RAX, pK)
 	a.CmpImm(x64.RAX, 1)
 	a.Jcc(x64.L, empty) // 零份与负数：一份空的直接返回
@@ -1372,6 +1376,8 @@ func strRepeat(b *rt) {
 	a.MovLoad(x64.R8, x64.R8, StrBytes)
 	b.call("@str_sub") // 先拷一份当底子，绝不把传进来的那一个句柄交出去
 	b.put(pAcc, x64.RAX)
+	a.MovImm(x64.RAX, 1)
+	b.put(pN, x64.RAX)
 	b.get(x64.RAX, pK)
 	a.AddImm(x64.RAX, -1)
 	b.put(pK, x64.RAX)
@@ -1379,14 +1385,50 @@ func strRepeat(b *rt) {
 	b.get(x64.RAX, pK)
 	a.Test(x64.RAX, x64.RAX)
 	a.Jcc(x64.E, done)
+	// 剩得比已有份数多就整份翻倍：逐次拼是 O(n²)，翻倍是 O(n)。
+	b.get(x64.RAX, pK)
+	b.get(x64.RDX, pN)
+	a.Cmp(x64.RAX, x64.RDX)
+	a.Jcc(x64.GE, double)
+	a.Jmp(single)
+	a.Mark(double)
+	b.get(x64.RAX, pN)
+	b.put(pOld, x64.RAX) // 翻倍前有几份：这一轮就多了这几份
+	b.get(x64.RAX, pAcc)
+	a.MovLoad(x64.RAX, x64.RAX, StrBytes)
+	// 翻倍前拦住字节数回绕：超过 2^62 再乘二就是把申请尺寸算丢了。
+	// CmpImm 只收 32 位，这个上界得先落进寄存器。
+	a.MovImm(x64.RDX, 1<<62)
+	a.Cmp(x64.RAX, x64.RDX)
+	a.Jcc(x64.GE, tooBig)
+	b.get(x64.RCX, pAcc)
+	b.get(x64.RDX, pAcc)
+	b.call("@str_cat")
+	b.put(pNew, x64.RAX)
+	b.get(x64.RCX, pAcc)
+	b.call("@free")
+	b.get(x64.RAX, pNew)
+	b.put(pAcc, x64.RAX)
+	b.get(x64.RAX, pN)
+	a.Add(x64.RAX, x64.RAX)
+	b.put(pN, x64.RAX) // 底子里的份数翻了一倍
+	b.get(x64.RAX, pK)
+	b.get(x64.RDX, pOld)
+	a.Sub(x64.RAX, x64.RDX)
+	b.put(pK, x64.RAX) // 剩下要排的份数扣掉这一轮多出来的
+	a.Jmp(loop)
+	a.Mark(single)
 	b.get(x64.RCX, pAcc)
 	b.get(x64.RDX, pSrc)
 	b.call("@str_cat")
 	b.put(pNew, x64.RAX)
 	b.get(x64.RCX, pAcc)
-	b.call("@free") // 中间那一份没人拿着了：不还它，排几千次就是几千块
+	b.call("@free")
 	b.get(x64.RAX, pNew)
 	b.put(pAcc, x64.RAX)
+	b.get(x64.RAX, pN)
+	a.AddImm(x64.RAX, 1)
+	b.put(pN, x64.RAX)
 	b.get(x64.RAX, pK)
 	a.AddImm(x64.RAX, -1)
 	b.put(pK, x64.RAX)
@@ -1394,6 +1436,12 @@ func strRepeat(b *rt) {
 
 	a.Mark(done)
 	b.get(x64.RAX, pAcc)
+	b.epilogue()
+
+	a.Mark(tooBig)
+	b.get(x64.RCX, pAcc)
+	b.call("@free")
+	b.throwWith(codeRange, "sRange")
 	b.epilogue()
 
 	a.Mark(empty)

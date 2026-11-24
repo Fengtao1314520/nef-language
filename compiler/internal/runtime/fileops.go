@@ -414,6 +414,7 @@ func fileReadFrom(b *rt) {
 		none     = b.label()
 		badPath  = b.label()
 		noFile   = b.label()
+		openFail = b.label()
 		top      = b.label()
 		readDone = b.label()
 		scan     = b.label()
@@ -433,6 +434,9 @@ func fileReadFrom(b *rt) {
 	b.put(xPath, x64.RCX)
 	b.put(xStart, x64.RDX)
 	b.put(xCount, x64.R8)
+	// 打开以后失败的那一路要还的块先摆成空句柄。
+	a.Xor(x64.RAX, x64.RAX)
+	b.put(xObj, x64.RAX)
 
 	b.get(x64.RAX, xCount)
 	a.CmpImm(x64.RAX, 1)
@@ -466,7 +470,7 @@ func fileReadFrom(b *rt) {
 	a.MovImm(x64.R9, moveBegin)
 	b.impCall("SetFilePointerEx")
 	a.Test(x64.RAX, x64.RAX)
-	a.Jcc(x64.E, noFile)
+	a.Jcc(x64.E, openFail)
 
 	b.get(x64.RCX, xCount)
 	a.AddImm(x64.RCX, strHead)
@@ -594,6 +598,13 @@ func fileReadFrom(b *rt) {
 	b.call("@str_sub")
 	b.epilogue()
 
+	a.Mark(openFail)
+	// 句柄已打开：失败时系统句柄与这一调用自己造的块都还掉。
+	b.get(x64.RCX, xHandle)
+	b.impCall("CloseHandle")
+	b.get(x64.RCX, xObj)
+	b.call("@free")
+	a.Jmp(noFile)
 	a.Mark(noFile)
 	b.throwWith(codeNoFile, "sNoFile")
 	a.Mark(badPath)
@@ -619,8 +630,9 @@ func fileWriteAt(b *rt) {
 		xHandle = 4
 	)
 	var (
-		badPath = b.label()
-		noFile  = b.label()
+		badPath  = b.label()
+		noFile   = b.label()
+		openFail = b.label()
 	)
 	a := b.a
 	b.prologue()
@@ -656,7 +668,7 @@ func fileWriteAt(b *rt) {
 	a.MovImm(x64.R9, moveBegin)
 	b.impCall("SetFilePointerEx")
 	a.Test(x64.RAX, x64.RAX)
-	a.Jcc(x64.E, noFile)
+	a.Jcc(x64.E, openFail)
 
 	b.get(x64.RCX, xHandle)
 	b.get(x64.RDX, xText)
@@ -668,17 +680,21 @@ func fileWriteAt(b *rt) {
 	a.MovStore(x64.RBP, arg5, x64.RAX)
 	b.impCall("WriteFile")
 	a.Test(x64.RAX, x64.RAX)
-	a.Jcc(x64.E, noFile)
+	a.Jcc(x64.E, openFail)
 	a.MovZX32(x64.RAX, x64.RBP, -8*(xGot+1))
 	b.get(x64.RDX, xText)
 	a.MovLoad(x64.RDX, x64.RDX, 0)
 	a.Cmp(x64.RAX, x64.RDX)
-	a.Jcc(x64.NE, noFile)
+	a.Jcc(x64.NE, openFail)
 
 	b.get(x64.RCX, xHandle)
 	b.impCall("CloseHandle")
 	b.epilogue()
 
+	a.Mark(openFail)
+	b.get(x64.RCX, xHandle)
+	b.impCall("CloseHandle")
+	a.Jmp(noFile)
 	a.Mark(noFile)
 	b.throwWith(codeWriteFail, "sNoWrite")
 	a.Mark(badPath)

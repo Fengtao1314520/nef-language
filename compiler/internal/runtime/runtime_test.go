@@ -985,6 +985,36 @@ func TestDictGrow(t *testing.T) {
 	}
 }
 
+// TestDictTombstonesCompact 验证删得多、留得少的表会把墓碑算进扩容判据：
+// 先塞到翻倍，再删到只剩一个，插入一个新键时那一次重摆会把墓碑清掉、表不再虚胖。
+func TestDictTombstonesCompact(t *testing.T) {
+	d := newDrv(t)
+	d.mapNew(0, 8, 0)
+	d.save(0)
+	// 塞 24 个：桶数 8 → 16 → 32。
+	for i := int64(1); i <= 24; i++ {
+		d.mapPut(0, i, -1, i*10)
+	}
+	d.loadAndPrint(0, runtime.CellCap) // 32
+	// 删掉 23 个，留下第 24 个：墓碑 23，活跃 1，合计已过四分之三（24）。
+	for i := int64(1); i <= 23; i++ {
+		d.mapRemove(0, i, -1)
+	}
+	d.loadAndPrint(0, runtime.CellTomb) // 23
+	// 再插一个新键：判据 (1+23+1)*4 > 32*3 成立，重摆把墓碑清掉。
+	d.mapPut(0, 100, -1, 1000)
+	d.loadAndPrint(0, runtime.CellCap)  // 4：活跃只剩 2，重摆按活跃数把表缩回去
+	d.loadAndPrint(0, runtime.CellTomb) // 0
+	d.mapLen(0)                         // 2
+	d.mapVal(0, 24, -1)                 // 240：老键还在
+	d.mapVal(0, 100, -1)                // 1000：新键也在
+	want := "32\n23\n4\n0\n2\n240\n1000\n"
+	got, code := run(t, d.finish(t, 0))
+	if got != want || code != 0 {
+		t.Fatalf("墓碑压缩不对：\n got %q 码 %d\nwant %q", got, code, want)
+	}
+}
+
 // TestImportTableIsGroupedByModule 验证那张表的三条形状规矩：每个条目都要记录它属于哪个模块、
 // 同一个模块的名字要连续排列、一个条目也不许多登记。中间夹进别的模块的名字会切出两个指向同一个
 // 模块的描述符，加载器只认第一个，第二段的函数一个也进不了产物。
@@ -1002,8 +1032,8 @@ func TestImportTableIsGroupedByModule(t *testing.T) {
 		// 再加起线程那两条（CreateThread 与归还那块状态块要用的 VirtualFree）与枚举环境那两条；
 		// 加 winsock 那 19 个：开机与收尾两个，加 `net` 那一组十七条（含 InetPtonW 与 getpeername）；
 		// 再加 winhttp 那 11 个（`http` 那一组：九条走一次请求，加追加请求头与设开关各一条）。
-		namesBefore   = 74
-		kernel32Names = 44
+		namesBefore   = 75
+		kernel32Names = 45
 		winsockNames  = 19
 		winhttpNames  = 11
 	)

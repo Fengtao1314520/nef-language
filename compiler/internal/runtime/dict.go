@@ -376,16 +376,19 @@ func mapNew(b *rt) {
 	b.epilogue()
 }
 
-// @map_grow(rcx=表)：桶数翻倍，把活着的键值整批重摆一次。
+// @map_grow(rcx=表)：按活着的键数重摆整张表（新桶数取不小于 (cLen+1)*2 的最小 2 的幂）。
 //
-// 版本号不变——重摆不是语言层面的增删（增删由版本号那条规则管），
+// 装载因子触发时活跃数已经过半，结果与翻倍一样；墓碑触发时活跃数很少，这一趟顺带把表缩回去，
+// 墓碑也随新桶一起消失。版本号不变——重摆不是语言层面的增删（增删由版本号那条规则管），
 // 正在遍历的那一轮持有的是旧桶数组的地址，所以重摆只能由增删触发，而增删已经先抛过 10033 号。
 //
-// en: @map_grow (rcx = table): doubles the bucket count and re-places every live key and value
-// in bulk. The version counter does not move - re-placing is not a language-level add or
-// remove (add/remove is what the version counter guards), and a loop in progress holds the
-// old bucket array's address, so growth may only be triggered by an add or remove, and those
-// already threw 10033 first.
+// en: @map_grow (rcx = table): re-places the whole table by the number of live keys (the new
+// bucket count is the smallest power of two not below (cLen+1)*2). On a load-factor trigger
+// that matches doubling; on a tombstone trigger with few live keys it also shrinks the table,
+// and the tombstones disappear with the old buckets. The version counter does not move -
+// re-placing is not a language-level add or remove (add/remove is what the version counter
+// guards), and a loop in progress holds the old bucket array's address, so growth may only be
+// triggered by an add or remove, and those already threw 10033 first.
 func mapGrow(b *rt) {
 	a := b.a
 	b.prologue()
@@ -397,8 +400,23 @@ func mapGrow(b *rt) {
 	b.put(4, x64.RAX) // 老数组的起点：搬完要释放它
 	a.MovLoad(x64.RAX, x64.RDI, cCap)
 	b.put(2, x64.RAX) // 老桶数
+
+	// 新桶数按活着的键算，不总是翻倍：装载因子触发时活跃数已经过半，结果与翻倍一致；
+	// 墓碑触发时活跃数很少，这一趟就把表缩回去，不然"删空再插一次"反而把表撑大。
+	// 目标取不小于 (cLen+1)*2 的最小 2 的幂，也不小于 minCap。
+	a.MovLoad(x64.RAX, x64.RDI, cLen)
+	a.AddImm(x64.RAX, 1)
 	a.Add(x64.RAX, x64.RAX)
-	b.put(3, x64.RAX) // 新桶数
+	a.MovImm(x64.R8, minCap)
+	capLoop := b.label()
+	capDone := b.label()
+	a.Mark(capLoop)
+	a.Cmp(x64.R8, x64.RAX)
+	a.Jcc(x64.AE, capDone)
+	a.Add(x64.R8, x64.R8)
+	a.Jmp(capLoop)
+	a.Mark(capDone)
+	b.put(3, x64.R8) // 新桶数
 
 	b.get(x64.RAX, 3)
 	a.MovImm(x64.R8, stride)
@@ -412,6 +430,9 @@ func mapGrow(b *rt) {
 	a.MovStore(x64.RDI, cData, x64.RAX)
 	a.MovImm(x64.R8, 0)
 	a.MovStore(x64.RDI, cLen, x64.R8)
+	// 新桶都由 @alloc 清零，墓碑这个位置也跟着归零；不归零的话高墓碑表重摆后
+	// 仍被判成高负载，下一次插入又重摆一次。
+	a.MovStore(x64.RDI, cTomb, x64.R8)
 
 	walk := b.label()
 	moved := b.label()
@@ -478,6 +499,10 @@ func mapPut(b *rt) {
 
 	b.get(x64.RDI, 0)
 	a.MovLoad(x64.RAX, x64.RDI, cLen)
+	// 墓碑也占着探测链，扩容判据要算上它。只看活跃数的话，
+	// "塞满再删空"那张表会永远停在大容量上，探测链越拖越长。
+	a.MovLoad(x64.R8, x64.RDI, cTomb)
+	a.Add(x64.RAX, x64.R8)
 	a.AddImm(x64.RAX, 1)
 	a.MovImm(x64.R8, growDen)
 	a.Imul(x64.RAX, x64.R8)
@@ -498,6 +523,15 @@ func mapPut(b *rt) {
 	b.call("@map_find") // rax=桶，rcx=1 命中
 	a.Test(x64.RCX, x64.RCX)
 	a.Jcc(x64.NE, same)
+	// 落在墓碑上就是复用：墓碑少一格。@map_find 会用掉 rdi，表从帧里重取。
+	b.get(x64.RDI, 0)
+	a.MovLoad(x64.R9, x64.RDI, cTomb)
+	a.Test(x64.R9, x64.R9)
+	notTomb := b.label()
+	a.Jcc(x64.E, notTomb)
+	a.AddImm(x64.R9, -1)
+	a.MovStore(x64.RDI, cTomb, x64.R9)
+	a.Mark(notTomb)
 	// 插一条
 	a.MovImm(x64.R9, stateUsed)
 	a.MovStore(x64.RAX, bState, x64.R9)
@@ -565,7 +599,8 @@ func mapContains(b *rt) {
 // @map_remove(rcx=表, rdx=键)：命中就把状态写成墓碑、数目减一、次数加一；未命中就原样返回。
 //
 // 不真正清除是为了探测链：把后面的连续段前移会断开其他键的链，留一个墓碑最省事。
-// 代价是墓碑多了表会偏大——将来实现释放时可以顺带做一次压缩。
+// 墓碑记进 cTomb，扩容判据按活跃数加墓碑数算，所以删得多、留得少的表下一次插入就会
+// 重摆一次，墓碑自然消失，不会无限堆下去。
 //
 // 返回的是被删那一条的值（未删成、以及没有值的集合类型，一律返回 0）：删成之后那一条已不在表里，
 // 语言里没有名字指向它的值，而运行期手上没有形状表，无法析构，所以交给降级侧按值的形状析构。
@@ -634,6 +669,9 @@ func mapRemoveCore(b *rt, wantFlag bool) {
 	a.MovLoad(x64.R9, x64.RDI, cLen)
 	a.AddImm(x64.R9, -1)
 	a.MovStore(x64.RDI, cLen, x64.R9)
+	a.MovLoad(x64.R9, x64.RDI, cTomb)
+	a.AddImm(x64.R9, 1)
+	a.MovStore(x64.RDI, cTomb, x64.R9) // 刚留下的那个墓碑
 	a.MovImm(x64.R9, 1)
 	a.LockXadd(x64.RDI, cVer, x64.R9) // 旧值留在 r9 里，没人看它
 	if wantFlag {

@@ -49,6 +49,9 @@ var messageRules = []messageRule{
 	{name: "strObject", at: 0, onlyIn: "internal/runtime"}, // 运行期那句消息
 	{name: "Errorf", at: 0, through: "fmt"},                // fmt.Errorf("……")
 	{name: "New", at: 0, through: "errors"},                // errors.New("……")
+	// lower 的报错先附位置再交出去（c.atError(位置, "……")）：句子在第 1 个参数上，
+	// 换了调用形式也仍是编译器对用户说的话，清单要照收。
+	{name: "atError", at: 1},
 }
 
 // messageFuncs 是"先建好句子再交出去"的那几个小函数：调用点只写 c.fail(位置, "%s", msg)，

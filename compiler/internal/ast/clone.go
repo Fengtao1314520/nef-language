@@ -185,7 +185,7 @@ func CloneStmt(s Stmt) Stmt {
 	case *Decl:
 		return cloneDecl(x)
 	}
-	panic("泛型复制没有接住的语句节点：" + fmt.Sprintf("%T", s))
+	panic(fmt.Sprintf("泛型复制没有接住的语句节点：%T（第 %d 行第 %d 列）", s, s.Where().Line, s.Where().Col))
 }
 
 // CloneExpr 交出那一个表达式的副本；nil 原样是 nil（不带值的 `return`、没有初值的声明都靠它）。
@@ -240,7 +240,7 @@ func cloneExpr(e Expr) Expr {
 	case *Exit:
 		return &Exit{Pos: x.Pos, Code: cloneExpr(x.Code), Msg: cloneExpr(x.Msg)}
 	}
-	panic("泛型复制没有接住的表达式节点：" + fmt.Sprintf("%T", e))
+	panic(fmt.Sprintf("泛型复制没有接住的表达式节点：%T（第 %d 行第 %d 列）", e, e.Where().Line, e.Where().Col))
 }
 
 // CloneType 交出那一段写出来的类型的副本。
@@ -263,7 +263,7 @@ func CloneType(t Type) Type {
 		}
 		return out
 	}
-	panic("泛型复制没有接住的类型节点：" + fmt.Sprintf("%T", t))
+	panic(fmt.Sprintf("泛型复制没有接住的类型节点：%T（第 %d 行第 %d 列）", t, t.Where().Line, t.Where().Col))
 }
 
 func cloneTypes(ts []Type) []Type {

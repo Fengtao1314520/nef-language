@@ -240,6 +240,27 @@ func TestStackTopUsesTheStoppedSite(t *testing.T) {
 	}
 }
 
+// TestChildrenListsContainerElements 钉住变量栏展开：一个 list 的三个元素各成一项，
+// 名字是下标、值是元素本身、地址指到数据块里那个位置，编辑器点开还能继续读。
+func TestChildrenListsContainerElements(t *testing.T) {
+	tg, mem := newTarget()
+	// 借一个空闲位置放 listA 句柄：Children 读的是"这个位置里存着的句柄"。
+	slot := uintptr(staticA + 0x200)
+	put64(mem, slot, listA)
+	kids := tg.Children(slot, "list<int>")
+	if len(kids) != 3 {
+		t.Fatalf("list 该展开三项，得到 %d：%+v", len(kids), kids)
+	}
+	for i, want := range []string{"10", "20", "30"} {
+		if kids[i].Value != want {
+			t.Errorf("第 %d 项该是 %s，得到 %q", i, want, kids[i].Value)
+		}
+		if kids[i].Addr != uintptr(listD)+uintptr(8*i) {
+			t.Errorf("第 %d 项的地址指错了：%#x", i, kids[i].Addr)
+		}
+	}
+}
+
 func TestLocalsListsTheFrame(t *testing.T) {
 	tg, _ := newTarget()
 	frames := tg.Stack(frame, codegen.Site{})

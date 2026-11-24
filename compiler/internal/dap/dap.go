@@ -82,13 +82,29 @@ type server struct {
 	// 悬停取值时要读的就是"这一帧所在的那一份文件里，这个名字上面写了什么"，没有这张表就找不到文件。
 	// 请求都在这一个循环里处理，这一张表不需要锁。
 	frameFiles map[int]string
+
+	// varRefs 给复合值分配变量引用号：编辑器点开一项时按号回来取子项。
+	// 号码从 1 起（0 留给"不可展开"），表里的地址与类型交给子进程照原样读。
+	varRefs map[int]varRef
+	nextRef int
+}
+
+// varRef 是一条可展开变量的身份：子进程内存里的地址、类型标注与那一帧。
+//
+// en: varRef is the identity of one expandable variable: its address in the debuggee's memory,
+// its type annotation, and the frame it came from.
+type varRef struct {
+	frame   int
+	address uint64
+	typ     string
 }
 
 // Serve 跑这一趟对话：读到标准输入关掉、或者收到 disconnect 为止。
 //
 // en: Serve runs one conversation: until standard input closes or a disconnect arrives.
 func Serve(in io.Reader, w io.Writer, start Start) error {
-	s := &server{out: &writer{w: w}, start: start, frameFiles: map[int]string{}}
+	s := &server{out: &writer{w: w}, start: start, frameFiles: map[int]string{},
+		varRefs: map[int]varRef{}}
 	requests := make(chan map[string]any)
 	go func() {
 		defer close(requests)
@@ -323,23 +339,59 @@ func (s *server) stackTrace(seq int, args map[string]any) {
 	s.reply(seq, "stackTrace", true, map[string]any{"stackFrames": frames, "totalFrames": len(frames)})
 }
 
+// refBase 是可展开变量的引用号起点。作用域那一条用奇数表示局部、偶数表示静态，
+// 从一百万起就不会和它们撞上；号码落在这一段时按 varRefs 里的地址去子进程取子项。
+//
+// en: refBase starts the numbering of expandable variables at one million, clear of the odd/even
+// scope codes; a reference in that range is resolved through varRefs into a child request.
+const refBase = 1_000_000
+
 func (s *server) variables(seq int, args map[string]any) {
 	vars := []map[string]any{}
-	// 引用号是作用域那一条发出去的：奇数是局部（还原成子进程的帧下标），偶数是静态。
 	ref := intOf(args["variablesReference"])
+	if ref >= refBase {
+		// 点开了一个复合值：按记下的地址与类型让子进程读它的直接子项。
+		if target, ok := s.varRefs[ref]; ok {
+			if reply, ok := s.askChild(debug.Message{Cmd: "expand",
+				Address: target.address, Type: target.typ, Frame: target.frame}); ok {
+				for _, v := range reply.Vars {
+					vars = append(vars, s.varEntry(v, target.frame))
+				}
+			}
+		}
+		s.reply(seq, "variables", true, map[string]any{"variables": vars})
+		return
+	}
+	// 引用号是作用域那一条发出去的：奇数是局部（还原成子进程的帧下标），偶数是静态。
 	cmd, frame := "locals", (ref-1)/2
 	if ref%2 == 0 {
 		cmd, frame = "globals", 0
 	}
 	if reply, ok := s.askChild(debug.Message{Cmd: cmd, Frame: frame}); ok {
 		for _, v := range reply.Vars {
-			vars = append(vars, map[string]any{
-				"name": v.Name, "value": v.Value, "type": v.Type, "variablesReference": 0,
-				"memoryReference": fmt.Sprintf("0x%x", v.Address),
-			})
+			vars = append(vars, s.varEntry(v, frame))
 		}
 	}
 	s.reply(seq, "variables", true, map[string]any{"variables": vars})
+}
+
+// varEntry 把一个子进程变量翻成 DAP 的变量行。可展开的分配一个非 0 引用号，
+// 编辑器点开时按号回来取子项；其余保持 0。
+//
+// en: varEntry turns one debuggee variable into a DAP variable row. Expandable ones get a non-zero
+// reference the editor can use to ask for children; the rest keep 0.
+func (s *server) varEntry(v debug.VarInfo, frame int) map[string]any {
+	vr := 0
+	if v.Compound {
+		s.nextRef++
+		ref := refBase + s.nextRef
+		s.varRefs[ref] = varRef{frame: frame, address: v.Address, typ: v.Type}
+		vr = ref
+	}
+	return map[string]any{
+		"name": v.Name, "value": v.Value, "type": v.Type, "variablesReference": vr,
+		"memoryReference": fmt.Sprintf("0x%x", v.Address),
+	}
 }
 
 // evaluate 是悬停那一条：只接受已有名字的位置——这一帧上的局部量与顶层那些静态槽里的名字。

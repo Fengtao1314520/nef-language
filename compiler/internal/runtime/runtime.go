@@ -106,7 +106,7 @@ const (
 	digits  = -0x28 // 数字缓冲区的上界，24 字节到 [rbp-0x40)
 	utf8Buf = -0x20 // 最多四个字节
 
-	// 容器对象里那四个字段（句柄指向对象头之后的第一个位置）。
+	// 容器对象里那几个字段（句柄指向对象头之后的第一个位置）。
 	// 每格 8 字节，位置里存的就是中间码那个槽的值——窄元素（boolean、byte、unicode）
 	// 在容器里也占满 8 字节，为的是容器只有一种搬法。
 	cLen   = 0  // 有几样东西
@@ -114,15 +114,16 @@ const (
 	cData  = 16 // 数据块在堆上的起点
 	cVer   = 24 // 改过几次：遍历途中一旦发现它变了就抛 10033 号
 	cMode  = 32 // 键怎么算相等与散列：0 比那 64 位，1 按文本内容
-	cObjSz = 40 // 容器对象本身占几字节（不含那 8 字节的对象头）
+	cTomb  = 40 // 墓碑有几格：删出来的空位，扩容判据要算上，重摆时清零
+	cObjSz = 48 // 容器对象本身占几字节（不含那 8 字节的对象头）
 	minCap = 4  // 空容器先按这个容量要数据块
 )
 
-// 下面这份偏移是给降级与发射器看的同一张表：容器对象的五个字段、桶里那三个槽位、
+// 下面这份偏移是给降级与发射器看的同一张表：容器对象的六个字段、桶里那三个槽位、
 // 文本对象的前两个槽位。运行期例程与中间码都照它摆，任何一方不得自行另算一遍。
 //
 // en: The offsets below are one table read by both lowering and the emitter: the
-// container object's five fields, the three slots in a bucket, and the first two slots of a
+// container object's six fields, the three slots in a bucket, and the first two slots of a
 // text object. Both the runtime routines and the intermediate code lay out by it, and neither
 // side may count them again.
 const (
@@ -131,6 +132,7 @@ const (
 	CellData  = cData // 数据块在堆上的起点
 	CellVer   = cVer  // 改过几次：10033 号的判断靠它
 	CellMode  = cMode // 键怎么算散列与相等，造表那一刻写进来
+	CellTomb  = cTomb // 墓碑有几格：调试侧与测试据此看退化程度
 	CellSize  = cObjSz
 	BucketPad = stride // 一格桶占几字节
 	BucketKey = bKey   // 键在桶里第几格：遍历 dict 交的就是这个位置
@@ -296,6 +298,10 @@ func Build() Blob {
 	b.routine("@free_guarded", freeGuarded)
 	// 往一棵 Json 上写那一档的形状不符（10114 号）：只叫 @throw，排在它之后。
 	b.routine("@json_shape_fail", jsonShapeFail)
+	// json 那十几支中间码函数的静态槽要靠这一对串行化；两条都要 srwTake/srwGive 与
+	// GetCurrentThreadId，排在锁与导入已经齐了的位置。
+	b.routine("@json_enter", jsonEnter)
+	b.routine("@json_leave", jsonLeave)
 	// @str_share 排在 @free 之后只是因为它与那一块的归还同属一本账；它自己谁都不叫。
 	b.routine("@str_share", strShare)
 	// `bytes` 那一档：三条都只要 @alloc 与 @throw，slice 要先有 bytes_new。
@@ -499,6 +505,7 @@ func Build() Blob {
 	b.routine("@f_exponential", fExponential)
 	// @f_pow 叫 @f_natural_log 与 @f_exponential，两条都在上面排过了。
 	b.routine("@f_pow", fPow)
+	b.routine("@f_is_finite", floatIsFinite)
 	b.routine("@path_dir", pathDir)
 	b.routine("@path_abs", pathAbs)
 	b.routine("@env_chdir", envChdir)
@@ -583,6 +590,9 @@ var imports = groupImports(
 		// 这一版还用不上（用上它的那天在这串里补一个名字，导入表那一条测试跟着改）。
 		"TlsAlloc", "TlsSetValue", "AcquireSRWLockExclusive", "ReleaseSRWLockExclusive",
 		"ExitThread", "CreateThread", "VirtualFree",
+		// json 那一组用中间码写成，游标与错误记在静态槽里；按线程重入要认出是哪一条线程，
+		// 所以要一个当前线程号。
+		"GetCurrentThreadId",
 	),
 	// 网络这一层：winsock 开机与收尾，加上 `net` 那一组要问的十七条，共十九个名字。
 	// InetPtonW 把 listen 的绑定地址写成 IPv4 点分十进制，getpeername 给 socket 查对端地址。
@@ -811,8 +821,10 @@ var stateCells = []struct {
 	// 随机数那一个状态（math.go）
 	{"rndSeed", 8},
 
-	// 计时的起点（os.go）。频率那个位置留静态：全机器一个数，两条线程各问一次也是同一个数。
+	// 计时的起点与频率（os.go）。两个都按线程各一份：起点本来就是每线程的，频率若留静态，
+	// 第二线程会看见"频率已问过"而跳过初始化，拿本线程还是 0 的起点报出开机至今的秒数。
 	{"perfStart", 8},
+	{"perfFreq", 8},
 
 	// 正则那六格（regex.go）
 	{"rxProg", 8},
@@ -965,6 +977,12 @@ func dataBytes() ([]byte, map[string]int) {
 	put("tlsIdx", make([]byte, 8))
 	put("heapLock", make([]byte, 8))
 	put("printLock", make([]byte, 8))
+	// json 那十几支中间码函数共用九个静态槽（游标、错误、环检测链）。它们现在可以
+	// 被两条线程同时调到，所以用一颗可重入的锁串行化：锁本身不重入，重入由 owner＋depth
+	// 两格自己记，同一条线程递归调用不会停住，别的线程则进不来。
+	put("jsonLock", make([]byte, 8))
+	put("jsonOwner", make([]byte, 8))
+	put("jsonDepth", make([]byte, 8))
 	put("wsaOnce", make([]byte, 8))
 	// 调用链那三个位置：用户代码第一个字节的地址、表的位置、表的项数。
 	// 都是开局那一步由用户代码自己写进来的（`internal/codegen/emit.go` 的 traceInit），
@@ -3907,6 +3925,60 @@ func freeGuarded(b *rt) {
 func jsonShapeFail(b *rt) {
 	b.prologue()
 	b.throwWith(codeJsonShape, "sJsonShape")
+	b.epilogue()
+}
+
+// jsonEnter／jsonLeave 把发射出来的 nef.json.* 那十几支包在一颗可重入锁里。
+// 那几支共用的九个静态槽（游标、出错位置、环检测链）是全程序一份，而文本与 class 句柄
+// 允许交给别的线程；两条线程同时解析会读到对方的光标，环检测链还会双重分配。
+// 锁本体仍是那一颗不重入的 SRW 锁（规矩见 srwTake），重入由 owner＋depth 两格自己记：
+// 同一条线程递归调 value／object／array 只加层数，别的线程在锁上等。
+//
+// en: jsonEnter/jsonLeave wrap the emitted nef.json.* functions in a reentrant lock. Their
+// nine shared static slots (cursor, fault position, identity chain) are program-wide, while
+// text and class handles may be handed to another thread: two simultaneous parses would read
+// each other's cursor and could double-allocate the identity chain. The underlying SRW lock
+// stays non-reentrant (see srwTake); reentrancy is tracked in owner/depth so a thread recursing
+// through value/object/array only bumps a count while another thread waits on the lock.
+func jsonEnter(b *rt) {
+	a := b.a
+	b.prologue()
+	b.srwTake("jsonLock")
+	b.impCall("GetCurrentThreadId")
+	zeroExtend32(b, 0)
+	same, done := b.label(), b.label()
+	b.loadCell(x64.RAX, "jsonOwner")
+	b.get(x64.RCX, 0)
+	a.Cmp(x64.RAX, x64.RCX)
+	a.Jcc(x64.E, same)
+	b.get(x64.RAX, 0)
+	b.storeCell(x64.RAX, "jsonOwner")
+	a.MovImm(x64.RAX, 1)
+	b.storeCell(x64.RAX, "jsonDepth")
+	a.Jmp(done)
+	a.Mark(same)
+	b.loadCell(x64.RAX, "jsonDepth")
+	a.AddImm(x64.RAX, 1)
+	b.storeCell(x64.RAX, "jsonDepth")
+	a.Mark(done)
+	b.srwGive("jsonLock")
+	b.epilogue()
+}
+
+func jsonLeave(b *rt) {
+	a := b.a
+	b.prologue()
+	b.srwTake("jsonLock")
+	b.loadCell(x64.RAX, "jsonDepth")
+	a.AddImm(x64.RAX, -1)
+	b.storeCell(x64.RAX, "jsonDepth")
+	owned := b.label()
+	a.Test(x64.RAX, x64.RAX)
+	a.Jcc(x64.NE, owned)
+	a.Xor(x64.RAX, x64.RAX)
+	b.storeCell(x64.RAX, "jsonOwner")
+	a.Mark(owned)
+	b.srwGive("jsonLock")
 	b.epilogue()
 }
 

@@ -572,6 +572,89 @@ func (t *Target) item(addr uintptr, kindText string, depth int) string {
 	return t.Value(addr, kind, kindText, depth+1)
 }
 
+// Children 读一个复合值的直接子项，供调试器展开变量栏用。
+// 与 list/dict/fields 那几个"印成一段字符串"的 helper 共用同一套地址算法，
+// 只是这里返回的是一个个带名字、带地址的位置，编辑器点开一项就能再展开下一层。
+// 值类型、文本与句柄没有子项，返回空表。
+//
+// en: Children reads the direct children of a compound value for the debugger's variable pane.
+// It shares the address arithmetic with the string-printing helpers (list/dict/fields) but
+// returns named positions with addresses, so the editor can expand one item into another. Value
+// types, text and handles have no children and return an empty list.
+func (t *Target) Children(addr uintptr, text string) []Local {
+	h, ok := t.u64(addr)
+	if !ok || h == 0 {
+		return nil
+	}
+	body := uintptr(h)
+	var out []Local
+	switch {
+	case strings.HasPrefix(text, "list<"):
+		elem := inner(text)
+		n, ok := t.u64(body + runtime.CellLen)
+		data, ok2 := t.u64(body + runtime.CellData)
+		if !ok || !ok2 {
+			return nil
+		}
+		base := addrOf(data)
+		for i := uint64(0); i < n && i < maxItems; i++ {
+			at := base + uintptr(8*i)
+			out = append(out, Local{Name: "[" + strconv.FormatUint(i, 10) + "]", Type: elem,
+				Value: t.item(at, elem, 1), Addr: at})
+		}
+	case strings.HasPrefix(text, "dict<"):
+		k, v := kvInner(text)
+		out = t.bucketChildren(body, k, v, true)
+	case strings.HasPrefix(text, "hashset<"):
+		e := inner(text)
+		out = t.bucketChildren(body, e, "object", false)
+	default:
+		d := t.byName(text)
+		if d == nil {
+			d = t.byTag(body)
+		}
+		if d == nil {
+			return nil
+		}
+		for _, f := range d.Fields {
+			ft := t.nameOf(f.Type)
+			at := uintptr(h) + uintptr(f.Off)
+			out = append(out, Local{Name: t.str(f.Name), Type: ft,
+				Value: t.Value(at, "handle", ft, 1), Addr: at})
+		}
+	}
+	return out
+}
+
+// bucketChildren 把 dict／hashset 的桶表读成一份子项表。wantVal 为真时名字是"键: 值"，
+// 否则只有键；两种情况的 Address 都指到那个位置的键位置。
+//
+// en: bucketChildren reads a dict/hashset bucket table into a list of children. With wantVal the
+// name is "key: value", otherwise just the key; in both cases Address points at the key slot.
+func (t *Target) bucketChildren(addr uintptr, key, val string, wantVal bool) []Local {
+	n, ok := t.u64(addr + runtime.CellLen)
+	room, ok2 := t.u64(addr + runtime.CellCap)
+	data, ok3 := t.u64(addr + runtime.CellData)
+	if !ok || !ok2 || !ok3 {
+		return nil
+	}
+	base := addrOf(data)
+	var out []Local
+	for i := uint64(0); i < room && uint64(len(out)) < n && i < maxItems*4; i++ {
+		b := base + uintptr(i*runtime.BucketPad)
+		st, ok := t.u64(b)
+		if !ok || st != bucketUsed {
+			continue
+		}
+		name := t.item(b+runtime.BucketKey, key, 1)
+		if wantVal {
+			name += ": " + t.item(b+runtime.BucketVal, val, 1)
+		}
+		out = append(out, Local{Name: name, Type: val, Value: name, Addr: b + runtime.BucketVal})
+	}
+	return out
+}
+
 func (t *Target) fields(h uint64, d *ir.Desc, depth int) string {
 	name := t.str(d.Name)
 	if depth >= maxDepth {

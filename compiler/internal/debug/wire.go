@@ -40,7 +40,7 @@ import (
 // empty.
 type Message struct {
 	Event  string `json:"event,omitempty"`  // ready（已就绪）｜stopped（已停住）｜exit（程序已结束）
-	Cmd    string `json:"cmd,omitempty"`    // start｜continue｜step｜stack｜locals｜globals｜breakpoints｜terminate
+	Cmd    string `json:"cmd,omitempty"`    // start｜continue｜step｜stack｜locals｜globals｜expand｜breakpoints｜terminate
 	Reply  bool   `json:"reply,omitempty"`  // 真：这一条是答复，不是主动上报的事件
 	Reason string `json:"reason,omitempty"` // breakpoint｜step｜exit
 
@@ -48,6 +48,7 @@ type Message struct {
 	Frame int    `json:"frame,omitempty"` // 要看第几帧
 
 	Name    string `json:"name,omitempty"`  // 悬停问的那个名字
+	Type    string `json:"type,omitempty"`  // expand 请求要展开的那个值的类型标注
 	Value   string `json:"value,omitempty"` // 那个位置当前的值（求值请求的答复）
 	Found   bool   `json:"found,omitempty"` // 那一帧上有没有这个名字
 	Address uint64 `json:"addr,omitempty"`  // 那个位置在内存里的地址
@@ -87,6 +88,9 @@ type VarInfo struct {
 	Type    string
 	Value   string
 	Address uint64
+	// Compound 为真表示这个值可以展开（容器、struct、class、Json）：编辑器据此让
+	// variablesReference 非 0，点开时再发一条 expand 请求取它的子项。
+	Compound bool `json:"compound,omitempty"`
 }
 
 // WriteMessage 写一条：一行一条，末尾一个换行。

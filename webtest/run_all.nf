@@ -23,7 +23,9 @@ let cases_dir:string = args[1]
 let out_root:string = args[2]
 let nf_path:string = "nf.exe"
 let want:string = ""
-let fixdir:string = path.directory_name(cases_dir) + "fixtures"
+// path.directory_name 按定义不带尾部分隔符（见 stdlib 的 path 文档），
+// 所以拼下一截时要自己补一个斜杠，否则 webtest/cases 会拼成 webtestfixtures。
+let fixdir:string = path.directory_name(cases_dir) + "/fixtures"
 
 let total:int = 0
 let passed:int = 0

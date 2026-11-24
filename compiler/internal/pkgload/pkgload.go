@@ -70,6 +70,9 @@ func New() *Loader {
 }
 
 func (l *Loader) open(containerPath string) *container {
+	// 缓存键先规范化：同一份包在盘上写成 greeting 与 Greeting 时，
+	// 不这么做会开两次容器、算出两份包身份，包里的顶层跟着跑两遍。
+	containerPath = RealCase(containerPath)
 	if c, ok := l.containers[containerPath]; ok {
 		return c
 	}
@@ -89,6 +92,8 @@ func (l *Loader) open(containerPath string) *container {
 // manifest could not be read", not "this manifest has no name" - the project root's manifest
 // only ever carries deps.
 func (l *Loader) rootMeta(root string) (pkgfmt.Meta, bool) {
+	// 与 open 同一条理由：清单也按盘上的真写法做键，别让大小写两种写法算两份。
+	root = RealCase(root)
 	if strings.HasSuffix(root, pkgfmt.Suffix) {
 		c := l.open(root)
 		return c.meta, c.err == nil && c.meta.Name != ""
@@ -151,15 +156,39 @@ func (l *Loader) exists(path string) bool {
 	return err == nil
 }
 
-// caseInsensitiveFS 说这台机器的文件系统区不区分大小写。现在只有 Windows 这一侧（nef 目前
-// 只出 Windows 的产物：`cmd/nf/run_windows.go` 与后端那一套 PE 输出）。macOS 默认也不区分，等它进
-// 范围时改成开一次盘上探针，别现在猜。
+// probeCaseInsensitiveFS 在盘上探一次：建一个临时目录，写 nFProbe，再用只有大小写不同的
+// nFPROBE 写一次。不区分大小写的系统会覆盖同一份文件，读回 "b"；区分的会造出两份，读回 "a"。
+// 任何一步失败就退回按系统猜——探针是为了判准，绝不能因为判不出来就让编译停下来。
 //
-// en: caseInsensitiveFS says whether this machine's file system ignores letter case. Right now
-// that is only the Windows side (nef ships Windows products only: `cmd/nf/run_windows.go` and
-// the backend's PE output). macOS also ignores case by default; when it enters scope, replace this
-// with a probe run once against the disk instead of guessing now.
-var caseInsensitiveFS = runtime.GOOS == "windows"
+// en: probeCaseInsensitiveFS probes the disk once: in a temporary directory it writes nFProbe and
+// then nFPROBE, which differ only in case. A case-insensitive system overwrites the same file
+// (reading back "b"); a case-sensitive one makes two files (reading back "a"). Any failure falls
+// back to the system guess - the probe is there to be accurate, never to stop a build.
+func probeCaseInsensitiveFS() bool {
+	fallback := runtime.GOOS == "windows"
+	dir, err := os.MkdirTemp("", "nf-case-")
+	if err != nil {
+		return fallback
+	}
+	defer os.RemoveAll(dir)
+	if os.WriteFile(filepath.Join(dir, "nFProbe"), []byte("a"), 0o600) != nil {
+		return fallback
+	}
+	if os.WriteFile(filepath.Join(dir, "nFPROBE"), []byte("b"), 0o600) != nil {
+		return false // 两份都建得成：这个文件系统区分大小写
+	}
+	data, err := os.ReadFile(filepath.Join(dir, "nFProbe"))
+	if err != nil {
+		return fallback
+	}
+	return string(data) == "b"
+}
+
+// caseInsensitiveFS 说这台机器的文件系统区不区分大小写，开局探一次就定下来，不按系统猜。
+//
+// en: caseInsensitiveFS says whether this machine's file system ignores letter case, decided by
+// one probe at start-up instead of a guess from the operating system.
+var caseInsensitiveFS = probeCaseInsensitiveFS()
 
 // RealCase 把一条路径里每一段的写法换成磁盘上真正的那一种。
 //

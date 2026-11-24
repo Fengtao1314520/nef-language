@@ -1,6 +1,6 @@
 bytes.from_base64	bytes.from_base64(encoded: string): bytes
 bytes.join	bytes.join(parts: list<bytes>): bytes
-bytes.new	bytes.new(size: int): bytes
+bytes.allocate	bytes.allocate(size: int): bytes
 bytes.slice	bytes.slice(start: int, end: int): bytes
 bytes.to_base64	bytes.to_base64(): string
 console.print	console.print(...values)
@@ -15,7 +15,7 @@ dict.values	dict.values(): list<V>
 environment.current_directory	environment.current_directory(): string
 environment.get	environment.get(name: string): string
 environment.set	environment.set(name: string, value: string)
-environment.set_current_directory	environment.set_current_directory(path: string): boolean
+environment.current_directory	environment.current_directory(): string
 environment.unset	environment.unset(name: string)
 file.append	file.append(path: string, text: string)
 file.copy	file.copy(source: string, target: string)
@@ -83,8 +83,8 @@ math.cosine	math.cosine(x: float): float
 math.exponential	math.exponential(x: float): float
 math.floor	math.floor(x: float): int
 math.log_base_10	math.log_base_10(x: float): float
-math.maximum	math.maximum(a, b)
-math.minimum	math.minimum(a, b)
+math.larger	math.larger(a, b)
+math.smaller	math.smaller(a, b)
 math.natural_log	math.natural_log(x: float): float
 math.pi	math.pi(): float
 math.power	math.power(base: int, exponent: int): int

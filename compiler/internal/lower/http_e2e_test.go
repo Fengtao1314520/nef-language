@@ -140,6 +140,10 @@ console.print(b.status, text.from_bytes(b.body), length(b.headers) >= 1)
 // TestHttpCodes 验证 winhttp 错误码如何映射进 10100 段：
 // 三个用例各命中一个号，消息里都带系统原始错误号。
 func TestHttpCodes(t *testing.T) {
+	// 主机名那一条不用 *.invalid：本机 DNS 把不存在的域名指向 198.18.0.x，解析反而成功。
+	// 用连字符开头的主机名——winhttp 的 URL 解析收，名字解析一步稳定失败（12007 → 10103），
+	// 不依赖这台机器怎么配 DNS。
+	badName := "-nef-no-such-host"
 	cases := []struct {
 		name, src, want string
 	}{
@@ -147,8 +151,8 @@ func TestHttpCodes(t *testing.T) {
 			"出错了（10104）：这个地址或端口不行"},
 		{"网址是空的", `let r:Response = http.get("", [], 2000)`,
 			"出错了（10104）：这个地址或端口不行"},
-		{"主机名解析不到", `let r:Response = http.get("http://nef-没有这个域名.invalid/", [], 5000)`,
-			"出错了（10103）：解析不到 http://nef-没有这个域名.invalid/ 这个地址"},
+		{"主机名解析不到", `let r:Response = http.get("http://` + badName + `/", [], 5000)`,
+			"出错了（10103）：解析不到 http://" + badName + "/ 这个地址"},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {

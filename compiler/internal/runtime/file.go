@@ -287,6 +287,9 @@ func fileRead(b *rt) {
 	a := b.a
 	b.prologue()
 	b.put(4, x64.RCX)
+	// 打开之后那几处失败也会走到同一出口，先把待归还的块摆成空句柄。
+	a.Xor(x64.RAX, x64.RAX)
+	b.put(xObj, x64.RAX)
 	b.leaCell(x64.RDX, "wPath")
 	b.get(x64.RCX, 4)
 	b.call("@to_wide")
@@ -310,6 +313,7 @@ func fileRead(b *rt) {
 	a.Cmp(x64.RAX, x64.R8)
 	noFile := b.label()
 	a.Jcc(x64.E, noFile)
+	openFail := b.label()
 	b.put(xHandle, x64.RAX)
 
 	// GetFileSizeEx(句柄, &哪里放)：返回的布尔不管，失败时那个位置是 -1
@@ -319,7 +323,7 @@ func fileRead(b *rt) {
 	b.get(x64.RAX, xSize)
 	a.MovImm(x64.R8, -1)
 	a.Cmp(x64.RAX, x64.R8)
-	a.Jcc(x64.E, noFile)
+	a.Jcc(x64.E, openFail)
 
 	// 对象＝16 字节的头＋整块内容，标记是文本
 	a.AddImm(x64.RAX, strHead)
@@ -340,11 +344,11 @@ func fileRead(b *rt) {
 	a.MovStore(x64.RBP, arg5, x64.RAX)
 	b.impCall("ReadFile")
 	a.Test(x64.RAX, x64.RAX)
-	a.Jcc(x64.E, noFile)
+	a.Jcc(x64.E, openFail)
 	a.MovZX32(x64.RAX, x64.RBP, -8*(xGot+1))
 	b.get(x64.RDX, xSize)
 	a.Cmp(x64.RAX, x64.RDX)
-	a.Jcc(x64.NE, noFile)
+	a.Jcc(x64.NE, openFail)
 
 	b.get(x64.RCX, xHandle)
 	b.impCall("CloseHandle")
@@ -409,6 +413,13 @@ func fileRead(b *rt) {
 	b.get(x64.RAX, xObj)
 	b.epilogue()
 
+	a.Mark(openFail)
+	// 句柄打开以后才走到这里：系统句柄与已经申请的块都要在这一条路上还掉。
+	b.get(x64.RCX, xHandle)
+	b.impCall("CloseHandle")
+	b.get(x64.RCX, xObj)
+	b.call("@free")
+	a.Jmp(noFile)
 	a.Mark(noFile)
 	b.throwWith(codeNoFile, "sNoFile")
 	a.Mark(badPath)
@@ -459,6 +470,9 @@ func fileReadBytes(b *rt) {
 	a := b.a
 	b.prologue()
 	b.put(xPath, x64.RCX)
+	// 打开之后那几处失败也走 noRead，那里要还的块先摆成空句柄。
+	a.Xor(x64.RAX, x64.RAX)
+	b.put(xObj, x64.RAX)
 	b.leaCell(x64.RDX, "wPath")
 	b.get(x64.RCX, xPath)
 	b.call("@to_wide")
@@ -488,7 +502,7 @@ func fileReadBytes(b *rt) {
 	b.get(x64.RAX, xSize)
 	a.MovImm(x64.R8, -1)
 	a.Cmp(x64.RAX, x64.R8)
-	a.Jcc(x64.E, noFile)
+	a.Jcc(x64.E, noRead)
 
 	// 一块正好装得下这个文件的字节：@bytes_new 把"字节数"那个位置摆好，正文留在它后面。
 	b.get(x64.RCX, xSize)
@@ -523,6 +537,9 @@ func fileReadBytes(b *rt) {
 	b.epilogue()
 
 	a.Mark(noRead)
+	// 句柄已经打开：无论走到哪一支失败，系统句柄和自己造的块都在这里还掉。
+	b.get(x64.RCX, xHandle)
+	b.impCall("CloseHandle")
 	b.get(x64.RCX, xObj)
 	b.call("@free") // 这一块是自己造的，抛出去之后没人再拿着它
 	a.Mark(noFile)

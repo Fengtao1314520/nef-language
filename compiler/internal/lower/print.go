@@ -378,10 +378,15 @@ func buildPrint(l *L) {
 		{ir.KindBool, func() ir.Val { return b.call1("@bool_str", v) }},
 		{ir.KindChar, func() ir.Val { return b.call1("@char_str", v) }},
 		{ir.KindFloat, func() ir.Val { return b.call1("@float_str", v) }},
-		// 文本本身已经是文本，套一对引号就是它在容器里的样子。引号里头不转义：
-		// 这一版没有字符串转义表，`console.print` 印文本也是原样，两处同一个规则。
+		// 文本用 nef.json.quote 印成带引号、转义过的一段：引号与反斜杠前面各加一个反斜杠，
+		// 控制字符写成 \u00xx，非 ASCII 原样。它返回的是新块，由调用方（console.print 或
+		// number.to_string）接手，这里不能再 free。空句柄仍走 orNull：quote 一进门要读长度。
+		// en: Text is printed through nef.json.quote - quotes, backslashes and control characters
+		// are escaped, non-ASCII stays as is. It returns a fresh block handed to the caller, so
+		// this arm must not free it. A null handle still goes through orNull: quote reads the
+		// length straight away.
 		{ir.KindString, func() ir.Val {
-			return b.orNull(v, func() ir.Val { return b.catFree(b.cat(b.str(pQuote), v), b.str(pQuote)) })
+			return b.orNull(v, func() ir.Val { return b.call1(fnJSONQuote, v) })
 		}},
 		{ir.KindList, func() ir.Val {
 			return b.orNull(v, func() ir.Val {

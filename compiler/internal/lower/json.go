@@ -27,8 +27,9 @@
 //
 // 三条与那张对照表对得上的设定：
 //
-//   - **游标与错误记在七个静态槽里**（jstate）。拆解到一半没有别人会插进来：语言里没有回调
-//     也没有线程，所以不必把位置当参数一层层传。
+//   - **游标与错误记在九个静态槽里**（jstate）。这些槽是全程序一份，所以每一支函数进出口
+//     都套一对 @json_enter／@json_leave：同一条线程递归只加层数，别的线程在锁上等。
+//     不这么做的话，两条线程同时解析会互相改对方的光标与环检测链。
 //   - **嵌套深度不另设上限**。递归下降每下一层是一条真调用，那条线就是语言承诺的栈：
 //     每一支函数开场那一次比较是发射器给每一帧摆的，撞到就走 10093 号那一句。
 //   - **坏了整片返回空句柄**，不新增错误码。哪一层的毛病都记进 jErr／jErrPos 再往上退；
@@ -45,9 +46,10 @@
 // internal/rtjson: which text parses, which is broken, and which sentence a break says are
 // all decided there; internal/lower/json_e2e_test.go runs the same samples for real and
 // compares this function set against it line by line. Three settings that match that answer
-// key: the CURSOR AND THE FAULT LIVE IN SEVEN STATIC SLOTS (jstate) - nothing interrupts a parse
-// halfway, since the language has neither callbacks nor threads, so there is no need to pass
-// positions down as parameters; NO EXTRA NESTING LIMIT - each level of recursive descent is
+// key: the CURSOR AND THE FAULT LIVE IN NINE STATIC SLOTS (jstate) - program-wide storage, so
+// every function wraps its body in @json_enter/@json_leave: recursion on one thread only bumps
+// a depth count while another thread waits on the lock. Without it two concurrent parses would
+// overwrite each other's cursor and identity chain; NO EXTRA NESTING LIMIT - each level of recursive descent is
 // a real call, and that line IS the stack the language promises: the comparison at the start
 // of every function is the one the emitter places in every frame, and hitting it walks out
 // with code 10093; A BROKEN TEXT RETURNS AN EMPTY HANDLE, with no new error code - whichever
@@ -308,8 +310,19 @@ func openJSON(l *L, name string, params int) (*jb, bool) {
 	}
 	// 与打印机同一条规则：参数占用前几个槽，Slots 必须设为它们之后的位置，否则第一个 Temp 会覆盖传入的值。
 	f.Slots = f.Params
-	return &jb{pb: &pb{f: f, msg: l.msg, selfFn: name}, s: l.json}, true
+	j := &jb{pb: &pb{f: f, msg: l.msg, selfFn: name}, s: l.json}
+	// 这一组的静态槽全程序一份，进出一支都要过可重入锁（运行期那对例程自己记层数）。
+	j.void("@json_enter")
+	return j, true
 }
+
+// ret／ret0 在每一条返回路上先放锁，别让锁跨出一次调用。
+// 这里没有 throw：这一组的失败都是返回空句柄，抛错的那两支放在运行期（jsonShapeFail）。
+//
+// en: ret/ret0 release the lock on every return path so it never outlives a call. No throw happens
+// here: failures in this group return a null handle, and the throwing cases live in the runtime.
+func (j *jb) ret(v ir.Val) { j.void("@json_leave"); j.pb.ret(v) }
+func (j *jb) ret0()        { j.void("@json_leave"); j.pb.ret0() }
 
 // param 是这一支的第 i 个入参——它在帧上，读法就是 ir.L(i)（发射器一进门把寄存器落到那里）。
 //

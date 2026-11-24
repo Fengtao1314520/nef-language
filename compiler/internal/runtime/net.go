@@ -525,10 +525,14 @@ func netConnect(b *rt) {
 	a.Jcc(x64.E, timedOut) // 超时
 	a.Jmp(selErr)          // 负数：select 调用失败
 
-	// 超时：这就是超时（10102 那一句），不必再尝试其他家族
+	// 超时：这就是超时（10102 那一句），不必再尝试其他家族。
+	// 解析器的结果链是系统分配的，抛出前也要还；正常路径在 :609 与 :630 都还了。
 	a.Mark(timedOut)
 	b.get(x64.RCX, cS)
 	b.impCallFrom(ws2, "closesocket")
+	b.leaCell(x64.RAX, "netRes")
+	a.MovLoad(x64.RCX, x64.RAX, 0)
+	b.impCallFrom(ws2, "FreeAddrInfoW")
 	a.MovImm(x64.RCX, wsaTimedOut)
 	a.Xor(x64.RDX, x64.RDX)
 	netThrow(b)
@@ -634,12 +638,15 @@ func netConnect(b *rt) {
 	a.Xor(x64.RDX, x64.RDX)
 	netThrow(b)
 
-	// select 失败：其号码即结果
+	// select 失败：其号码即结果。同样要把解析器的结果链还回去。
 	a.Mark(selErr)
 	b.impCallFrom(ws2, "WSAGetLastError")
 	b.put(cErr, x64.RAX)
 	b.get(x64.RCX, cS)
 	b.impCallFrom(ws2, "closesocket")
+	b.leaCell(x64.RAX, "netRes")
+	a.MovLoad(x64.RCX, x64.RAX, 0)
+	b.impCallFrom(ws2, "FreeAddrInfoW")
 	b.get(x64.RCX, cErr)
 	a.Xor(x64.RDX, x64.RDX)
 	netThrow(b)
@@ -920,13 +927,15 @@ func netSendAll(b *rt) {
 //
 // 就地填充是该档存在的理由之一：单次接收的字节数不可控，
 // 每收一片都要重建一个八倍大的容器就没法用。偏移是从块正文起点算起的位置，省掉时降级侧传 0；
-// 可填的个数是块大小减偏移，偏移超出块大小时按 0 个填，不抛。
+// 可填的个数是块大小减偏移；偏移是负数或超出块大小时按 10031 号下标越界拒绝。
+// 写进块头之前会破坏堆，而报"对方已关闭"会把越界说成网络问题，两者都不能悄悄过去。
 //
 // en: @net_recv_into (rcx = socket, rdx = bytes, r8 = offset): fills what arrives in place into
 // that block and returns rax = how many. Filling in place is one of the reasons that tier exists:
 // how much arrives per read is not controllable. The offset counts from the body start (lowering
-// passes 0 when omitted); the space left is the size minus the offset, and an offset past the end
-// fills nothing rather than throwing.
+// passes 0 when omitted); the space left is the size minus the offset. A negative offset or one
+// past the end is refused with code 10031: writing before the block header would corrupt the heap,
+// and reporting "peer closed" would turn an out-of-range call into a network problem.
 func netRecvInto(b *rt) {
 	const (
 		hS    = 0
@@ -940,14 +949,17 @@ func netRecvInto(b *rt) {
 	b.put(hB, x64.RDX)
 	b.put(hOff, x64.R8)
 	bad := b.label()
+	badOff := b.label()
+	a.Test(x64.R8, x64.R8)
+	a.Jcc(x64.S, badOff) // 负偏移会写到块头之前，按越界拒绝
 	b.get(x64.RAX, hB)
 	a.MovLoad(x64.RAX, x64.RAX, BytesLen) // 块大小
 	b.get(x64.RDX, hOff)
 	a.Sub(x64.RAX, x64.RDX) // 可填 = 大小 - 偏移
 	a.Test(x64.RAX, x64.RAX)
 	fits := b.label()
-	a.Jcc(x64.NS, fits)     // 可填 ≥ 0：照用
-	a.Xor(x64.RAX, x64.RAX) // 偏移超出：可填按 0
+	a.Jcc(x64.NS, fits) // 可填 ≥ 0：照用
+	a.Jmp(badOff)       // 偏移超过块长：也按越界拒绝，不再谎报连接关闭
 	a.Mark(fits)
 	b.put(hRoom, x64.RAX)
 	b.get(x64.RCX, hS)
@@ -967,6 +979,9 @@ func netRecvInto(b *rt) {
 	a.Mov(x64.RCX, x64.RAX)
 	a.Xor(x64.RDX, x64.RDX)
 	netThrow(b)
+	a.Mark(badOff)
+	b.throwWith(codeIndex, "sIndex")
+	b.epilogue()
 }
 
 // @net_peer_address(rcx=套接字)：返回 rax=对端地址文本（点分十进制）的对象句柄。

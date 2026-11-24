@@ -33,7 +33,23 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"os"
+	"runtime/debug"
+	"strings"
 )
+
+// serverVersion 是 initialize 答复里报给编辑器的版本号。编译器启动时用 SetVersion 注入，
+// 测试不注入就保持 dev——ll 包不能反过来 import cmd/nf，所以用这一个全局量接线。
+//
+// en: serverVersion is the version reported in the initialize reply. The compiler injects it at
+// start-up through SetVersion; tests that do not inject keep "dev". The ls package cannot import
+// cmd/nf back, so this one global is the wiring.
+var serverVersion = "dev"
+
+// SetVersion 设置 initialize 答复里的版本号。只在启动时调一次。
+//
+// en: SetVersion sets the version reported by initialize. Called once at start-up.
+func SetVersion(v string) { serverVersion = v }
 
 // Serve 从 r 读报文、往 w 写答复，读到 exit 或 r 到尽头就返回。
 //
@@ -50,7 +66,11 @@ func Serve(r io.Reader, w io.Writer) error {
 			return err
 		}
 		var m request
-		if json.Unmarshal(body, &m) != nil {
+		if err := json.Unmarshal(body, &m); err != nil {
+			// 报文连 JSON 都不是：按 JSON-RPC 的解析错误回一条，id 无从得知就写 null。
+			// 从前这里直接 continue，编辑器以为请求丢了，排查时什么线索都没有。
+			s.conn.ReplyError(json.RawMessage("null"), ErrParseError,
+				"报文不是合法的 JSON-RPC 请求："+err.Error())
 			continue
 		}
 		if s.handle(m) {
@@ -86,6 +106,8 @@ type server struct {
 func (s *server) handle(m request) (stop bool) {
 	defer func() {
 		if r := recover(); r != nil {
+			// 标准输出是协议帧，一个字节都不能往那里写；日志只走标准错误。
+			fmt.Fprintf(os.Stderr, "nf LSP 处理 %s 时崩了：%v\n%s\n", m.Method, r, debug.Stack())
 			if m.ID != nil {
 				s.conn.ReplyError(m.ID, ErrInternal, "nf 的服务器算这一条时报了意外："+fmt.Sprint(r))
 			}
@@ -107,8 +129,9 @@ func (s *server) handle(m request) (stop bool) {
 				ReferencesProvider:         true,
 				RenameProvider:             &renameOptions{PrepareProvider: true},
 				DocumentFormattingProvider: true,
+				WorkspaceSymbolProvider:    true,
 			},
-			ServerInfo: serverInfo{Name: "nf"},
+			ServerInfo: serverInfo{Name: "nf", Version: serverVersion},
 		})
 	case "initialized", "textDocument/didSave", "workspace/didChangeConfiguration":
 		// 没有要做的事：这一版没有建库、没有后台预热，改动就是重算。
@@ -300,12 +323,48 @@ func (s *server) handle(m request) (stop bool) {
 			edits = []TextEdit{}
 		}
 		s.conn.Reply(m.ID, edits)
+	case "workspace/symbol":
+		s.workspaceSymbol(m)
 	default:
 		if m.ID != nil {
 			s.conn.ReplyError(m.ID, ErrMethodNotFound, "nf 的服务器没有这个方法："+m.Method)
 		}
 	}
 	return false
+}
+
+// workspaceSymbol 在已打开的文档里按名字找符号（Ctrl+T）。不做全盘索引：
+// 盘上没打开的文件不在 s.docs 里，编辑器本来也管不到它们；逐个文件复用大纲那一条算法，
+// 两次看到的形状因此相同。空查询列出全部，上限 100 条防止一次推太多。
+//
+// en: workspaceSymbol finds symbols by name among the open documents (Ctrl+T). There is no
+// whole-workspace index: files the editor has not opened are not in s.docs. Each file reuses the
+// outline algorithm so both views show the same shape; an empty query lists everything, capped
+// at 100 entries.
+func (s *server) workspaceSymbol(m request) {
+	var p workspaceSymbolParams
+	if json.Unmarshal(m.Params, &p) != nil {
+		s.badParams(m)
+		return
+	}
+	q := strings.ToLower(p.Query)
+	out := []SymbolInformation{}
+	for uri, text := range s.docs {
+		for _, sym := range Outline(pathFromURI(uri), text) {
+			if q != "" && !strings.Contains(strings.ToLower(sym.Name), q) {
+				continue
+			}
+			out = append(out, SymbolInformation{
+				Name: sym.Name, Kind: sym.Kind,
+				Location: Location{URI: uri, Range: sym.SelectionRange},
+			})
+			if len(out) >= 100 {
+				s.conn.Reply(m.ID, out)
+				return
+			}
+		}
+	}
+	s.conn.Reply(m.ID, out)
 }
 
 func (s *server) badParams(m request) {

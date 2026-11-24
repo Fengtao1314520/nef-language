@@ -157,7 +157,8 @@ export default defineConfig({
           items: [
             { text: '设计取舍', link: '/about/064_design' },
             { text: '许可与商标', link: '/about/065_license' },
-            { text: '版本与兼容', link: '/about/066_versions' }
+            { text: '版本与兼容', link: '/about/066_versions' },
+            { text: '已知限制', link: '/about/068_limits' }
           ]
         }
       ]

@@ -51,6 +51,22 @@ console.print("甲", ps, "乙")
 	}
 }
 
+// TestPrintEscapesTextInsideContainers 验证容器与字段里的文本会转义：
+// 引号与反斜杠各加一个反斜杠，换行写成 \u000a，非 ASCII 原样留在引号里。
+func TestPrintEscapesTextInsideContainers(t *testing.T) {
+	got, code := run(t, `
+let q:string = "a\"b"
+let sl:string = "c\\d"
+let nl:string = "e\nf"
+console.print([q, sl, nl, "甲"])
+`)
+	want := `["a\"b", "c\\d", "e\u000af", "甲"]
+`
+	if got != want || code != 0 {
+		t.Fatalf("文本转义印法不对：\n got %q 码 %d\nwant %q", got, code, want)
+	}
+}
+
 // TestPrintShapes 验证 struct 与 class：`Name { a: 1, b: "甲" }`，没有字段的是 `E { }`，
 // 空句柄打印 `null`，窄字段（boolean／byte／unicode）按自身宽度读取、不把相邻字段的值读进来。
 func TestPrintShapes(t *testing.T) {

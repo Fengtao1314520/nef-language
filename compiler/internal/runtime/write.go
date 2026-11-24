@@ -99,6 +99,7 @@ func fileWriteAppend(b *rt, access, disposition int64) {
 	a.Cmp(x64.RAX, x64.R8)
 	fail := b.label()
 	a.Jcc(x64.E, fail)
+	openFail := b.label()
 	b.put(wH, x64.RAX)
 
 	b.get(x64.RCX, wH)
@@ -111,17 +112,21 @@ func fileWriteAppend(b *rt, access, disposition int64) {
 	a.MovStore(x64.RBP, arg5, x64.RAX) // lpOverlapped 给 NULL：这一路是同步句柄
 	b.impCall("WriteFile")
 	a.Test(x64.RAX, x64.RAX)
-	a.Jcc(x64.E, fail)
+	a.Jcc(x64.E, openFail)
 	a.MovZX32(x64.RAX, x64.RBP, -8*(wGot+1))
 	b.get(x64.RDX, wText)
 	a.MovLoad(x64.RDX, x64.RDX, StrBytes)
 	a.Cmp(x64.RAX, x64.RDX)
-	a.Jcc(x64.NE, fail)
+	a.Jcc(x64.NE, openFail)
 
 	b.get(x64.RCX, wH)
 	b.impCall("CloseHandle")
 	b.epilogue()
 
+	a.Mark(openFail)
+	b.get(x64.RCX, wH)
+	b.impCall("CloseHandle")
+	a.Jmp(fail)
 	a.Mark(fail)
 	b.throwWith(codeWriteFail, "sNoWrite")
 	b.epilogue()
@@ -169,8 +174,9 @@ func fileWriteBytes(b *rt) {
 		wN    = 4 // 有几个字节
 	)
 	var (
-		badPath = b.label()
-		fail    = b.label()
+		badPath  = b.label()
+		fail     = b.label()
+		openFail = b.label()
 	)
 	a := b.a
 	b.prologue()
@@ -207,16 +213,20 @@ func fileWriteBytes(b *rt) {
 	a.MovStore(x64.RBP, arg5, x64.RAX) // lpOverlapped 给 NULL：这一路是同步句柄
 	b.impCall("WriteFile")
 	a.Test(x64.RAX, x64.RAX)
-	a.Jcc(x64.E, fail)
+	a.Jcc(x64.E, openFail)
 	a.MovZX32(x64.RAX, x64.RBP, -8*(wGot+1))
 	b.get(x64.RDX, wN)
 	a.Cmp(x64.RAX, x64.RDX)
-	a.Jcc(x64.NE, fail)
+	a.Jcc(x64.NE, openFail)
 
 	b.get(x64.RCX, wH)
 	b.impCall("CloseHandle")
 	b.epilogue()
 
+	a.Mark(openFail)
+	b.get(x64.RCX, wH)
+	b.impCall("CloseHandle")
+	a.Jmp(fail)
 	a.Mark(fail)
 	b.throwWith(codeWriteFail, "sNoWrite")
 	a.Mark(badPath)

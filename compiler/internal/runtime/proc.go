@@ -305,6 +305,18 @@ func procStart(b *rt) {
 	b.epilogue()
 
 	a.Mark(full)
+	// 进程已经起来却占不到表位：先结束它、两把句柄都关掉，再放锁抛错。
+	// 不这么做的话，抛出去之后调用方既拿不到 Process 句柄，也没有办法收掉这个孤儿。
+	b.leaCell(x64.RAX, "procPI")
+	a.MovLoad(x64.RCX, x64.RAX, 0)
+	a.MovImm(x64.RDX, 1)
+	b.impCall("TerminateProcess")
+	b.leaCell(x64.RAX, "procPI")
+	a.MovLoad(x64.RCX, x64.RAX, 0)
+	b.impCall("CloseHandle")
+	b.leaCell(x64.RAX, "procPI")
+	a.MovLoad(x64.RCX, x64.RAX, 8)
+	b.impCall("CloseHandle")
 	b.srwGive("procLock") // 放锁再抛：那一句被人接住时这一段还要接着跑，锁不能带出这一次调用
 	a.MovImm(x64.RCX, 0)  // 这一处不是系统给的答复，只有那一句
 	b.leaCell(x64.RDX, "sProcFull")

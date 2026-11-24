@@ -154,6 +154,9 @@ func compileIR(prog *check.Program) (*ir.Prog, bool) {
 	p, err := lower.Run(prog, facts)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err)
+		if les, ok := err.(lower.Errors); ok && len(les) > 1 {
+			fmt.Fprintf(os.Stderr, "共 %d 处不对\n", len(les))
+		}
 		return nil, false
 	}
 	return p, true
@@ -418,6 +421,7 @@ func cmdIR(args []string) int {
 // draw (internal/ls). Apart from the protocol's own messages, standard output must not carry a
 // second byte.
 func cmdLSP() int {
+	ls.SetVersion(version)
 	if err := ls.Serve(os.Stdin, os.Stdout); err != nil {
 		fmt.Fprintln(os.Stderr, "语言服务器：", err)
 		return 1

@@ -46,6 +46,7 @@ import (
 	"neflang.org/nf/internal/ast"
 	"neflang.org/nf/internal/check"
 	"neflang.org/nf/internal/lexer"
+	"neflang.org/nf/internal/lower"
 	"neflang.org/nf/internal/parser"
 	"neflang.org/nf/internal/pkgload"
 )
@@ -124,13 +125,21 @@ func Diagnostics(path, text string) map[string][]Diagnostic {
 		out[path] = []Diagnostic{*fe.early}
 		return out
 	}
-	for _, e := range check.Run(fe.prog) {
+	checkErrs := fe.checkErrs
+	for _, e := range checkErrs {
 		file := e.File
 		u, ok := fe.units[file]
 		if !ok {
 			file, u = path, fe.entry
 		}
 		out[file] = append(out[file], u.at(e.Line, e.Col, e.Msg))
+	}
+	// 检查过了还可能在降级时拒掉（例如标准库名单没对齐）。这些拒绝现在也带行列，
+	// 编辑器里能直接指出位置；检查已经报错时不叠加降级的连锁错误。
+	if len(checkErrs) == 0 {
+		for file, ds := range lowerDiags(fe) {
+			out[file] = append(out[file], ds...)
+		}
 	}
 	for _, m := range fe.missing {
 		out[path] = append(out[path], fe.entry.at(m.line, m.col, m.msg))
@@ -143,6 +152,42 @@ func Diagnostics(path, text string) map[string][]Diagnostic {
 	return out
 }
 
+// lowerDiags 跑一遍降级，把带位置的拒绝也画成波浪线。
+//
+// 检查已经报错时调用方不会走这里（降级那份程序是残缺的，报出来只会是连锁错误）。
+// 位置为 0 的整程序级错误附加到入口文件第一行；Source 用 nf-lower 区分，编辑器里看得出
+// 这一条是后端能力问题，不是语言规则写错。
+//
+// en: lowerDiags runs lowering once and turns its positioned refusals into squiggles. The caller
+// skips this when checking already failed - lowering a broken program only produces cascading
+// errors. Whole-program errors with no position go to line one of the entry file, and Source
+// says nf-lower so the editor can tell a backend gap from a language-rule mistake.
+func lowerDiags(fe *front) map[string][]Diagnostic {
+	out := map[string][]Diagnostic{}
+	if fe.facts == nil {
+		return out
+	}
+	_, err := lower.Run(fe.prog, fe.facts)
+	var les lower.Errors
+	if !errors.As(err, &les) {
+		return out
+	}
+	for _, e := range les {
+		file, u := e.File, fe.units[e.File]
+		if u == nil {
+			file, u = fe.prog.Entry, fe.entry
+		}
+		line, col := e.Line, e.Col
+		if line <= 0 {
+			line, col = 1, 1
+		}
+		d := u.at(line, col, e.Msg)
+		d.Source = "nf-lower"
+		out[file] = append(out[file], d)
+	}
+	return out
+}
+
 // front 是一份文本走完词法与语法的结果，加上这一趟参与检查的那几份文件。
 // early 非空说的是前两步就过不去：那时候没有程序可查，波浪线只有那一条。
 //
@@ -150,11 +195,13 @@ func Diagnostics(path, text string) map[string][]Diagnostic {
 // pass. A non-empty early means the first two steps already failed: there is no program to
 // check then, and the only squiggle is that one.
 type front struct {
-	prog    *check.Program
-	units   map[string]*unit
-	entry   *unit
-	missing []plain
-	early   *Diagnostic
+	prog      *check.Program
+	facts     *check.Facts
+	checkErrs []check.Error
+	units     map[string]*unit
+	entry     *unit
+	missing   []plain
+	early     *Diagnostic
 }
 
 // frontEnd 是波浪线、补全与悬停共用的那一次装载：三份算法要的是同一份文本、同一套 import 找法，
@@ -180,6 +227,8 @@ func frontEnd(path, text string) *front {
 	}
 	fe.prog = &check.Program{Entry: path, Files: []*ast.File{f}}
 	fe.missing = loadImports(fe.prog, fe.units, map[string]bool{path: true}, pkgload.New(), f, "")
+	// 结论表要留给降级的那一次判定用：Diagnostics 只在检查全过时才跑 lower。
+	fe.checkErrs, fe.facts = check.RunWithFacts(fe.prog, true)
 	return fe
 }
 
@@ -195,8 +244,7 @@ func inspect(path, text string) (*check.Program, *check.Facts) {
 	if fe.early != nil {
 		return nil, nil
 	}
-	_, facts := check.RunWithFacts(fe.prog, true)
-	return fe.prog, facts
+	return fe.prog, fe.facts
 }
 
 type plain struct {

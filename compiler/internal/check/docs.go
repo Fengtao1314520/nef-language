@@ -74,8 +74,8 @@ var stdDocs = map[string]StdDoc{
 
 	// —— text：文本
 	"text.to_int": {
-		Zh: "把文本解析成整数；无法解析时抛 10012 号（文本读不成数字）。",
-		En: "Parses an integer; throws 10012 when the text does not parse.",
+		Zh: "把文本解析成整数；无法解析时抛 10012 号（文本读不成数字），数太大装不进 int 时抛 10013 号。",
+		En: "Parses an integer; throws 10012 when the text does not parse and 10013 when it does not fit in an int.",
 		Eg: `let n: int = text.to_int("42")`,
 	},
 	"text.to_int_in_base": {
@@ -282,8 +282,8 @@ var stdDocs = map[string]StdDoc{
 		Eg: `file.copy("a.txt", "b.txt")`,
 	},
 	"file.ensure_directories": {
-		Zh: "把缺失的各级目录一次创建完整。真=这条路径上的目录现在齐全了（本来就齐全的也算真），假=创建不出来（中间有一级同名的是文件、或者不允许写入）。不抛出错误。",
-		En: "Creates every missing level at once. True means the path's directories now exist, false means they could not be created; it never throws.",
+		Zh: "把缺失的各级目录一次创建完整。真=这条路径上的目录现在齐全了（本来就齐全的也算真），假=创建不出来（中间有一级同名的是文件、或者不允许写入）。不抛出错误。以 \\\\ 开头的网络路径返回假。",
+		En: "Creates every missing level at once. True means the path's directories now exist, false means they could not be created; it never throws. UNC paths return false.",
 		Eg: `let made: boolean = file.ensure_directories("out/report/2026")`,
 	},
 	"file.make_directory": {
@@ -302,12 +302,12 @@ var stdDocs = map[string]StdDoc{
 		Eg: `let isDir: boolean = file.is_directory("out")`,
 	},
 	"file.list_names": {
-		Zh: "列出该目录里的名字，不含 . 与 ..，顺序不保证。",
+		Zh: "列出该目录里的名字，不含 . 与 ..，顺序不保证。名字长到转换不过来的条目会被跳过，不报错。",
 		En: "Lists the names inside a directory, without . and .., in no guaranteed order.",
 		Eg: `let names: list<string> = file.list_names(".")`,
 	},
 	"file.list_names_paths": {
-		Zh: "同样是列出目录里的名字，只是每个名字前面带上目录，取到之后可以直接打开。",
+		Zh: "同样是列出目录里的名字，只是每个名字前面带上目录，取到之后可以直接打开。超长条目同样会被跳过。",
 		En: "Same listing, but each name carries the directory in front, so a result can be opened directly.",
 		Eg: `let paths: list<string> = file.list_names_paths(".")`,
 	},
@@ -347,7 +347,7 @@ var stdDocs = map[string]StdDoc{
 		Eg: `file.remove_directory("out")`,
 	},
 	"file.remove_tree": {
-		Zh: "把里面的内容一并删除。先删除文件，再逆着发现顺序删除目录，处理到上级目录时它里面已经空了，最后删除根目录自身。里面的内容删除失败就抛出错误：文件与目录都抛 10041 号，与 file.remove、file.remove_directory 的报错相同；根不存在、或者根不是一个目录时抛 10043 号。",
+		Zh: "把里面的内容一并删除。先删除文件，再逆着发现顺序删除目录，处理到上级目录时它里面已经空了，最后删除根目录自身。里面的内容删除失败就抛出错误：文件与目录都抛 10041 号，与 file.remove、file.remove_directory 的报错相同；根不存在、或者根不是一个目录时抛 10043 号。遍历到第 64 层就停止，再深的内容不会被删掉，也不报错。",
 		En: "Deletes the contents along with the tree: files first, then directories against the order they were found, so each parent is already empty when its turn comes, and the root itself last. A failed delete inside throws: files and directories both give 10041, the same sentences file.remove and file.remove_directory use, while a root that does not exist or is not a directory gives 10043.",
 		Eg: `file.remove_tree("out")`,
 	},
@@ -416,8 +416,8 @@ var stdDocs = map[string]StdDoc{
 
 	// —— environment：环境变量与当前目录
 	"environment.current_directory": {
-		Zh: "返回当前在哪个目录下运行。返回的是本机习惯的写法（Windows 上是反斜杠）。",
-		En: "Returns the directory the program runs in, written the way this machine does it.",
+		Zh: "返回当前在哪个目录下运行。返回的是本机习惯的写法（Windows 上是反斜杠）；路径取不到时抛 10060 号。",
+		En: "Returns the directory the program runs in, written the way this machine does it; throws 10060 when it cannot be read.",
 		Eg: `let here: string = environment.current_directory()`,
 	},
 	"environment.get": {
@@ -426,13 +426,13 @@ var stdDocs = map[string]StdDoc{
 		Eg: `let windir: string = environment.get("SystemRoot")`,
 	},
 	"environment.set": {
-		Zh: "设置一个环境变量，只对本程序有效。",
-		En: "Sets an environment variable, for this program only.",
+		Zh: "设置一个环境变量，只对本程序有效。名字过长或带 `=` 时抛 10060 号。",
+		En: "Sets an environment variable, for this program only; throws 10060 for a name that is too long or contains =.",
 		Eg: `environment.set("NEF_DEMO", "甲")`,
 	},
 	"environment.change_directory": {
-		Zh: "切换到指定目录。真=切换成功，假=没有切换成功（路径不存在，或者它不是一个目录），不抛出错误：这个函数常用于试探性地切换，要判断结果就查看返回的 boolean。C:/Temp/a 与 C:\\\\Temp\\\\a 是同一个目录，两种分隔符都接受。",
-		En: "Changes the current directory. True when it changed, false when it did not; it never throws.",
+		Zh: "切换到指定目录。真=切换成功，假=没有切换成功（路径不存在，或者它不是一个目录）；路径本身不合法时抛 10051 号。C:/Temp/a 与 C:\\\\Temp\\\\a 是同一个目录，两种分隔符都接受。",
+		En: "Changes the current directory. True when it changed, false when it did not; an invalid path throws 10051.",
 		Eg: `let moved: boolean = environment.change_directory("F:/")`,
 	},
 	"environment.unset": {
@@ -836,8 +836,8 @@ var stdDocs = map[string]StdDoc{
 		Eg: `let cell: string = "7".pad_start(3, "0")`,
 	},
 	"string.repeat": {
-		Zh: "把自身重复 count 遍。次数为 0 或负数时返回空文本，不抛出错误。",
-		En: "Repeats the text that many times; 0 or a negative count returns an empty text instead of throwing.",
+		Zh: "把自身重复 count 遍。次数为 0 或负数时返回空文本，不抛出错误；结果长度大到算不出来时抛 10013 号。",
+		En: "Repeats the text that many times; 0 or a negative count returns an empty text. A result too large to size throws code 10013.",
 		Eg: `let line: string = "-".repeat(3)`,
 	},
 	"string.replace": {
@@ -908,8 +908,8 @@ var stdDocs = map[string]StdDoc{
 		Eg: `let sock: Socket = net.connect("127.0.0.1", 8080, 1000)` + "\n" + `let sent: int = sock.send_all(bytes.allocate(4))`,
 	},
 	"socket.recv_into": {
-		Zh: "把接收到的字节填入传入的字节块，返回填入的字节数；返回 0 表示对方已关闭连接。第二个参数是偏移，省掉是 0：从字节块的第几个位置开始填。等待超时是 10102。",
-		En: "Fills the given block with what arrives and returns the byte count; 0 once the peer has closed. The optional offset says where in the block to start filling, defaulting to 0.",
+		Zh: "把接收到的字节填入传入的字节块，返回填入的字节数；返回 0 表示对方已关闭连接。第二个参数是偏移，省掉是 0，表示从字节块开头填起。等待超时抛 10102 号；偏移是负数或超过块长时抛 10031 号（下标越界）。",
+		En: "Fills the given block with what arrives and returns the byte count; 0 once the peer has closed. The optional offset defaults to 0; a negative or past-the-end offset throws 10031.",
 		Eg: `let sock: Socket = net.connect("127.0.0.1", 8080, 1000)` + "\n" + `let buf: bytes = bytes.allocate(16)` + "\n" + `let got: int = sock.recv_into(buf, 4)`,
 	},
 	"socket.peer_address": {

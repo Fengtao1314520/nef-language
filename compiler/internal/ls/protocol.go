@@ -97,6 +97,22 @@ type capabilities struct {
 	ReferencesProvider         bool           `json:"referencesProvider,omitempty"`
 	RenameProvider             *renameOptions `json:"renameProvider,omitempty"`
 	DocumentFormattingProvider bool           `json:"documentFormattingProvider,omitempty"`
+	// WorkspaceSymbolProvider：工作区里按名字找符号（Ctrl+T）。只扫已打开的文档。
+	WorkspaceSymbolProvider bool `json:"workspaceSymbolProvider,omitempty"`
+}
+
+// SymbolInformation 是 workspace/symbol 答复里的一条：名字、种类与落在哪一份文件的哪一行。
+//
+// en: SymbolInformation is one entry of a workspace/symbol reply: a name, its kind, and where it
+// sits in which file.
+type SymbolInformation struct {
+	Name     string   `json:"name"`
+	Kind     int      `json:"kind"`
+	Location Location `json:"location"`
+}
+
+type workspaceSymbolParams struct {
+	Query string `json:"query"`
 }
 
 // renameOptions 是重命名那一条的声明。

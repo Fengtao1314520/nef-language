@@ -1502,3 +1502,29 @@ func putFloat(b *rt, asString bool) {
 	a.Mark(epi)
 	b.epilogue()
 }
+
+// @f_is_finite(rcx=小数的位型)：有限返回 1，NaN／±Inf 返回 0。
+//
+// JSON 的渲染不能被 @float_str 的 "NaN" / "Inf" 字面带跑：那几串不是合法 JSON，
+// 写出去再读回来会失败。指数那 11 位全是 1 就是这两个非有限值，别的都是有限的。
+//
+// en: @f_is_finite (rcx = float bit pattern): 1 when finite, 0 for NaN/±Inf. JSON rendering
+// must not pick up @float_str's "NaN"/"Inf" literals - they are not valid JSON and would fail
+// on the next parse. An exponent of all ones marks exactly those non-finite values.
+func floatIsFinite(b *rt) {
+	a := b.a
+	b.prologue()
+	a.Mov(x64.RAX, x64.RCX)
+	a.ShrImm(x64.RAX, 52)
+	a.AndImm(x64.RAX, 0x7FF)
+	bad := b.label()
+	a.CmpImm(x64.RAX, 0x7FF)
+	a.Jcc(x64.E, bad)
+	a.MovImm(x64.RAX, 1)
+	done := b.label()
+	a.Jmp(done)
+	a.Mark(bad)
+	a.Xor(x64.RAX, x64.RAX)
+	a.Mark(done)
+	b.epilogue()
+}

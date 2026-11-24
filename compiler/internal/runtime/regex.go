@@ -186,7 +186,12 @@ var (
 // from the first position again, so the old block was not in use yet. It only grows and never
 // shrinks - the same rule as container resizing and text concatenation.
 func rxEnsure(b *rt) {
-	const eNeed = 0
+	const (
+		eNeed = 0
+		eProg = 1
+		eScr  = 2
+		ePar  = 3
+	)
 	a := b.a
 	b.prologue()
 	b.put(eNeed, x64.RCX)
@@ -195,6 +200,19 @@ func rxEnsure(b *rt) {
 	b.get(x64.RCX, eNeed)
 	a.Cmp(x64.RAX, x64.RCX)
 	a.Jcc(x64.AE, same)
+
+	// 换新之前把旧的三块还回去；第一次进来三格都是空句柄，@free 走到即空操作。
+	// 不这么做的话，循环里换个式子就漏三块，谁也不会来收。
+	b.loadCell(x64.RAX, "rxProg")
+	b.put(eProg, x64.RAX)
+	b.loadCell(x64.RAX, "rxScr")
+	b.put(eScr, x64.RAX)
+	b.loadCell(x64.RAX, "rxPar")
+	b.put(ePar, x64.RAX)
+	for _, slot := range []int{eProg, eScr, ePar} {
+		b.get(x64.RCX, slot)
+		b.call("@free")
+	}
 
 	// 指令块
 	b.get(x64.RCX, eNeed)

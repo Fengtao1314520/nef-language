@@ -304,6 +304,13 @@ func jsonBuildRender(l *L) {
 	j.at(isInt)
 	j.ret(j.call("@int_str", j.ld(node, jsonInt)))
 	j.at(isFloat)
+	// 溢出成 NaN／±Inf 的小数不能写进 JSON：@float_str 那三个字面串不是合法 JSON，
+	// 写出去再读回来会失败。非有限值按 null 渲染。
+	finite := j.call("@f_is_finite", j.ld(node, jsonFloat))
+	okFloat := j.fresh()
+	j.jnz(finite, okFloat)
+	j.ret(j.freshText(j.str("null")))
+	j.at(okFloat)
 	j.ret(j.call("@float_str", j.ld(node, jsonFloat)))
 	j.at(isText)
 	j.ret(j.call(fnJSONQuote, j.ld(node, jsonText)))

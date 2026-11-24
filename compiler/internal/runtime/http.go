@@ -592,6 +592,10 @@ func httpBegin(b *rt) {
 	a.AddImm(x64.RCX, -0x30) // '0'：减去它才得到数值
 	a.CmpImm(x64.RCX, 9)
 	a.Jcc(x64.A, digStop) // 不是数字（结尾那个 0 也算）：该段到头
+	// 端口上界是 65535，累计到 6553 之后再乘十就已经越界；先挡掉，
+	// 否则一段很长的数字会在 64 位里回绕成合法端口，静默连到别的那里去。
+	a.CmpImm(x64.RAX, 6553)
+	a.Jcc(x64.A, digBad)
 	a.Imul(x64.RAX, x64.R8)
 	a.Add(x64.RAX, x64.RCX)
 	a.AddImm(x64.RSI, 2)

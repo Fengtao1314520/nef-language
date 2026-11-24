@@ -175,7 +175,9 @@ console.print(math.exponential(0.0), math.tangent(0.0))
 
 `math.smaller(3, 3.5)` 是编译错误：两个参数的类型不一致，而这里不做隐式转换。要么都写成整数，要么都写成小数。
 
-`math.power` 收 `float`，算出的是小数幂，底数为负时返回 `NaN` 而不抛；`math.power_int` 收 `int`，指数为负或者结果超出 `int` 都会抛出错误（分别是 10012 号和 10021 号），不会给出一个近似值。两者不做隐式转换：整数幂写 `power_int`，小数幂写 `power`。
+`math.power` 收 `float`，算出的是小数幂。底数为负时返回 `NaN`，不抛。
+
+`math.power_int` 收 `int`。指数为负、结果超出 `int`，分别抛 10012 号和 10021 号，不会给出一个近似值。两者不做隐式转换：整数幂写 `power_int`，小数幂写 `power`。
 
 `math.floor` 返回的是 `int`，不是取整之后的小数。要把一个小数向零截断，写 `x as int`：`3.9 as int` 得到 `3`，`-3.9 as int` 得到 `-3`；而 `math.floor(-3.9)` 得到 `-4`。
 

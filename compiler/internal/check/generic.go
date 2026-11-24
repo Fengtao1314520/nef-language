@@ -17,6 +17,7 @@
 package check
 
 import (
+	"fmt"
 	"strings"
 
 	"neflang.org/nf/internal/ast"
@@ -322,7 +323,15 @@ func (c *Checker) drainPending(onlyPath string) {
 		}
 		rounds++
 		if rounds > 1000 {
-			panic("实例方法体那一队排不完：同一只实例的方法被重复排队了")
+			// 用户写不出触发它的程序：这是排队逻辑的内部一致性断言。
+			// 仍把队首那一条的位置写进消息，维护时才知道是哪一只实例在打转。
+			where := "（队列已空）"
+			if len(c.pending) > 0 {
+				b := c.pending[0]
+				where = fmt.Sprintf("（%s 的 %s，第 %d 行第 %d 列）",
+					b.file.Path, b.fn.NameText, b.fn.Where().Line, b.fn.Where().Col)
+			}
+			panic("实例方法体那一队排不完：同一只实例的方法被重复排队了" + where)
 		}
 	}
 }

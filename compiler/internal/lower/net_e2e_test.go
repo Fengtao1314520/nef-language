@@ -280,17 +280,26 @@ console.print(n)
 	}
 }
 
+// unresolvableHost 是一台本地就能判定解析不到的主机名：单段超过 63 字符，
+// GetAddrInfoW 不必问 DNS 就报名字错。不用 `*.invalid` 是因为本机那台 DNS 把
+// 不存在的域名指向 198.18.0.x（代理软件的虚拟地址），解析反而成功，
+// 测试就跟着环境翻脸——这是测 10103 的映射，不是测这台机器的 DNS 配置。
+func unresolvableHost() string {
+	return strings.Repeat("nef-no-such-host-", 5)
+}
+
 // TestNetCodes 验证 10100 段四个错误码各在哪条路径上抛出。
 // 系统原始错误号一律带在消息里，所以这里比对"错误号＋句式"，不断言系统那一部分的内容。
 func TestNetCodes(t *testing.T) {
 	dead := freePort(t) // 无监听者的端口：连接被拒绝
+	badName := unresolvableHost()
 	cases := []struct {
 		name, src, want string
 	}{
 		{"端口没人听", `let s:Socket = net.connect("127.0.0.1", ` + strconv.Itoa(dead) + `, 2000)`,
 			"出错了（10101）：连不上这个地址"},
-		{"名字解析不到", `let s:Socket = net.connect("nef-没有这个域名.invalid", 80, 2000)`,
-			"出错了（10103）：解析不到 nef-没有这个域名.invalid 这个地址"},
+		{"名字解析不到", `let s:Socket = net.connect("` + badName + `", 80, 2000)`,
+			"出错了（10103）：解析不到 " + badName + " 这个地址"},
 		{"端口是 0", `let l:Listener = net.listen(0)`, "出错了（10104）：这个地址或端口不行"},
 		{"端口越界", `let s:Socket = net.connect("127.0.0.1", 70000, 2000)`, "出错了（10104）：这个地址或端口不行"},
 	}

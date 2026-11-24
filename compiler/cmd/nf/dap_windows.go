@@ -319,6 +319,12 @@ func cmdDebuggee(args []string) int {
 				value, found := evaluateOf(tgt, sess, m.Frame, m.Name)
 				mu.Unlock()
 				send(debug.Message{Cmd: "evaluate", Reply: true, Value: value, Found: found})
+			case "expand":
+				// 展开一个复合值：地址与类型由父进程给，子进程按那一帧同一套布局读子项。
+				mu.Lock()
+				kids := tgt.Children(uintptr(m.Address), m.Type)
+				mu.Unlock()
+				send(debug.Message{Cmd: "expand", Reply: true, Vars: varList(kids)})
 			case "memory":
 				mu.Lock()
 				data, ok := tgt.Memory(uintptr(m.Address), m.Count)
@@ -428,9 +434,23 @@ func localsOf(tgt *debug.Target, sess *debug.Session, n int) []debug.VarInfo {
 func varList(locals []debug.Local) []debug.VarInfo {
 	out := make([]debug.VarInfo, 0, len(locals))
 	for _, v := range locals {
-		out = append(out, debug.VarInfo{Name: v.Name, Type: v.Type, Value: v.Value, Address: uint64(v.Addr)})
+		out = append(out, debug.VarInfo{Name: v.Name, Type: v.Type, Value: v.Value,
+			Address: uint64(v.Addr), Compound: compoundType(v.Type)})
 	}
 	return out
+}
+
+// compoundType 说一个类型标注能不能在变量栏里展开。
+// list、dict、hashset 与 struct／class（按名字查得到形状）有子项；
+// 值类型、文本与系统句柄没有。
+//
+// en: compoundType says whether a type annotation can be expanded in the variable pane. Lists,
+// dicts, hashsets and structs/classes have children; value types, text and handles do not.
+func compoundType(t string) bool {
+	return strings.HasPrefix(t, "list<") || strings.HasPrefix(t, "dict<") ||
+		strings.HasPrefix(t, "hashset<") || t == "Json" ||
+		(!strings.Contains(t, "<") && t != "string" && t != "int" && t != "float" &&
+			t != "boolean" && t != "byte" && t != "unicode")
 }
 
 // evaluateOf 是悬停那一条：拿名字去那一帧查，帧上没有再查顶层的静态槽，两边都认不得就说认不得。

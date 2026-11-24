@@ -62,7 +62,7 @@ func TestStateCellsAreNotStatic(t *testing.T) {
 // borrow table added two cells - the count and 64 slots of handles handed out as borrows -
 // taking 252,256 to 252,776.
 func TestStateBlockBytes(t *testing.T) {
-	const want = 252776
+	const want = 252784
 	if got := StateBytes(); got != want {
 		t.Errorf("每一条线程的状态块现在是 %d 字节，先前钉的是 %d", got, want)
 	}

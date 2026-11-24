@@ -216,7 +216,7 @@ func Run(prog *check.Program, f *check.Facts) (*ir.Prog, error) {
 	// 发射器按名字找标号，调用时它还没登记就找不到了。
 	l.p.Func(releaseTopFn)
 
-	var errs []string
+	var errs []Error
 	// 调用点补默认值要按"那一段写在哪一份文件里、那一份文件的顶层表是哪一张"来算。
 	// 这两样必须先在全部文件上登记齐，再落函数体：函数体按文件顺序降级，入口文件排在前，
 	// 其中**自己写的函数**调用后面那一份文件里的方法时，若等落函数体那一趟才记，被调方的条目
@@ -284,7 +284,7 @@ func Run(prog *check.Program, f *check.Facts) (*ir.Prog, error) {
 					continue // 模板不落体，与上面那一轮同一条
 				}
 				if err := l.function(file, "", x, g); err != nil {
-					errs = append(errs, err.Error())
+					errs = addLowerError(errs, err, file.Path, x.NameText)
 				}
 			case *ast.Object:
 				// class 的方法体也在这儿落：接口里的方法声明没有体，轮不到它
@@ -293,7 +293,7 @@ func Run(prog *check.Program, f *check.Facts) (*ir.Prog, error) {
 				}
 				for _, m := range x.Methods {
 					if err := l.function(file, l.symKey(file, x.NameText), m, g); err != nil {
-						errs = append(errs, err.Error())
+						errs = addLowerError(errs, err, file.Path, m.NameText)
 					}
 				}
 			}
@@ -313,7 +313,7 @@ func Run(prog *check.Program, f *check.Facts) (*ir.Prog, error) {
 		g := l.fileGlobals(inst.File)
 		for _, m := range inst.Methods {
 			if err := l.function(inst.File, name, m, g); err != nil {
-				errs = append(errs, err.Error())
+				errs = addLowerError(errs, err, inst.File.Path, m.NameText)
 			}
 		}
 	}
@@ -323,7 +323,7 @@ func Run(prog *check.Program, f *check.Facts) (*ir.Prog, error) {
 	for _, name := range l.instFuncNames() {
 		inst := l.f.InstFuncs[name]
 		if err := l.function(inst.File, inst.Owner, inst.Fn, l.fileGlobals(inst.File)); err != nil {
-			errs = append(errs, err.Error())
+			errs = addLowerError(errs, err, inst.File.Path, inst.Fn.NameText)
 		}
 	}
 	// 每个文件的顶层各成一个函数，nef.main 按执行顺序挨个调
@@ -359,7 +359,7 @@ func Run(prog *check.Program, f *check.Facts) (*ir.Prog, error) {
 		}
 		for _, s := range file.Stmts {
 			if err := tc.stmt(s); err != nil {
-				errs = append(errs, fmt.Sprintf("%s：%v", file.Path, err))
+				errs = addLowerError(errs, err, file.Path, "顶层语句")
 			}
 		}
 		tc.endFrame()
@@ -429,8 +429,7 @@ func Run(prog *check.Program, f *check.Facts) (*ir.Prog, error) {
 	l.p.Globals = l.gcount // 连 hidden 那两个槽一起算：静态槽到此才收得齐
 
 	if len(errs) > 0 {
-		sort.Strings(errs)
-		return nil, fmt.Errorf("后端还没做到这些：\n  %s", strings.Join(dedupe(errs), "\n  "))
+		return nil, Errors(sortErrors(dedupeErrors(errs)))
 	}
 	return l.p, nil
 }
@@ -2071,6 +2070,39 @@ func dedupe(in []string) []string {
 	return out
 }
 
+// dedupeErrors 按「文件、行、列、文案」去重。同一个语法节点在实例生成等多条路上
+// 会被降好几次，报错不该重复出现；位置不同的两条即使文案相同也要各留一条。
+//
+// en: dedupeErrors removes repeats by file, line, column and message. One node can be lowered
+// several times (instance generation), and its error must not appear more than once; two errors
+// at different positions stay even when their messages match.
+func dedupeErrors(in []Error) []Error {
+	seen := map[Error]bool{}
+	out := make([]Error, 0, len(in))
+	for _, e := range in {
+		if !seen[e] {
+			seen[e] = true
+			out = append(out, e)
+		}
+	}
+	return out
+}
+
+// addLowerError 把一条降级错误并进集合：结构化报错直接收，别的错误按无位置的一条收。
+//
+// en: addLowerError folds one lowering error into the set: a structured one is kept as is,
+// any other error is kept as one entry without a position.
+func addLowerError(errs []Error, err error, file, fallback string) []Error {
+	if err == nil {
+		return errs
+	}
+	var le Error
+	if asError(err, &le) {
+		return append(errs, le)
+	}
+	return append(errs, Error{File: file, Msg: fmt.Sprintf("%s：%v", fallback, err)})
+}
+
 // execOrder 返回文件该跑的先后：被 import 的先跑，入口最后。
 // 后序 DFS 正好是这个顺序，而互相引用在检查期就被拒绝，图一定是无环的。
 //
@@ -2209,6 +2241,11 @@ func (l *L) function(file *ast.File, owner string, fn *ast.Func, globals map[str
 	}
 	for _, s := range fn.Body {
 		if err := c.stmt(s); err != nil {
+			var le Error
+			if asError(err, &le) {
+				le.Msg = check.BareName(name) + "：" + le.Msg
+				return le
+			}
 			return fmt.Errorf("%s：%w", check.BareName(name), err)
 		}
 	}
@@ -3521,7 +3558,7 @@ func (c *fc) exprAt(e ast.Expr) (ir.Val, check.Type, error) {
 		}
 		return c.fieldRead(x, t)
 	}
-	return nil, t, fmt.Errorf("还不支持在这里用 %s", describe(e))
+	return nil, t, c.atError(e.Where(), "还不支持在这里用 %s", describe(e))
 }
 
 func (c *fc) lit(x *ast.Lit, t check.Type) (ir.Val, check.Type, error) {
@@ -3740,7 +3777,7 @@ func (c *fc) arith(op string, a, b ir.Val, t check.Type, at ast.Pos) (ir.Val, ch
 		c.f.Emit(&ir.Bin{Op: op, D: d, A: a, B: b, T: ir.TInt})
 		return d, t, nil
 	}
-	return nil, t, fmt.Errorf("还不支持运算 %q", op)
+	return nil, t, c.atError(at, "还不支持运算 %q", op)
 }
 
 // takesOutPosition 说这一条标准库动作交出的是**某个位置上的持仓**，摘走那一刻那个位置就空了：
@@ -4072,7 +4109,7 @@ func (c *fc) unary(x *ast.Unary, t check.Type) (ir.Val, check.Type, error) {
 		c.f.Emit(&ir.Not{D: d, S: v})
 		return d, t, nil
 	}
-	return nil, t, fmt.Errorf("还不支持一元 %q", x.Op)
+	return nil, t, c.atError(x.Where(), "还不支持一元 %q", x.Op)
 }
 
 // throwIf 发一段"条件成立就抛、否则接着走"。每处检查都就地放一块，不去共用一个出口——
@@ -5317,6 +5354,25 @@ func (c *fc) timeFormatUtc(x *ast.Call, t check.Type) (ir.Val, check.Type, error
 		n := c.f.Temp()
 		c.f.Emit(&ir.Call{D: n, HasD: true, Fn: "@int_str", Args: []ir.Val{v},
 			FT: []ir.T{ir.TInt}, RT: ir.TInt})
+		// 负数年份照实写：-1 补成 00-1 就不是 -1 了，文档承诺的是照实写。
+		// 两支都往同一个预先占好的位置里写结果，出了分支再拼一次：
+		// 不能在分支里各拼一次，那会让汇合处的 result 指向只在其中一支定义过的临时号。
+		if off == 0 {
+			neg, doneYear := c.f.Fresh(), c.f.Fresh()
+			piece := c.f.Temp()
+			c.f.Emit(&ir.Br{Op: "<", A: v, B: ir.K(0), To: neg, T: ir.TInt})
+			paddedYear := c.f.Temp()
+			c.f.Emit(&ir.Call{D: paddedYear, HasD: true, Fn: "@str_pad",
+				Args: []ir.Val{n, ir.K(width), c.l.msg("0"), ir.K(0)},
+				FT:   []ir.T{ir.TInt, ir.TInt, ir.TInt, ir.TInt}, RT: ir.TInt})
+			c.f.Emit(&ir.Mov{D: piece, S: paddedYear, T: ir.TInt})
+			c.f.Emit(&ir.Jump{To: doneYear})
+			c.f.Emit(&ir.Lbl{At: neg})
+			c.f.Emit(&ir.Mov{D: piece, S: n, T: ir.TInt})
+			c.f.Emit(&ir.Lbl{At: doneYear})
+			cat(piece)
+			return
+		}
 		// @str_pad(文本, 宽度, 填充, 模式=0 补在头)
 		padded := c.f.Temp()
 		c.f.Emit(&ir.Call{D: padded, HasD: true, Fn: "@str_pad",
@@ -5452,6 +5508,12 @@ func (c *fc) httpAction(x *ast.Call, ref check.CallRef, t check.Type) (ir.Val, c
 		c.f.Emit(&ir.Call{Fn: "@free_guarded", Args: []ir.Val{txt}, FT: []ir.T{ir.TInt}})
 		vals[bodySlot] = block
 		sentBody = block
+		// @http_begin 会在坏网址、超时等路上抛出；抛出时这一句到不了下面那一条 @free_guarded。
+		// 把这一块登记进当前帧的临时账：帧尾与抛出的清理都会归还它。成功路径归还后把这个
+		// 位置抹成 0，帧清理再来一次看到空句柄就是空操作，不会双重释放。
+		if d, err := c.l.descOf(check.Type{Kind: check.Bytes, Name: "bytes"}); err == nil {
+			c.temps = append(c.temps, own{slot: block, desc: d})
+		}
 	}
 
 	// 三个成员落到同一段码。封装那两条把方法与两个开关都交 0：运行期见到方法那个位置是 0
@@ -5514,6 +5576,7 @@ func (c *fc) httpAction(x *ast.Call, ref check.CallRef, t check.Type) (ir.Val, c
 		FT: []ir.T{ir.TInt, ir.TInt, ir.TInt, ir.TInt, ir.TInt, ir.TInt, ir.TInt}})
 	if sentBody != nil {
 		c.f.Emit(&ir.Call{Fn: "@free_guarded", Args: []ir.Val{sentBody}, FT: []ir.T{ir.TInt}})
+		c.f.Emit(&ir.Mov{D: sentBody, S: ir.K(0), T: ir.TInt}) // 帧清理那一次看到空句柄
 	}
 	// 四个位置都只被读一次（网址拆完就写进状态格、正文发出去就没人再拿、头逐条追加完、
 	// 方法比完就交给系统），所以当场造出来的那几块由 `call` 开头那一层只读借用的窗口归还，
@@ -5964,7 +6027,7 @@ func (c *fc) stmt(s ast.Stmt) error {
 	case *ast.Switch:
 		return c.switchStmt(x)
 	}
-	return fmt.Errorf("还不支持这条语句 %T", s)
+	return c.atError(s.Where(), "还不支持这条语句 %T", s)
 }
 
 // tryStmt 降 `try { 体 } catch (code, msg, at, trace) { 接住块 }`。
@@ -6379,7 +6442,7 @@ func (c *fc) storeToPath(target ast.Expr, v ir.Val, vt check.Type) ([]ir.Val, er
 		c.f.Emit(&ir.Store{Base: cell, Off: 0, S: v, T: c.rt(vt), Size: cellWidth(bt)})
 		return nil, nil
 	}
-	return nil, fmt.Errorf("还不支持往 %s 上赋值", describe(target))
+	return nil, c.atError(target.Where(), "还不支持往 %s 上赋值", describe(target))
 }
 
 // ownerType 是方法所属那个类的类型；普通函数上是空名字，查字段表自然查不到东西。

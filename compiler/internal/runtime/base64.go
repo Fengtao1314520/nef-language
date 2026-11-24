@@ -273,6 +273,10 @@ func b64DecodeTo(b *rt, asString bool) {
 	b.get(x64.RAX, dSrc)
 	a.MovLoad(x64.RAX, x64.RAX, StrBytes)
 	b.put(dN, x64.RAX)
+	// 错误出口在 @alloc 之前就可能走到，那里会无条件 @free(dOut)。栈帧不清零，
+	// 所以先把这个位置摆成空句柄，别让上一次调用的残留值被当成自己造的块归还。
+	a.Xor(x64.RAX, x64.RAX)
+	b.put(dOut, x64.RAX)
 
 	bad, okLen := b.label(), b.label()
 	b.get(x64.RAX, dN)
